@@ -187,7 +187,7 @@ Proprietary - GX Coin Protocol
 
 ## 👥 Team
 
-Lead Developer: [Your Name]
+Lead Developer: [Manazir Ali](https://manazirali.vercel.app)
 
 ---
 
