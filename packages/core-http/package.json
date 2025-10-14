@@ -1,0 +1,22 @@
+{
+  "name": "@gx/core-http",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared HTTP middlewares and utilities",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@gx/core-logger": "*",
+    "express": "^4.18.2",
+    "express-prometheus-middleware": "^1.2.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21"
+  }
+}

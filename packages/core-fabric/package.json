@@ -1,0 +1,19 @@
+{
+  "name": "@gx/core-fabric",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hyperledger Fabric client and connection utilities",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@gx/core-logger": "*",
+    "fabric-network": "^2.2.20",
+    "fabric-ca-client": "^2.2.20"
+  }
+}

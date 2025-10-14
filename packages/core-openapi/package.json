@@ -1,0 +1,21 @@
+{
+  "name": "@gx/core-openapi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OpenAPI validation utilities",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express-openapi-validator": "^5.3.7",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9"
+  }
+}

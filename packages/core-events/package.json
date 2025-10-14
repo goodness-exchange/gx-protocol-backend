@@ -1,0 +1,19 @@
+{
+  "name": "@gx/core-events",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Event schema definitions and validation for Fabric events",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "jest",
+    "validate-schemas": "node scripts/validate-schemas.js"
+  },
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1"
+  }
+}
