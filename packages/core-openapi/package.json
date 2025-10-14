@@ -12,7 +12,7 @@
     "test": "jest"
   },
   "dependencies": {
-    "express-openapi-validator": "^5.3.7",
+    "express-openapi-validator": "^4.13.7",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
