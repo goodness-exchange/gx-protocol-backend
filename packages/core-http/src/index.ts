@@ -1,4 +1,8 @@
 // @gx/core-http - Express middlewares and utilities
-// Implementation coming in Task 0.2
 
-export {};
+// Core middlewares
+export * from './middlewares/error-handler';
+export * from './middlewares/request-logger';
+export * from './middlewares/idempotency';
+export * from './middlewares/health-checks';
+export * from './middlewares/metrics';
