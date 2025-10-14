@@ -1,0 +1,38 @@
+{
+  "name": "gx-protocol-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GX Coin Protocol Off-Chain Backend System",
+  "workspaces": [
+    "apps/*",
+    "workers/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "migrate": "npm run migrate --workspace=@gx/core-db",
+    "migrate:dev": "npm run migrate:dev --workspace=@gx/core-db"
+  },
+  "devDependencies": {
+    "@types/node": "^18.18.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.1.0",
+    "turbo": "^1.13.4",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.18.0",
+    "npm": ">=10.0.0"
+  },
+  "packageManager": "npm@10.9.0"
+}
