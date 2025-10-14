@@ -27,5 +27,8 @@
   "moduleDetection": "force",
   "incremental": true
   },
+  "paths": {
+    "@gx/*": ["packages/*/src"]
+  },
   "exclude": ["node_modules", "dist", "build"]
 }

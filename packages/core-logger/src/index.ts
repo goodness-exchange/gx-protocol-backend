@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { config } from '@gxc/core-config';
+import { config } from '@gx/core-config';
 
 /**
  * Configuration for the Pino logger.
