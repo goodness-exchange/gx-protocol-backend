@@ -1,0 +1,24 @@
+{
+  "name": "@gx/outbox-submitter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Background worker to submit commands from outbox to Fabric chaincode",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@gx/core-config": "*",
+    "@gx/core-logger": "*",
+    "@gx/core-db": "*",
+    "@gx/core-fabric": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}
