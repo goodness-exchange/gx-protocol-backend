@@ -20,8 +20,8 @@ concurrency:
 
 env:
   NODE_VERSION: '18.18.0'  # Match our project requirement
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  # TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  # TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -159,8 +159,8 @@ jobs:
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false  # Don't fail if codecov is down
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        # env:
+          # CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       
       - name: Archive test results
         if: always()
