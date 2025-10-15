@@ -47,3 +47,4 @@ coverage/
 
 # Prisma
 prisma/migrations/**/*.sql.tmp
+docs/DAILY-LOG-2025-10-14.md

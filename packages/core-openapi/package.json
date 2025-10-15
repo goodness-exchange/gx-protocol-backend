@@ -7,15 +7,20 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "jest"
   },
   "dependencies": {
-    "express-openapi-validator": "^4.13.7",
-    "js-yaml": "^4.1.0"
+    "@gx/core-logger": "*",
+    "express": "^4.21.2",
+    "express-openapi-validator": "^5.2.0",
+    "js-yaml": "^4.1.0",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9"
+    "@types/js-yaml": "^4.0.9",
+    "@types/swagger-ui-express": "^4.1.8"
   }
 }
