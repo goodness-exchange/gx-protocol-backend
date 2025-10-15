@@ -47,4 +47,8 @@ coverage/
 
 # Prisma
 prisma/migrations/**/*.sql.tmp
-docs/DAILY-LOG-2025-10-14.md
+
+# Ignore specific markdown files in the docs directory
+docs/work-logs/
+docs/INTERNSHIP-LEARNING-GUIDE.md
+docs/lectures/
