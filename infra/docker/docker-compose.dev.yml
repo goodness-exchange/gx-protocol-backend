@@ -1,5 +1,5 @@
-# Specifies the version of the Docker Compose file format. Version 3 is standard.
-version: '3.8'
+# Docker Compose configuration for local development
+# Note: 'version' field is obsolete in Compose V2 and has been removed
 
 # This section defines the individual containers (services) we want to run.
 services:
