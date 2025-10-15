@@ -1,5 +1,5 @@
-import { Request, Response } from 'express';
 import { logger } from '@gx/core-logger';
+import { Request, Response } from 'express';
 
 /**
  * Health check probe types

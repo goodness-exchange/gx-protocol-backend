@@ -1,9 +1,10 @@
 import fs from 'fs';
-import * as yaml from 'js-yaml';
+
+import { logger } from '@gx/core-logger';
 import { Express, RequestHandler } from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
+import * as yaml from 'js-yaml';
 import swaggerUi from 'swagger-ui-express';
-import { logger } from '@gx/core-logger';
 
 /**
  * Configuration options for OpenAPI middleware

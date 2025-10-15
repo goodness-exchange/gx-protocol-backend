@@ -1,5 +1,5 @@
-import pinoHttp from 'pino-http';
 import { logger } from '@gx/core-logger';
+import pinoHttp from 'pino-http';
 
 /**
  * Creates a request logging middleware using pino-http.

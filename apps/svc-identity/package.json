@@ -13,10 +13,10 @@
     "test": "jest"
   },
   "dependencies": {
-    "@gx/core-config": "*",
-    "@gx/core-logger": "*",
-    "@gx/core-http": "*",
-    "@gx/core-db": "*",
+    "@gx/core-config": "1.0.0",
+    "@gx/core-logger": "1.0.0",
+    "@gx/core-http": "1.0.0",
+    "@gx/core-db": "1.0.0",
     "express": "^4.18.2",
     "zod": "^3.22.4"
   },

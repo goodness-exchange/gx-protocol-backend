@@ -13,11 +13,11 @@
     "test": "jest"
   },
   "dependencies": {
-    "@gx/core-config": "*",
-    "@gx/core-logger": "*",
-    "@gx/core-db": "*",
-    "@gx/core-fabric": "*",
-    "@gx/core-events": "*"
+    "@gx/core-config": "1.0.0",
+    "@gx/core-logger": "1.0.0",
+    "@gx/core-db": "1.0.0",
+    "@gx/core-fabric": "1.0.0",
+    "@gx/core-events": "1.0.0"
   },
   "devDependencies": {
     "tsx": "^4.7.0"

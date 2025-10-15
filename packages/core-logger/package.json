@@ -13,6 +13,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@gx/core-config": "1.0.0",
     "pino": "^9.13.1",
     "pino-pretty": "^11.3.0"
   }

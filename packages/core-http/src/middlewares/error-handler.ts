@@ -1,5 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
 import { logger } from '@gx/core-logger';
+import { Request, Response, NextFunction } from 'express';
 
 interface HttpError extends Error {
   statusCode?: number;

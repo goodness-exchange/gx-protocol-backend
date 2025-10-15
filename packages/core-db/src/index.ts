@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
-import { logger } from '@gx/core-logger';
 import { config } from '@gx/core-config';
+import { logger } from '@gx/core-logger';
+import { PrismaClient } from '@prisma/client';
 
 // Declare a global variable to hold the Prisma client instance.
 // This prevents creating new connections on every hot reload in development.

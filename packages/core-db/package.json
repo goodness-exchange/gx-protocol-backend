@@ -18,6 +18,8 @@
     "generate": "prisma generate"
   },
   "dependencies": {
+    "@gx/core-config": "1.0.0",
+    "@gx/core-logger": "1.0.0",
     "@prisma/client": "^5.22.0"
   },
   "devDependencies": {
