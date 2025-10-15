@@ -1,0 +1,50 @@
+# Specifies the version of the Docker Compose file format. Version 3 is standard.
+version: '3.8'
+
+# This section defines the individual containers (services) we want to run.
+services:
+  # Defines our PostgreSQL database service
+  postgres:
+    image: postgres:15-alpine # Use the official PostgreSQL 15 image (lightweight Alpine version)
+    container_name: gx_postgres_dev
+    restart: always # Always restart the container if it stops
+    environment:
+      # These credentials should match what's in your .env file
+      POSTGRES_USER: ${POSTGRES_USER:-gxuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gxpass}
+      POSTGRES_DB: ${POSTGRES_DB:-gxprotocol_dev}
+    ports:
+      # Map port 5432 on your local machine to port 5432 inside the container
+      - "5432:5432"
+    volumes:
+      # This mounts a local volume to persist the database data.
+      # Data will survive even if the container is removed and recreated.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gxuser}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Defines our Redis caching service
+  redis:
+    image: redis:7-alpine # Use the official Redis 7 image
+    container_name: gx_redis_dev
+    restart: always
+    ports:
+      # Map port 6379 on your local machine to port 6379 inside the container
+      - "6379:6379"
+    volumes:
+      # Persist Redis data across container restarts
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# This top-level key defines the named volumes used by our services.
+# Docker manages these volumes, making data persistence easy.
+volumes:
+  pgdata:
+  redisdata:
