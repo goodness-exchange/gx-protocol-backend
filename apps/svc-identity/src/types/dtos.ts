@@ -35,20 +35,22 @@ export interface RefreshTokenResponseDTO {
 export interface RegisterUserRequestDTO {
   email: string;
   password: string;
-  fullName: string;
-  phone?: string;
-  dateOfBirth?: string;
+  firstName: string;
+  lastName: string;
+  phoneNum?: string;
+  identityNum?: string;
+  nationalityCountryCode?: string;
 }
 
 export interface UserProfileDTO {
-  id: string;
-  email: string;
-  fullName: string;
-  phone: string | null;
-  dateOfBirth: Date | null;
-  kycStatus: 'not_started' | 'pending' | 'approved' | 'rejected';
-  trustScore: number;
-  isActive: boolean;
+  profileId: string;
+  email: string | null;
+  firstName: string;
+  lastName: string;
+  phoneNum: string | null;
+  identityNum: string | null;
+  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED' | 'SUSPENDED' | 'CLOSED';
+  nationalityCountryCode: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -58,9 +60,11 @@ export interface UserProfileDTO {
 // ============================================
 
 export interface UpdateProfileRequestDTO {
-  fullName?: string;
-  phone?: string;
-  dateOfBirth?: string;
+  firstName?: string;
+  lastName?: string;
+  phoneNum?: string;
+  identityNum?: string;
+  nationalityCountryCode?: string;
 }
 
 // ============================================
@@ -68,22 +72,22 @@ export interface UpdateProfileRequestDTO {
 // ============================================
 
 export interface SubmitKYCRequestDTO {
-  documentType: 'passport' | 'national_id' | 'drivers_license';
-  documentNumber: string;
-  documentFrontImage: string; // Base64 or URL
-  documentBackImage?: string; // Base64 or URL
-  selfieImage: string; // Base64 or URL
+  evidenceHash: string;
+  evidenceSize: number;
+  evidenceMime: string;
 }
 
 export interface KYCStatusDTO {
-  id: string;
-  userId: string;
-  status: 'pending' | 'approved' | 'rejected';
-  documentType: string;
-  documentNumber: string;
-  submittedAt: Date;
-  reviewedAt: Date | null;
-  rejectionReason: string | null;
+  kycId: string;
+  profileId: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+  evidenceHash: string | null;
+  evidenceSize: number | null;
+  evidenceMime: string | null;
+  verifiedAt: Date | null;
+  verifierDetails: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // ============================================
@@ -91,9 +95,9 @@ export interface KYCStatusDTO {
 // ============================================
 
 export interface JWTPayload {
-  userId: string;
-  email: string;
-  kycStatus: string;
+  profileId: string;
+  email: string | null;
+  status: string;
   iat?: number;
   exp?: number;
 }

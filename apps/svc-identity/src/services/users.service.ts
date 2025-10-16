@@ -38,7 +38,7 @@ class UsersService {
    * @returns Temporary acknowledgment (command ID)
    */
   async registerUser(data: RegisterUserRequestDTO): Promise<{ commandId: string; message: string }> {
-    const { email, password, fullName, phone, dateOfBirth } = data;
+    const { email, password, firstName, lastName, phoneNum, identityNum, nationalityCountryCode } = data;
 
     logger.info({ email }, 'Registering new user');
 
@@ -54,21 +54,28 @@ class UsersService {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
+    // Generate a simple biometric hash placeholder (in production, this would be actual biometric data)
+    const biometricHash = await bcrypt.hash(`${email}:${Date.now()}`, 10);
+
     // Create outbox command for Fabric chaincode
     const command = await db.outboxCommand.create({
       data: {
-        aggregateId: email.toLowerCase(), // Use email as aggregate ID for idempotency
-        commandType: 'CreateUser',
+        tenantId: 'default', // TODO: Get from context
+        service: 'svc-identity',
+        requestId: email.toLowerCase(), // Use email as request ID for idempotency
+        commandType: 'CREATE_USER',
         payload: {
           email: email.toLowerCase(),
           passwordHash,
-          fullName,
-          phone: phone || null,
-          dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+          firstName,
+          lastName,
+          phoneNum: phoneNum || null,
+          identityNum: identityNum || null,
+          nationalityCountryCode: nationalityCountryCode || null,
+          biometricHash,
         },
-        status: 'pending',
+        status: 'PENDING',
         attempts: 0,
-        createdAt: new Date(),
       },
     });
 
@@ -85,14 +92,14 @@ class UsersService {
    * 
    * This is a READ operation - queries the projected UserProfile table.
    * 
-   * @param userId - User ID (UUID)
+   * @param profileId - User Profile ID (UUID)
    * @returns User profile
    */
-  async getUserProfile(userId: string): Promise<UserProfileDTO> {
-    logger.debug({ userId }, 'Fetching user profile');
+  async getUserProfile(profileId: string): Promise<UserProfileDTO> {
+    logger.debug({ profileId }, 'Fetching user profile');
 
     const user = await db.userProfile.findUnique({
-      where: { id: userId },
+      where: { profileId },
     });
 
     if (!user) {
@@ -100,14 +107,14 @@ class UsersService {
     }
 
     return {
-      id: user.id,
+      profileId: user.profileId,
       email: user.email,
-      fullName: user.fullName,
-      phone: user.phone,
-      dateOfBirth: user.dateOfBirth,
-      kycStatus: user.kycStatus as 'not_started' | 'pending' | 'approved' | 'rejected',
-      trustScore: user.trustScore,
-      isActive: user.isActive,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phoneNum: user.phoneNum,
+      identityNum: user.identityNum,
+      status: user.status,
+      nationalityCountryCode: user.nationalityCountryCode,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -118,16 +125,16 @@ class UsersService {
    * 
    * This is a WRITE operation using the CQRS outbox pattern.
    * 
-   * @param userId - User ID
+   * @param profileId - User Profile ID
    * @param data - Update data
    * @returns Command ID
    */
-  async updateProfile(userId: string, data: UpdateProfileRequestDTO): Promise<{ commandId: string }> {
-    logger.info({ userId }, 'Updating user profile');
+  async updateProfile(profileId: string, data: UpdateProfileRequestDTO): Promise<{ commandId: string }> {
+    logger.info({ profileId }, 'Updating user profile');
 
     // Verify user exists
     const user = await db.userProfile.findUnique({
-      where: { id: userId },
+      where: { profileId },
     });
 
     if (!user) {
@@ -137,20 +144,20 @@ class UsersService {
     // Create outbox command
     const command = await db.outboxCommand.create({
       data: {
-        aggregateId: userId,
-        commandType: 'UpdateUser',
+        tenantId: user.tenantId,
+        service: 'svc-identity',
+        requestId: `update-${profileId}-${Date.now()}`,
+        commandType: 'CREATE_USER', // TODO: Add UPDATE_USER to enum
         payload: {
-          userId,
+          profileId,
           ...data,
-          dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
         },
-        status: 'pending',
+        status: 'PENDING',
         attempts: 0,
-        createdAt: new Date(),
       },
     });
 
-    logger.info({ commandId: command.id, userId }, 'Profile update command created');
+    logger.info({ commandId: command.id, profileId }, 'Profile update command created');
 
     return {
       commandId: command.id,
@@ -162,47 +169,50 @@ class UsersService {
    * 
    * This is a WRITE operation using the CQRS outbox pattern.
    * 
-   * @param userId - User ID
+   * @param profileId - User Profile ID
    * @param data - KYC submission data
    * @returns Command ID
    */
-  async submitKYC(userId: string, data: SubmitKYCRequestDTO): Promise<{ commandId: string }> {
-    logger.info({ userId }, 'Submitting KYC verification');
+  async submitKYC(profileId: string, data: SubmitKYCRequestDTO): Promise<{ commandId: string }> {
+    logger.info({ profileId }, 'Submitting KYC verification');
 
     // Verify user exists
     const user = await db.userProfile.findUnique({
-      where: { id: userId },
+      where: { profileId },
     });
 
     if (!user) {
       throw new Error('User not found');
     }
 
-    if (user.kycStatus === 'approved') {
+    // Check if KYC already approved
+    const existingKYC = await db.kYCVerification.findFirst({
+      where: { profileId, status: 'APPROVED' },
+    });
+
+    if (existingKYC) {
       throw new Error('KYC already approved');
     }
 
     // Create outbox command
     const command = await db.outboxCommand.create({
       data: {
-        aggregateId: userId,
-        commandType: 'SubmitKYC',
+        tenantId: user.tenantId,
+        service: 'svc-identity',
+        requestId: `kyc-${profileId}-${Date.now()}`,
+        commandType: 'CREATE_USER', // TODO: Add SUBMIT_KYC to enum
         payload: {
-          userId,
-          documentType: data.documentType,
-          documentNumber: data.documentNumber,
-          documentFrontImage: data.documentFrontImage,
-          documentBackImage: data.documentBackImage,
-          selfieImage: data.selfieImage,
-          submittedAt: new Date(),
+          profileId,
+          evidenceHash: data.evidenceHash,
+          evidenceSize: data.evidenceSize,
+          evidenceMime: data.evidenceMime,
         },
-        status: 'pending',
+        status: 'PENDING',
         attempts: 0,
-        createdAt: new Date(),
       },
     });
 
-    logger.info({ commandId: command.id, userId }, 'KYC submission command created');
+    logger.info({ commandId: command.id, profileId }, 'KYC submission command created');
 
     return {
       commandId: command.id,
@@ -214,15 +224,15 @@ class UsersService {
    * 
    * This is a READ operation - queries the KYCVerification table.
    * 
-   * @param userId - User ID
+   * @param profileId - User Profile ID
    * @returns KYC status
    */
-  async getKYCStatus(userId: string): Promise<KYCStatusDTO | null> {
-    logger.debug({ userId }, 'Fetching KYC status');
+  async getKYCStatus(profileId: string): Promise<KYCStatusDTO | null> {
+    logger.debug({ profileId }, 'Fetching KYC status');
 
     const kycRecord = await db.kYCVerification.findFirst({
-      where: { userId },
-      orderBy: { submittedAt: 'desc' },
+      where: { profileId },
+      orderBy: { createdAt: 'desc' },
     });
 
     if (!kycRecord) {
@@ -230,14 +240,16 @@ class UsersService {
     }
 
     return {
-      id: kycRecord.id,
-      userId: kycRecord.userId,
-      status: kycRecord.status as 'pending' | 'approved' | 'rejected',
-      documentType: kycRecord.documentType,
-      documentNumber: kycRecord.documentNumber,
-      submittedAt: kycRecord.submittedAt,
-      reviewedAt: kycRecord.reviewedAt,
-      rejectionReason: kycRecord.rejectionReason,
+      kycId: kycRecord.kycId,
+      profileId: kycRecord.profileId,
+      status: kycRecord.status,
+      evidenceHash: kycRecord.evidenceHash,
+      evidenceSize: kycRecord.evidenceSize,
+      evidenceMime: kycRecord.evidenceMime,
+      verifiedAt: kycRecord.verifiedAt,
+      verifierDetails: kycRecord.verifierDetails,
+      createdAt: kycRecord.createdAt,
+      updatedAt: kycRecord.updatedAt,
     };
   }
 }

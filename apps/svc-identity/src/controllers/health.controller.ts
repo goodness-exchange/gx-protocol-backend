@@ -54,11 +54,11 @@ class HealthController {
     // 2. Check projection lag
     try {
       const projectorState = await db.projectorState.findFirst({
-        orderBy: { lastProcessedAt: 'desc' },
+        orderBy: { updatedAt: 'desc' },
       });
 
-      if (projectorState && projectorState.lastProcessedAt) {
-        const lagMs = Date.now() - projectorState.lastProcessedAt.getTime();
+      if (projectorState) {
+        const lagMs = Date.now() - projectorState.updatedAt.getTime();
         
         if (lagMs > identityConfig.projectionLagThresholdMs) {
           checks.projectionLag = {

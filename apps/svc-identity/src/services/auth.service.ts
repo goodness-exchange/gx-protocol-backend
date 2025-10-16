@@ -41,8 +41,8 @@ class AuthService {
       throw new Error('Invalid email or password');
     }
 
-    if (!user.isActive) {
-      logger.warn({ email, userId: user.id }, 'Login failed: User account is inactive');
+    if (user.status === 'SUSPENDED' || user.status === 'CLOSED') {
+      logger.warn({ email, profileId: user.profileId }, 'Login failed: User account is inactive');
       throw new Error('Account is inactive. Please contact support.');
     }
 
@@ -50,11 +50,11 @@ class AuthService {
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isPasswordValid) {
-      logger.warn({ email, userId: user.id }, 'Login failed: Invalid password');
+      logger.warn({ email, profileId: user.profileId }, 'Login failed: Invalid password');
       throw new Error('Invalid email or password');
     }
 
-    logger.info({ userId: user.id, email }, 'Login successful');
+    logger.info({ profileId: user.profileId, email }, 'Login successful');
 
     // Generate tokens
     const accessToken = this.generateAccessToken(user);
@@ -62,14 +62,14 @@ class AuthService {
 
     // Convert Prisma model to DTO
     const userDTO: UserProfileDTO = {
-      id: user.id,
+      profileId: user.profileId,
       email: user.email,
-      fullName: user.fullName,
-      phone: user.phone,
-      dateOfBirth: user.dateOfBirth,
-      kycStatus: user.kycStatus as 'not_started' | 'pending' | 'approved' | 'rejected',
-      trustScore: user.trustScore,
-      isActive: user.isActive,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phoneNum: user.phoneNum,
+      identityNum: user.identityNum,
+      status: user.status,
+      nationalityCountryCode: user.nationalityCountryCode,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -93,14 +93,14 @@ class AuthService {
       // Verify refresh token
       const decoded = jwt.verify(refreshToken, identityConfig.jwtSecret) as JWTPayload;
 
-      logger.info({ userId: decoded.userId }, 'Refreshing access token');
+      logger.info({ profileId: decoded.profileId }, 'Refreshing access token');
 
       // Get fresh user data
       const user = await db.userProfile.findUnique({
-        where: { id: decoded.userId },
+        where: { profileId: decoded.profileId },
       });
 
-      if (!user || !user.isActive) {
+      if (!user || user.status === 'SUSPENDED' || user.status === 'CLOSED') {
         throw new Error('User not found or inactive');
       }
 
@@ -123,9 +123,9 @@ class AuthService {
    */
   private generateAccessToken(user: any): string {
     const payload: JWTPayload = {
-      userId: user.id,
+      profileId: user.profileId,
       email: user.email,
-      kycStatus: user.kycStatus,
+      status: user.status,
     };
 
     const options: any = {
@@ -148,9 +148,9 @@ class AuthService {
    */
   private generateRefreshToken(user: any): string {
     const payload: JWTPayload = {
-      userId: user.id,
+      profileId: user.profileId,
       email: user.email,
-      kycStatus: user.kycStatus,
+      status: user.status,
     };
 
     const options: any = {
@@ -173,7 +173,7 @@ class AuthService {
   async logout(refreshToken: string): Promise<void> {
     try {
       const decoded = jwt.verify(refreshToken, identityConfig.jwtSecret) as JWTPayload;
-      logger.info({ userId: decoded.userId }, 'User logged out');
+      logger.info({ profileId: decoded.profileId }, 'User logged out');
       
       // TODO: In production, add refresh token to a revocation list (Redis)
       // await redis.setex(`revoked:${refreshToken}`, ttl, '1');

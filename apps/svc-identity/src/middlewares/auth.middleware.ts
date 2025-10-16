@@ -56,7 +56,7 @@ export const authenticateJWT = async (
     // Attach user to request
     req.user = decoded;
 
-    logger.debug({ userId: decoded.userId, email: decoded.email }, 'JWT authentication successful');
+    logger.debug({ profileId: decoded.profileId, email: decoded.email }, 'JWT authentication successful');
 
     next();
   } catch (error) {

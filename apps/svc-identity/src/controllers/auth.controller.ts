@@ -34,7 +34,7 @@ class AuthController {
       // Perform login
       const result = await authService.login(credentials);
 
-      logger.info({ userId: result.user.id }, 'User login successful');
+      logger.info({ profileId: result.user.profileId }, 'User login successful');
 
       res.status(200).json(result);
     } catch (error) {

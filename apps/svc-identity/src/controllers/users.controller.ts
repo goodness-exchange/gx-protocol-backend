@@ -20,7 +20,7 @@ class UsersController {
    * POST /api/v1/users
    * Register a new user
    * 
-   * @param req.body {email, password, fullName, phone?, dateOfBirth?}
+   * @param req.body {email, password, firstName, lastName, phoneNum?, identityNum?, nationalityCountryCode?}
    * @returns {commandId, message}
    */
   register = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
@@ -28,10 +28,10 @@ class UsersController {
       const data: RegisterUserRequestDTO = req.body;
 
       // Validate required fields
-      if (!data.email || !data.password || !data.fullName) {
+      if (!data.email || !data.password || !data.firstName || !data.lastName) {
         res.status(400).json({
           error: 'Bad Request',
-          message: 'Email, password, and fullName are required',
+          message: 'Email, password, firstName, and lastName are required',
         });
         return;
       }
@@ -83,7 +83,7 @@ class UsersController {
 
       // Authorization check: users can only view their own profile
       // (unless they're an admin, which we'll add later)
-      if (req.user && req.user.userId !== id) {
+      if (req.user && req.user.profileId !== id) {
         res.status(403).json({
           error: 'Forbidden',
           message: 'You can only view your own profile',
@@ -126,7 +126,7 @@ class UsersController {
       const data: UpdateProfileRequestDTO = req.body;
 
       // Authorization check
-      if (req.user && req.user.userId !== id) {
+      if (req.user && req.user.profileId !== id) {
         res.status(403).json({
           error: 'Forbidden',
           message: 'You can only update your own profile',
@@ -171,7 +171,7 @@ class UsersController {
       const data: SubmitKYCRequestDTO = req.body;
 
       // Authorization check
-      if (req.user && req.user.userId !== id) {
+      if (req.user && req.user.profileId !== id) {
         res.status(403).json({
           error: 'Forbidden',
           message: 'You can only submit KYC for your own account',
@@ -180,10 +180,10 @@ class UsersController {
       }
 
       // Validate required fields
-      if (!data.documentType || !data.documentNumber || !data.documentFrontImage || !data.selfieImage) {
+      if (!data.evidenceHash || !data.evidenceSize || !data.evidenceMime) {
         res.status(400).json({
           error: 'Bad Request',
-          message: 'Document type, number, front image, and selfie are required',
+          message: 'Evidence hash, size, and MIME type are required',
         });
         return;
       }
@@ -231,7 +231,7 @@ class UsersController {
       const { id } = req.params;
 
       // Authorization check
-      if (req.user && req.user.userId !== id) {
+      if (req.user && req.user.profileId !== id) {
         res.status(403).json({
           error: 'Forbidden',
           message: 'You can only view your own KYC status',
