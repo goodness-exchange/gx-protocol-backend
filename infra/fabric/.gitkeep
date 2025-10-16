@@ -1,0 +1,2 @@
+# This file ensures the fabric directory is tracked by Git
+# Hyperledger Fabric connection profiles and configurations will be stored here

@@ -1,0 +1,2 @@
+# This file ensures the middlewares directory is tracked by Git
+# Express middlewares (auth, validation, error handling) will be implemented here
