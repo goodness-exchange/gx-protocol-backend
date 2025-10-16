@@ -5,17 +5,21 @@
   "description": "Prisma client and database utilities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "prisma": {
+    "schema": "../../db/prisma/schema.prisma"
+  },
   "scripts": {
     "build": "tsc",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "jest",
-    "migrate": "prisma migrate deploy",
-    "migrate:dev": "prisma migrate dev",
-    "migrate:create": "prisma migrate dev --create-only",
-    "studio": "prisma studio",
-    "generate": "prisma generate"
+    "postinstall": "prisma generate --schema=../../db/prisma/schema.prisma",
+    "migrate": "prisma migrate deploy --schema=../../db/prisma/schema.prisma",
+    "migrate:dev": "prisma migrate dev --schema=../../db/prisma/schema.prisma",
+    "migrate:create": "prisma migrate dev --create-only --schema=../../db/prisma/schema.prisma",
+    "studio": "prisma studio --schema=../../db/prisma/schema.prisma",
+    "generate": "prisma generate --schema=../../db/prisma/schema.prisma"
   },
   "dependencies": {
     "@gx/core-config": "1.0.0",
