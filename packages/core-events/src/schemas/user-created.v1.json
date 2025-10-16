@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gx-protocol.com/schemas/user-created.v1.json",
+  "title": "UserCreated Event v1.0",
+  "description": "Emitted when a new user successfully registers in the GX Protocol system. This event signals that the user identity has been created on-chain and off-chain read models should be updated.",
+  "type": "object",
+  
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this event instance"
+    },
+    "eventName": {
+      "type": "string",
+      "const": "UserCreated",
+      "description": "Event type identifier"
+    },
+    "eventVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version of this event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the event occurred"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fabric block number where this transaction was committed"
+    },
+    "txId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric transaction ID"
+    },
+    "chaincodeName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the chaincode that emitted this event"
+    },
+    "channelName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric channel name"
+    },
+    "payload": {
+      "type": "object",
+      "description": "User creation data",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for the user (UUID v4)"
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Multi-tenant identifier for data isolation"
+        },
+        "firstName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "User's first name"
+        },
+        "lastName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "User's last name"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User's email address (unique)"
+        },
+        "phoneNumber": {
+          "type": "string",
+          "pattern": "^\\+?[1-9]\\d{1,14}$",
+          "description": "User's phone number in E.164 format (optional)"
+        },
+        "nationalityCountryCode": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "ISO 3166-1 alpha-2 country code (optional)"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING_VERIFICATION", "VERIFIED", "REJECTED", "SUSPENDED", "CLOSED"],
+          "description": "Initial user status (typically PENDING_VERIFICATION)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the user was created (on-chain timestamp)"
+        }
+      },
+      "required": [
+        "userId",
+        "tenantId",
+        "firstName",
+        "lastName",
+        "email",
+        "status",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  
+  "required": [
+    "eventId",
+    "eventName",
+    "eventVersion",
+    "timestamp",
+    "blockNumber",
+    "txId",
+    "chaincodeName",
+    "channelName",
+    "payload"
+  ],
+  
+  "additionalProperties": false
+}

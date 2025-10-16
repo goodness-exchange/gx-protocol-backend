@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gx-protocol.com/schemas/wallet-created.v1.json",
+  "title": "WalletCreated Event v1.0",
+  "description": "Emitted when a new wallet is created for a user. Each user can have multiple wallets.",
+  "type": "object",
+  
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this event instance"
+    },
+    "eventName": {
+      "type": "string",
+      "const": "WalletCreated",
+      "description": "Event type identifier"
+    },
+    "eventVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version of this event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the event occurred"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fabric block number"
+    },
+    "txId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric transaction ID"
+    },
+    "chaincodeName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Chaincode name"
+    },
+    "channelName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Channel name"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Wallet creation data",
+      "properties": {
+        "walletId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for the wallet"
+        },
+        "userId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Owner of the wallet"
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Tenant identifier"
+        },
+        "primaryAccountId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Blockchain account address for this wallet"
+        },
+        "walletName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "User-friendly name for the wallet"
+        },
+        "initialBalance": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?$",
+          "description": "Initial balance (decimal as string, e.g., '0.000000000')"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the wallet was created"
+        }
+      },
+      "required": [
+        "walletId",
+        "userId",
+        "tenantId",
+        "primaryAccountId",
+        "walletName",
+        "initialBalance",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  
+  "required": [
+    "eventId",
+    "eventName",
+    "eventVersion",
+    "timestamp",
+    "blockNumber",
+    "txId",
+    "chaincodeName",
+    "channelName",
+    "payload"
+  ],
+  
+  "additionalProperties": false
+}

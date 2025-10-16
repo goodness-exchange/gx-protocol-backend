@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gx-protocol.com/schemas/transfer-completed.v1.json",
+  "title": "TransferCompleted Event v1.0",
+  "description": "Emitted when a token transfer between two wallets has been successfully completed on-chain.",
+  "type": "object",
+  
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this event instance"
+    },
+    "eventName": {
+      "type": "string",
+      "const": "TransferCompleted",
+      "description": "Event type identifier"
+    },
+    "eventVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the event occurred"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fabric block number"
+    },
+    "txId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric transaction ID"
+    },
+    "chaincodeName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Chaincode name"
+    },
+    "channelName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Channel name"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Transfer completion data",
+      "properties": {
+        "transferId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for this transfer"
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Tenant identifier"
+        },
+        "fromWalletId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Source wallet ID"
+        },
+        "toWalletId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Destination wallet ID"
+        },
+        "fromAccountId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source blockchain account"
+        },
+        "toAccountId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Destination blockchain account"
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?$",
+          "description": "Transfer amount (decimal as string)"
+        },
+        "fee": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?$",
+          "description": "Transaction fee (decimal as string)"
+        },
+        "remark": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional transfer note/reference"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the transfer completed"
+        }
+      },
+      "required": [
+        "transferId",
+        "tenantId",
+        "fromWalletId",
+        "toWalletId",
+        "fromAccountId",
+        "toAccountId",
+        "amount",
+        "fee",
+        "completedAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  
+  "required": [
+    "eventId",
+    "eventName",
+    "eventVersion",
+    "timestamp",
+    "blockNumber",
+    "txId",
+    "chaincodeName",
+    "channelName",
+    "payload"
+  ],
+  
+  "additionalProperties": false
+}
