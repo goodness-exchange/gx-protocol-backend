@@ -1,0 +1,326 @@
+// This is the final, production-hardened Prisma schema for the GX Coin Protocol.
+// It incorporates multi-tenancy, resilient CQRS, cryptographic provenance, and all user-facing models.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// SECTION 1: ENUMs (Custom Data Types)
+// =============================================================================
+enum OutboxStatus { PENDING, LOCKED, SUBMITTED, COMMITTED, FAILED }
+enum CommandType { CREATE_USER, TRANSFER_TOKENS }
+enum UserProfileStatus { PENDING_VERIFICATION, VERIFIED, REJECTED }
+enum KycStatus { PENDING, APPROVED, REJECTED }
+enum OrgProfileStatus { PENDING_VERIFICATION, VERIFIED, REJECTED }
+enum PartnerStatus { PENDING, ACTIVE, REVOKED }
+enum LicenseStatus { ACTIVE, EXPIRED, REVOKED }
+enum CredentialStatus { ACTIVE, REVOKED }
+enum LegalTenderStatusEnum { RECOGNIZED, SANDBOX, ACTIVE_LEGAL_TENDER }
+enum OffChainTxType { MINT, SENT, RECEIVED, TAX, LOAN_DISBURSEMENT, LOAN_REPAYMENT }
+enum CollateralStatus { PLEDGED, RELEASED }
+
+
+// =============================================================================
+// SECTION 2: CORE MODELS (with Tenancy and Hardening)
+// =============================================================================
+
+model Country {
+  countryCode           String                @id @db.Char(2)
+  countryName           String
+  region                String?
+  legalTenderStatuses   LegalTenderStatus[]
+  organizationProfiles  OrganizationProfile[]
+  licensedPartners      LicensedPartner[]
+}
+
+model LegalTenderStatus {
+  statusId      String                @id @default(uuid())
+  countryCode   String                @db.Char(2)
+  status        LegalTenderStatusEnum
+  effectiveDate DateTime              @db.Timestamptz(3)
+  createdAt     DateTime              @default(now()) @db.Timestamptz(3)
+  country       Country               @relation(fields: [countryCode], references: [countryCode])
+}
+
+model UserProfile {
+  profileId       String          @id @default(uuid())
+  tenantId        String
+  firstName       String
+  lastName        String
+  email           String?         // NOTE: Uniqueness is now handled by a raw SQL migration for case-insensitivity.
+  phoneNum        String?         @unique
+  identityNum     String?
+  biometricHash   String          @unique
+  passwordHash    String
+  status          UserProfileStatus @default(PENDING_VERIFICATION)
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+  kycVerifications    KYCVerification[]
+  wallets             Wallet[]
+  beneficiaries       Beneficiary[]
+  organizationLinks   UserOrganizationLink[]
+}
+
+// FIXED: Re-added hardening fields for audit.
+model KYCVerification {
+  kycId           String    @id @default(uuid())
+  profileId       String
+  status          KycStatus
+  verifiedAt      DateTime? @db.Timestamptz(3)
+  verifierDetails String?
+  evidenceHash    String?   // sha256 of doc bundle
+  evidenceSize    Int?      // bytes
+  evidenceMime    String?
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  userProfile     UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  @@index([profileId])
+}
+
+model OrganizationProfile {
+  orgProfileId            String           @id @default(uuid())
+  tenantId                String
+  legalName               String
+  registrationNumber      String?
+  jurisdictionCountryCode String           @db.Char(2)
+  address                 String?
+  status                  OrgProfileStatus @default(PENDING_VERIFICATION)
+  createdAt               DateTime         @default(now()) @db.Timestamptz(3)
+  country                 Country          @relation(fields: [jurisdictionCountryCode], references: [countryCode])
+  userLinks               UserOrganizationLink[]
+}
+
+
+// =============================================================================
+// SECTION 3: APPLICATION & USER EXPERIENCE LAYER (Read Model)
+// =============================================================================
+
+model Wallet {
+  walletId         String   @id @default(uuid())
+  tenantId         String
+  profileId        String
+  primaryAccountId String
+  walletName       String
+  cachedBalance    Decimal  @default(0) @db.Decimal(36, 9)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  userProfile      UserProfile   @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  transactions     Transaction[]
+  @@unique([tenantId, primaryAccountId])
+  @@index([tenantId, profileId])
+}
+
+// FIXED: onChainTxId is now unique per tenant.
+model Transaction {
+  offTxId      String         @id @default(uuid())
+  tenantId     String
+  onChainTxId  String?
+  walletId     String
+  type         OffChainTxType
+  counterparty String
+  amount       Decimal        @db.Decimal(36, 9)
+  fee          Decimal        @default(0) @db.Decimal(36, 9)
+  remark       String?
+  timestamp    DateTime       @db.Timestamptz(3)
+  blockNumber  BigInt?
+  wallet       Wallet         @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
+  @@unique([tenantId, onChainTxId])
+  @@index([tenantId, walletId, timestamp])
+  @@index([tenantId, counterparty, timestamp])
+}
+
+model Beneficiary {
+  beneficiaryId         String   @id @default(uuid())
+  tenantId              String
+  ownerProfileId        String
+  beneficiaryIdentityId String
+  nickname              String
+  createdAt             DateTime @default(now()) @db.Timestamptz(3)
+  userProfile           UserProfile @relation(fields: [ownerProfileId], references: [profileId], onDelete: Cascade)
+  @@unique([tenantId, ownerProfileId, beneficiaryIdentityId])
+  @@index([ownerProfileId])
+}
+
+model UserOrganizationLink {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  userProfileId       String
+  orgProfileId        String
+  role                String
+  addedAt             DateTime @default(now()) @db.Timestamptz(3)
+  userProfile         UserProfile         @relation(fields: [userProfileId], references: [profileId], onDelete: Cascade)
+  organizationProfile OrganizationProfile @relation(fields: [orgProfileId], references: [orgProfileId], onDelete: Cascade)
+  @@unique([tenantId, userProfileId, orgProfileId])
+  @@index([userProfileId])
+  @@index([orgProfileId])
+}
+
+
+// =============================================================================
+// SECTION 4: LICENSING & ECONOMIC ACTIVITIES (with Tenancy & Hardening)
+// =============================================================================
+
+// FIXED: Added tenancy and scoped uniqueness.
+model LicensedPartner {
+  partnerId               String        @id @default(uuid())
+  tenantId                String
+  companyName             String
+  jurisdictionCountryCode String        @db.Char(2)
+  status                  PartnerStatus @default(PENDING)
+  createdAt               DateTime      @default(now()) @db.Timestamptz(3)
+  country                 Country       @relation(fields: [jurisdictionCountryCode], references: [countryCode])
+  applications            Application[]
+  partnerGrants           PartnerGrant[]
+  @@unique([tenantId, companyName])
+  @@index([tenantId, status])
+}
+
+// FIXED: Added tenancy and scoped uniqueness.
+model Application {
+  appId     String   @id @default(uuid())
+  tenantId  String
+  partnerId String
+  appName   String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  partner   LicensedPartner @relation(fields: [partnerId], references: [partnerId], onDelete: Cascade)
+  licenses  License[]
+  @@unique([tenantId, appName])
+  @@index([tenantId, partnerId])
+}
+
+// FIXED: Added tenancy and scoped indexes.
+model License {
+  licenseId   String        @id @default(uuid())
+  tenantId    String
+  appId       String
+  licenseType String
+  status      LicenseStatus @default(ACTIVE)
+  expiryDate  DateTime?     @db.Timestamptz(3)
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  application Application   @relation(fields: [appId], references: [appId], onDelete: Cascade)
+  credentials Credential[]
+  @@index([tenantId, appId])
+  @@index([tenantId, status])
+}
+
+// FIXED: Added tenancy and scoped uniqueness.
+model Credential {
+  credentialId     String           @id @default(uuid())
+  tenantId         String
+  licenseId        String
+  clientId         String
+  clientSecretHash String
+  status           CredentialStatus @default(ACTIVE)
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  license          License          @relation(fields: [licenseId], references: [licenseId], onDelete: Cascade)
+  @@unique([tenantId, clientId])
+  @@index([tenantId, licenseId])
+}
+
+model PartnerGrant {
+  grantId            String   @id @default(uuid())
+  tenantId           String
+  partnerId          String
+  amount             Decimal  @db.Decimal(36, 9)
+  purpose            String?
+  issuanceTimestamp  DateTime? @db.Timestamptz(3)
+  onChainTxId        String?
+  partner            LicensedPartner @relation(fields: [partnerId], references: [partnerId], onDelete: Restrict)
+}
+
+model Collateral {
+  collateralId       String           @id @default(uuid())
+  onChainLoanId      String           @unique
+  documentReference  String
+  documentHash       String
+  documentSize       Int?
+  documentMime       String?
+  status             CollateralStatus @default(PLEDGED)
+  createdAt          DateTime         @default(now()) @db.Timestamptz(3)
+  @@index([onChainLoanId])
+}
+
+// =============================================
+// SECTION 5: HARDENED CQRS & EVENT HANDLING MODELS
+// =============================================
+
+model OutboxCommand {
+  id          String       @id @default(cuid())
+  tenantId    String
+  service     String
+  commandType CommandType
+  requestId   String
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  lockedBy    String?
+  lockedAt    DateTime?    @db.Timestamptz(3)
+  submittedAt DateTime?    @db.Timestamptz(3)
+  fabricTxId  String?
+  commitBlock BigInt?
+  errorCode   String?
+  error       String?
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
+  @@unique([tenantId, requestId])
+  @@index([status, createdAt])
+  @@index([tenantId, status])
+  @@index([fabricTxId])
+}
+
+// FIXED: Added tenancy and corrected typo.
+model ProjectorState {
+  tenantId       String
+  projectorName  String
+  channel        String
+  lastBlock      BigInt
+  lastEventIndex Int
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  @@id([tenantId, projectorName, channel])
+}
+
+model HttpIdempotency {
+  tenantId        String
+  method          String
+  path            String
+  bodyHash        String
+  responseBody    Json
+  responseHeaders Json?
+  statusCode      Int
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  ttlExpiresAt    DateTime? @db.Timestamptz(3)
+  @@id([tenantId, method, path, bodyHash])
+  @@index([ttlExpiresAt])
+}
+
+model EventLog {
+  id           String   @id @default(cuid())
+  tenantId     String
+  fabricTxId   String
+  blockNumber  BigInt
+  channel      String
+  chaincode    String
+  eventName    String
+  eventVersion String
+  payload      Json
+  txTimestamp  DateTime @db.Timestamptz(3)
+  ingestedAt   DateTime @default(now()) @db.Timestamptz(3)
+  @@index([tenantId, blockNumber])
+  @@index([fabricTxId])
+}
+
+model EventDLQ {
+  id          String   @id @default(cuid())
+  tenantId    String
+  reason      String
+  rawPayload  Json
+  fabricTxId  String?
+  blockNumber BigInt?
+  channel     String?
+  chaincode   String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+}
