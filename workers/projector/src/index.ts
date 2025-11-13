@@ -470,6 +470,7 @@ class Projector {
     event: BlockchainEvent
   ): Promise<void> {
     switch (eventName) {
+      // IdentityContract events
       case 'UserCreated':
         await this.handleUserCreated(payload, event);
         break;
@@ -478,14 +479,107 @@ class Projector {
         await this.handleWalletCreated(payload, event);
         break;
 
+      // TokenomicsContract events
       case 'TransferCompleted':
         await this.handleTransferCompleted(payload, event);
         break;
 
-      // Add more event handlers here as chaincode events are added
-      // case 'GenesisDistributed':
-      //   await this.handleGenesisDistributed(payload, event);
-      //   break;
+      case 'GenesisDistributed':
+        await this.handleGenesisDistributed(payload, event);
+        break;
+
+      case 'WalletFrozen':
+        await this.handleWalletFrozen(payload, event);
+        break;
+
+      case 'WalletUnfrozen':
+        await this.handleWalletUnfrozen(payload, event);
+        break;
+
+      // OrganizationContract events
+      case 'OrganizationProposed':
+        await this.handleOrganizationProposed(payload, event);
+        break;
+
+      case 'MembershipEndorsed':
+        await this.handleMembershipEndorsed(payload, event);
+        break;
+
+      case 'OrganizationActivated':
+        await this.handleOrganizationActivated(payload, event);
+        break;
+
+      case 'AuthRuleDefined':
+        await this.handleAuthRuleDefined(payload, event);
+        break;
+
+      case 'MultiSigTxInitiated':
+        await this.handleMultiSigTxInitiated(payload, event);
+        break;
+
+      case 'MultiSigTxApproved':
+        await this.handleMultiSigTxApproved(payload, event);
+        break;
+
+      case 'MultiSigTxExecuted':
+        await this.handleMultiSigTxExecuted(payload, event);
+        break;
+
+      // LoanPoolContract events
+      case 'LoanApplicationReceived':
+        await this.handleLoanApplicationReceived(payload, event);
+        break;
+
+      case 'LoanApproved':
+        await this.handleLoanApproved(payload, event);
+        break;
+
+      // GovernanceContract events
+      case 'ProposalSubmitted':
+        await this.handleProposalSubmitted(payload, event);
+        break;
+
+      case 'VoteCast':
+        await this.handleVoteCast(payload, event);
+        break;
+
+      case 'ProposalExecuted':
+        await this.handleProposalExecuted(payload, event);
+        break;
+
+      // AdminContract events
+      case 'SystemBootstrapped':
+        await this.handleSystemBootstrapped(payload, event);
+        break;
+
+      case 'CountryDataInitialized':
+        await this.handleCountryDataInitialized(payload, event);
+        break;
+
+      case 'SystemParameterUpdated':
+        await this.handleSystemParameterUpdated(payload, event);
+        break;
+
+      case 'SystemPaused':
+        await this.handleSystemPaused(payload, event);
+        break;
+
+      case 'SystemResumed':
+        await this.handleSystemResumed(payload, event);
+        break;
+
+      case 'AdminAppointed':
+        await this.handleAdminAppointed(payload, event);
+        break;
+
+      case 'TreasuryActivated':
+        await this.handleTreasuryActivated(payload, event);
+        break;
+
+      // TaxAndFeeContract events
+      case 'VelocityTaxApplied':
+        await this.handleVelocityTaxApplied(payload, event);
+        break;
 
       default:
         this.log('warn', 'Unknown event type', { eventName });
@@ -685,6 +779,696 @@ class Projector {
       fromUserId: payload.fromUserId,
       toUserId: payload.toUserId,
       amount: payload.amount,
+    });
+  }
+
+  /**
+   * Handle GenesisDistributed event
+   */
+  private async handleGenesisDistributed(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    // Update wallet balance with genesis allocation
+    await this.prisma.wallet.updateMany({
+      where: { profileId: payload.userId },
+      data: {
+        cachedBalance: {
+          increment: parseFloat(payload.amount),
+        },
+        updatedAt: event.timestamp,
+      },
+    });
+
+    // Create transaction history
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { profileId: payload.userId },
+    });
+
+    if (wallet) {
+      await this.prisma.transaction.create({
+        data: {
+          tenantId: this.config.tenantId,
+          onChainTxId: event.transactionId,
+          walletId: wallet.walletId,
+          type: 'GENESIS',
+          counterparty: 'SYSTEM',
+          amount: parseFloat(payload.amount),
+          fee: 0,
+          remark: `Genesis allocation: ${payload.tier}`,
+          timestamp: event.timestamp,
+          blockNumber: event.blockNumber,
+        },
+      });
+    }
+
+    this.log('debug', 'Genesis distributed', {
+      userId: payload.userId,
+      amount: payload.amount,
+      tier: payload.tier,
+    });
+  }
+
+  /**
+   * Handle WalletFrozen event
+   */
+  private async handleWalletFrozen(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.wallet.updateMany({
+      where: { profileId: payload.userId },
+      data: {
+        isFrozen: true,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Wallet frozen', { userId: payload.userId });
+  }
+
+  /**
+   * Handle WalletUnfrozen event
+   */
+  private async handleWalletUnfrozen(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.wallet.updateMany({
+      where: { profileId: payload.userId },
+      data: {
+        isFrozen: false,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Wallet unfrozen', { userId: payload.userId });
+  }
+
+  /**
+   * Handle OrganizationProposed event
+   */
+  private async handleOrganizationProposed(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.organization.upsert({
+      where: { orgId: payload.orgId },
+      create: {
+        orgId: payload.orgId,
+        tenantId: this.config.tenantId,
+        orgName: payload.orgName,
+        orgType: payload.orgType,
+        status: 'PROPOSED',
+        stakeholders: payload.stakeholderIds,
+        createdAt: event.timestamp,
+        updatedAt: event.timestamp,
+      },
+      update: {
+        status: 'PROPOSED',
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Organization proposed', { orgId: payload.orgId });
+  }
+
+  /**
+   * Handle MembershipEndorsed event
+   */
+  private async handleMembershipEndorsed(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    const org = await this.prisma.organization.findUnique({
+      where: { orgId: payload.orgId },
+    });
+
+    if (org) {
+      const endorsers = (org.endorsers as string[]) || [];
+      if (!endorsers.includes(payload.endorserId)) {
+        endorsers.push(payload.endorserId);
+      }
+
+      await this.prisma.organization.update({
+        where: { orgId: payload.orgId },
+        data: {
+          endorsers,
+          updatedAt: event.timestamp,
+        },
+      });
+    }
+
+    this.log('debug', 'Membership endorsed', {
+      orgId: payload.orgId,
+      endorserId: payload.endorserId,
+    });
+  }
+
+  /**
+   * Handle OrganizationActivated event
+   */
+  private async handleOrganizationActivated(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.organization.update({
+      where: { orgId: payload.orgId },
+      data: {
+        status: 'ACTIVE',
+        activatedAt: event.timestamp,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Organization activated', { orgId: payload.orgId });
+  }
+
+  /**
+   * Handle AuthRuleDefined event
+   */
+  private async handleAuthRuleDefined(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    const org = await this.prisma.organization.findUnique({
+      where: { orgId: payload.orgId },
+    });
+
+    if (org) {
+      const authRules = (org.authRules as any) || {};
+      authRules[payload.ruleId] = {
+        threshold: payload.threshold,
+        signers: payload.signers,
+      };
+
+      await this.prisma.organization.update({
+        where: { orgId: payload.orgId },
+        data: {
+          authRules,
+          updatedAt: event.timestamp,
+        },
+      });
+    }
+
+    this.log('debug', 'Auth rule defined', {
+      orgId: payload.orgId,
+      ruleId: payload.ruleId,
+    });
+  }
+
+  /**
+   * Handle MultiSigTxInitiated event
+   */
+  private async handleMultiSigTxInitiated(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.multiSigTransaction.create({
+      data: {
+        txId: payload.txId,
+        tenantId: this.config.tenantId,
+        orgId: payload.orgId,
+        proposerId: payload.proposerId,
+        operation: payload.operation,
+        params: payload.params,
+        status: 'PENDING',
+        requiredSignatures: payload.requiredSignatures,
+        currentSignatures: 0,
+        createdAt: event.timestamp,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'MultiSig transaction initiated', {
+      txId: payload.txId,
+      orgId: payload.orgId,
+    });
+  }
+
+  /**
+   * Handle MultiSigTxApproved event
+   */
+  private async handleMultiSigTxApproved(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    const tx = await this.prisma.multiSigTransaction.findUnique({
+      where: { txId: payload.txId },
+    });
+
+    if (tx) {
+      const approvers = (tx.approvers as string[]) || [];
+      if (!approvers.includes(payload.approverId)) {
+        approvers.push(payload.approverId);
+      }
+
+      await this.prisma.multiSigTransaction.update({
+        where: { txId: payload.txId },
+        data: {
+          approvers,
+          currentSignatures: approvers.length,
+          updatedAt: event.timestamp,
+        },
+      });
+    }
+
+    this.log('debug', 'MultiSig transaction approved', {
+      txId: payload.txId,
+      approverId: payload.approverId,
+    });
+  }
+
+  /**
+   * Handle MultiSigTxExecuted event
+   */
+  private async handleMultiSigTxExecuted(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.multiSigTransaction.update({
+      where: { txId: payload.txId },
+      data: {
+        status: 'EXECUTED',
+        executedAt: event.timestamp,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'MultiSig transaction executed', { txId: payload.txId });
+  }
+
+  /**
+   * Handle LoanApplicationReceived event
+   */
+  private async handleLoanApplicationReceived(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.loan.create({
+      data: {
+        loanId: payload.loanId,
+        tenantId: this.config.tenantId,
+        borrowerId: payload.borrowerId,
+        amount: parseFloat(payload.amount),
+        purpose: payload.purpose,
+        status: 'PENDING_APPROVAL',
+        createdAt: event.timestamp,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Loan application received', {
+      loanId: payload.loanId,
+      borrowerId: payload.borrowerId,
+    });
+  }
+
+  /**
+   * Handle LoanApproved event
+   */
+  private async handleLoanApproved(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.loan.update({
+      where: { loanId: payload.loanId },
+      data: {
+        status: 'ACTIVE',
+        approvedBy: payload.approvedBy,
+        approvedAt: event.timestamp,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    // Update borrower's wallet balance
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { profileId: payload.borrowerId },
+    });
+
+    if (wallet) {
+      await this.prisma.wallet.update({
+        where: { walletId: wallet.walletId },
+        data: {
+          cachedBalance: {
+            increment: parseFloat(payload.amount),
+          },
+          updatedAt: event.timestamp,
+        },
+      });
+
+      // Create transaction history
+      await this.prisma.transaction.create({
+        data: {
+          tenantId: this.config.tenantId,
+          onChainTxId: event.transactionId,
+          walletId: wallet.walletId,
+          type: 'LOAN_DISBURSEMENT',
+          counterparty: 'LOAN_POOL',
+          amount: parseFloat(payload.amount),
+          fee: 0,
+          remark: `Loan approved: ${payload.loanId}`,
+          timestamp: event.timestamp,
+          blockNumber: event.blockNumber,
+        },
+      });
+    }
+
+    this.log('debug', 'Loan approved', {
+      loanId: payload.loanId,
+      borrowerId: payload.borrowerId,
+    });
+  }
+
+  /**
+   * Handle ProposalSubmitted event
+   */
+  private async handleProposalSubmitted(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.proposal.create({
+      data: {
+        proposalId: payload.proposalId,
+        tenantId: this.config.tenantId,
+        title: payload.title,
+        description: payload.description,
+        proposerId: payload.proposerId,
+        proposalType: payload.proposalType,
+        status: 'ACTIVE',
+        votesFor: 0,
+        votesAgainst: 0,
+        createdAt: event.timestamp,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Proposal submitted', {
+      proposalId: payload.proposalId,
+      proposerId: payload.proposerId,
+    });
+  }
+
+  /**
+   * Handle VoteCast event
+   */
+  private async handleVoteCast(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    const proposal = await this.prisma.proposal.findUnique({
+      where: { proposalId: payload.proposalId },
+    });
+
+    if (proposal) {
+      const voters = (proposal.voters as string[]) || [];
+      if (!voters.includes(payload.voterId)) {
+        voters.push(payload.voterId);
+      }
+
+      const updateData: any = {
+        voters,
+        updatedAt: event.timestamp,
+      };
+
+      if (payload.support === true || payload.support === 'true') {
+        updateData.votesFor = { increment: 1 };
+      } else {
+        updateData.votesAgainst = { increment: 1 };
+      }
+
+      await this.prisma.proposal.update({
+        where: { proposalId: payload.proposalId },
+        data: updateData,
+      });
+    }
+
+    this.log('debug', 'Vote cast', {
+      proposalId: payload.proposalId,
+      voterId: payload.voterId,
+      support: payload.support,
+    });
+  }
+
+  /**
+   * Handle ProposalExecuted event
+   */
+  private async handleProposalExecuted(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.proposal.update({
+      where: { proposalId: payload.proposalId },
+      data: {
+        status: 'EXECUTED',
+        executedAt: event.timestamp,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Proposal executed', { proposalId: payload.proposalId });
+  }
+
+  /**
+   * Handle SystemBootstrapped event
+   */
+  private async handleSystemBootstrapped(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.systemParameter.upsert({
+      where: {
+        tenantId_paramKey: {
+          tenantId: this.config.tenantId,
+          paramKey: 'SYSTEM_BOOTSTRAPPED',
+        },
+      },
+      create: {
+        tenantId: this.config.tenantId,
+        paramKey: 'SYSTEM_BOOTSTRAPPED',
+        paramValue: 'true',
+        updatedAt: event.timestamp,
+      },
+      update: {
+        paramValue: 'true',
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'System bootstrapped');
+  }
+
+  /**
+   * Handle CountryDataInitialized event
+   */
+  private async handleCountryDataInitialized(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.systemParameter.upsert({
+      where: {
+        tenantId_paramKey: {
+          tenantId: this.config.tenantId,
+          paramKey: `COUNTRY_${payload.countryCode}_INITIALIZED`,
+        },
+      },
+      create: {
+        tenantId: this.config.tenantId,
+        paramKey: `COUNTRY_${payload.countryCode}_INITIALIZED`,
+        paramValue: 'true',
+        updatedAt: event.timestamp,
+      },
+      update: {
+        paramValue: 'true',
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Country data initialized', {
+      countryCode: payload.countryCode,
+    });
+  }
+
+  /**
+   * Handle SystemParameterUpdated event
+   */
+  private async handleSystemParameterUpdated(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.systemParameter.upsert({
+      where: {
+        tenantId_paramKey: {
+          tenantId: this.config.tenantId,
+          paramKey: payload.paramKey,
+        },
+      },
+      create: {
+        tenantId: this.config.tenantId,
+        paramKey: payload.paramKey,
+        paramValue: payload.paramValue,
+        updatedAt: event.timestamp,
+      },
+      update: {
+        paramValue: payload.paramValue,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'System parameter updated', {
+      paramKey: payload.paramKey,
+      paramValue: payload.paramValue,
+    });
+  }
+
+  /**
+   * Handle SystemPaused event
+   */
+  private async handleSystemPaused(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.systemParameter.upsert({
+      where: {
+        tenantId_paramKey: {
+          tenantId: this.config.tenantId,
+          paramKey: 'SYSTEM_STATUS',
+        },
+      },
+      create: {
+        tenantId: this.config.tenantId,
+        paramKey: 'SYSTEM_STATUS',
+        paramValue: 'PAUSED',
+        updatedAt: event.timestamp,
+      },
+      update: {
+        paramValue: 'PAUSED',
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'System paused', { reason: payload.reason });
+  }
+
+  /**
+   * Handle SystemResumed event
+   */
+  private async handleSystemResumed(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.systemParameter.upsert({
+      where: {
+        tenantId_paramKey: {
+          tenantId: this.config.tenantId,
+          paramKey: 'SYSTEM_STATUS',
+        },
+      },
+      create: {
+        tenantId: this.config.tenantId,
+        paramKey: 'SYSTEM_STATUS',
+        paramValue: 'ACTIVE',
+        updatedAt: event.timestamp,
+      },
+      update: {
+        paramValue: 'ACTIVE',
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'System resumed');
+  }
+
+  /**
+   * Handle AdminAppointed event
+   */
+  private async handleAdminAppointed(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.userProfile.updateMany({
+      where: { profileId: payload.adminId },
+      data: {
+        role: 'ADMIN',
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Admin appointed', { adminId: payload.adminId });
+  }
+
+  /**
+   * Handle TreasuryActivated event
+   */
+  private async handleTreasuryActivated(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    await this.prisma.systemParameter.upsert({
+      where: {
+        tenantId_paramKey: {
+          tenantId: this.config.tenantId,
+          paramKey: 'TREASURY_STATUS',
+        },
+      },
+      create: {
+        tenantId: this.config.tenantId,
+        paramKey: 'TREASURY_STATUS',
+        paramValue: 'ACTIVE',
+        updatedAt: event.timestamp,
+      },
+      update: {
+        paramValue: 'ACTIVE',
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('debug', 'Treasury activated');
+  }
+
+  /**
+   * Handle VelocityTaxApplied event
+   */
+  private async handleVelocityTaxApplied(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    // Update user wallet with tax deduction
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { profileId: payload.userId },
+    });
+
+    if (wallet) {
+      await this.prisma.wallet.update({
+        where: { walletId: wallet.walletId },
+        data: {
+          cachedBalance: {
+            decrement: parseFloat(payload.taxAmount),
+          },
+          updatedAt: event.timestamp,
+        },
+      });
+
+      // Create transaction history for tax
+      await this.prisma.transaction.create({
+        data: {
+          tenantId: this.config.tenantId,
+          onChainTxId: event.transactionId,
+          walletId: wallet.walletId,
+          type: 'TAX',
+          counterparty: 'TREASURY',
+          amount: parseFloat(payload.taxAmount),
+          fee: 0,
+          remark: `Velocity tax applied`,
+          timestamp: event.timestamp,
+          blockNumber: event.blockNumber,
+        },
+      });
+    }
+
+    this.log('debug', 'Velocity tax applied', {
+      userId: payload.userId,
+      taxAmount: payload.taxAmount,
     });
   }
 
