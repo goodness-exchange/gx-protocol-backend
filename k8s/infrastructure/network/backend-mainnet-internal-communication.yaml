@@ -1,0 +1,54 @@
+# NetworkPolicy for internal backend communication in backend-mainnet
+# Allows services within backend-mainnet to communicate with each other
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-backend
+  namespace: backend-mainnet
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector: {}
+  egress:
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 6379  # Redis
+    - protocol: TCP
+      port: 3001  # svc-identity
+    - protocol: TCP
+      port: 3002  # svc-wallet
+    - protocol: TCP
+      port: 3003  # svc-tokenomics
+    - protocol: TCP
+      port: 8080  # api-gateway
+    - protocol: TCP
+      port: 9090  # Metrics (Prometheus)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-api-gateway
+  namespace: backend-mainnet
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080

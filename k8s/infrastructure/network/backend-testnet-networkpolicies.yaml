@@ -1,0 +1,111 @@
+# NetworkPolicies for backend-testnet namespace
+# Enables secure communication with fabric-testnet while maintaining isolation
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: backend-testnet
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: backend-testnet
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fabric-testnet-egress
+  namespace: backend-testnet
+spec:
+  podSelector:
+    matchLabels:
+      component: backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: fabric-testnet
+    ports:
+    - protocol: TCP
+      port: 7050  # Orderer gRPC
+    - protocol: TCP
+      port: 7051  # Peer gRPC
+    - protocol: TCP
+      port: 7054  # Fabric CA
+    - protocol: TCP
+      port: 7053  # Peer event hub (optional)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-backend
+  namespace: backend-testnet
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector: {}
+  egress:
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 6379  # Redis
+    - protocol: TCP
+      port: 3001  # svc-identity
+    - protocol: TCP
+      port: 3002  # svc-wallet
+    - protocol: TCP
+      port: 3003  # svc-tokenomics
+    - protocol: TCP
+      port: 8080  # api-gateway
+    - protocol: TCP
+      port: 9090  # Metrics
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-api-gateway
+  namespace: backend-testnet
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
