@@ -55,7 +55,7 @@ export class FabricClient implements IFabricClient {
   private network?: Network;
   private contract?: Contract;
   private grpcClient?: grpc.Client;
-  private circuitBreaker: CircuitBreaker<TransactionResult>;
+  private circuitBreaker: CircuitBreaker<[string, string, ...string[]], TransactionResult>;
   private isConnected = false;
 
   // Logger would be injected via dependency injection
