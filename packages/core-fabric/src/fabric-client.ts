@@ -55,7 +55,7 @@ export class FabricClient implements IFabricClient {
   private network?: Network;
   private contract?: Contract;
   private grpcClient?: grpc.Client;
-  private circuitBreaker: CircuitBreaker;
+  private circuitBreaker: CircuitBreaker<TransactionResult>;
   private isConnected = false;
 
   // Logger would be injected via dependency injection
@@ -447,7 +447,7 @@ export class FabricClient implements IFabricClient {
    * - Admin dashboard
    */
   getCircuitBreakerStats(): CircuitBreakerStats {
-    const stats = this.circuitBreaker.stats;
+    const stats = this.circuitBreaker.stats as any;
 
     return {
       state: this.circuitBreaker.opened
@@ -455,9 +455,9 @@ export class FabricClient implements IFabricClient {
         : this.circuitBreaker.halfOpen
         ? 'HALF_OPEN'
         : 'CLOSED',
-      successes: stats.successes,
-      failures: stats.failures,
-      openCount: stats.opens,
+      successes: stats.successes || 0,
+      failures: stats.failures || 0,
+      openCount: stats.opens || 0,
       lastFailure: stats.lastFailure ? new Date(stats.lastFailure) : undefined,
     };
   }
