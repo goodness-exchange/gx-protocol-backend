@@ -1,8 +1,8 @@
 {
   "name": "@gx/core-fabric",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Hyperledger Fabric client and connection utilities",
+  "description": "Hyperledger Fabric Gateway SDK wrapper for GX Protocol",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -13,7 +13,13 @@
   },
   "dependencies": {
     "@gx/core-logger": "*",
-    "fabric-network": "^2.2.20",
-    "fabric-ca-client": "^2.2.20"
+    "@hyperledger/fabric-gateway": "^1.5.0",
+    "@hyperledger/fabric-protos": "^0.2.0",
+    "@grpc/grpc-js": "^1.10.0",
+    "opossum": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "typescript": "^5.3.3"
   }
 }
