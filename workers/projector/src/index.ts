@@ -40,7 +40,7 @@
  * ```
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { createFabricClient, IFabricClient, BlockchainEvent } from '@gx/core-fabric';
 import { eventValidator } from '@gx/core-events';
 import * as promClient from 'prom-client';
