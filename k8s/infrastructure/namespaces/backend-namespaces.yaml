@@ -1,0 +1,213 @@
+---
+# Backend Mainnet Namespace - Production Environment
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backend-mainnet
+  labels:
+    environment: production
+    component: backend
+    tier: infrastructure
+    monitoring: enabled
+    network-policy: enabled
+---
+# Backend Testnet Namespace - Testing Environment
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backend-testnet
+  labels:
+    environment: testing
+    component: backend
+    tier: infrastructure
+    monitoring: enabled
+    network-policy: enabled
+---
+# Backend Devnet Namespace - Development Environment
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backend-devnet
+  labels:
+    environment: development
+    component: backend
+    tier: infrastructure
+    monitoring: enabled
+    network-policy: enabled
+---
+# Resource Quota for Backend Mainnet
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: backend-mainnet-quota
+  namespace: backend-mainnet
+spec:
+  hard:
+    requests.cpu: "16"
+    requests.memory: 32Gi
+    limits.cpu: "32"
+    limits.memory: 64Gi
+    persistentvolumeclaims: "10"
+    services: "20"
+    pods: "50"
+---
+# Resource Quota for Backend Testnet
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: backend-testnet-quota
+  namespace: backend-testnet
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    persistentvolumeclaims: "5"
+    services: "15"
+    pods: "30"
+---
+# Resource Quota for Backend Devnet
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: backend-devnet-quota
+  namespace: backend-devnet
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    persistentvolumeclaims: "3"
+    services: "10"
+    pods: "20"
+---
+# Limit Range for Backend Mainnet
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: backend-mainnet-limits
+  namespace: backend-mainnet
+spec:
+  limits:
+  - max:
+      cpu: "4"
+      memory: 8Gi
+    min:
+      cpu: "100m"
+      memory: 128Mi
+    default:
+      cpu: "500m"
+      memory: 512Mi
+    defaultRequest:
+      cpu: "250m"
+      memory: 256Mi
+    type: Container
+  - max:
+      cpu: "8"
+      memory: 16Gi
+    min:
+      cpu: "200m"
+      memory: 256Mi
+    type: Pod
+---
+# Limit Range for Backend Testnet
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: backend-testnet-limits
+  namespace: backend-testnet
+spec:
+  limits:
+  - max:
+      cpu: "2"
+      memory: 4Gi
+    min:
+      cpu: "100m"
+      memory: 128Mi
+    default:
+      cpu: "250m"
+      memory: 256Mi
+    defaultRequest:
+      cpu: "100m"
+      memory: 128Mi
+    type: Container
+---
+# Limit Range for Backend Devnet
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: backend-devnet-limits
+  namespace: backend-devnet
+spec:
+  limits:
+  - max:
+      cpu: "1"
+      memory: 2Gi
+    min:
+      cpu: "50m"
+      memory: 64Mi
+    default:
+      cpu: "100m"
+      memory: 128Mi
+    defaultRequest:
+      cpu: "50m"
+      memory: 64Mi
+    type: Container
+---
+# Network Policy - Default Deny All for Backend Mainnet
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: backend-mainnet
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# Network Policy - Allow DNS for Backend Mainnet
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: backend-mainnet
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+---
+# Network Policy - Allow to Fabric Network
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fabric-network
+  namespace: backend-mainnet
+spec:
+  podSelector:
+    matchLabels:
+      component: backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: fabric
+    ports:
+    - protocol: TCP
+      port: 7050  # Orderer
+    - protocol: TCP
+      port: 7051  # Peer
+    - protocol: TCP
+      port: 7054  # CA

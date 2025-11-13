@@ -1,0 +1,94 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: backend-mainnet
+data:
+  # PostgreSQL configuration for production
+  postgresql.conf: |
+    # Connection Settings
+    listen_addresses = '*'
+    max_connections = 200
+    shared_buffers = 2GB
+    effective_cache_size = 6GB
+
+    # Write-Ahead Log
+    wal_level = replica
+    max_wal_senders = 10
+    max_replication_slots = 10
+    wal_keep_size = 1GB
+
+    # Checkpoint Settings
+    checkpoint_timeout = 10min
+    checkpoint_completion_target = 0.9
+
+    # Query Tuning
+    random_page_cost = 1.1  # For SSD storage
+    effective_io_concurrency = 200
+    work_mem = 16MB
+    maintenance_work_mem = 512MB
+
+    # Logging
+    logging_collector = on
+    log_directory = 'log'
+    log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+    log_statement = 'mod'  # Log all modifications
+    log_duration = on
+    log_line_prefix = '%t [%p]: user=%u,db=%d,app=%a,client=%h '
+    log_lock_waits = on
+    log_temp_files = 0
+
+    # Performance Monitoring
+    shared_preload_libraries = 'pg_stat_statements'
+    pg_stat_statements.track = all
+
+  pg_hba.conf: |
+    # TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+    # Local connections
+    local   all             all                                     trust
+
+    # Replication connections
+    host    replication     gx_replicator   10.0.0.0/8              md5
+    host    replication     gx_replicator   0.0.0.0/0               md5
+
+    # Application connections
+    host    all             gx_backend      10.0.0.0/8              md5
+    host    all             gx_backend      0.0.0.0/0               md5
+
+    # Admin connections
+    host    all             gx_admin        10.0.0.0/8              md5
+
+  init-replication.sh: |
+    #!/bin/bash
+    set -e
+
+    # Wait for primary to be ready
+    until pg_isready -h postgres-0.postgres-headless.backend-mainnet.svc.cluster.local -U postgres; do
+      echo "Waiting for primary database..."
+      sleep 2
+    done
+
+    # Check if this is a replica
+    if [ "$HOSTNAME" != "postgres-0" ]; then
+      echo "Initializing replica..."
+
+      # Remove existing data directory
+      rm -rf /var/lib/postgresql/data/*
+
+      # Create base backup from primary
+      PGPASSWORD=$REPLICATION_PASSWORD pg_basebackup \
+        -h postgres-0.postgres-headless.backend-mainnet.svc.cluster.local \
+        -D /var/lib/postgresql/data \
+        -U gx_replicator \
+        -v -P -X stream
+
+      # Configure standby
+      cat > /var/lib/postgresql/data/standby.signal << EOF
+    standby_mode = 'on'
+    primary_conninfo = 'host=postgres-0.postgres-headless.backend-mainnet.svc.cluster.local port=5432 user=gx_replicator password=$REPLICATION_PASSWORD'
+    EOF
+
+      echo "Replica initialized successfully"
+    fi
