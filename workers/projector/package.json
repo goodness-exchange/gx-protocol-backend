@@ -1,11 +1,12 @@
 {
   "name": "@gx/projector",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Background worker to build read models from Fabric events",
+  "description": "Event projection worker for building read models from Fabric events",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "type-check": "tsc --noEmit",
@@ -13,13 +14,17 @@
     "test": "jest"
   },
   "dependencies": {
-    "@gx/core-config": "1.0.0",
-    "@gx/core-logger": "1.0.0",
-    "@gx/core-db": "1.0.0",
-    "@gx/core-fabric": "1.0.0",
-    "@gx/core-events": "1.0.0"
+    "@gx/core-config": "*",
+    "@gx/core-logger": "*",
+    "@gx/core-db": "*",
+    "@gx/core-fabric": "*",
+    "@gx/core-events": "*",
+    "@prisma/client": "^5.7.1",
+    "prom-client": "^15.0.0"
   },
   "devDependencies": {
-    "tsx": "^4.7.0"
+    "@types/node": "^18.19.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
   }
 }
