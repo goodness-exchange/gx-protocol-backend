@@ -27,11 +27,6 @@ export interface MetricsOptions {
    * Prefix for metric names (default: http_)
    */
   prefix?: string;
-
-  /**
-   * Custom labels to add to all metrics
-   */
-  customLabels?: Record<string, string>;
 }
 
 /**
@@ -42,7 +37,6 @@ export function createMetricsMiddleware(options: MetricsOptions = {}) {
     metricsPath = '/metrics',
     collectDefaultMetrics = true,
     prefix = 'http_',
-    customLabels = {},
   } = options;
 
   return promMiddleware({
@@ -52,6 +46,7 @@ export function createMetricsMiddleware(options: MetricsOptions = {}) {
     requestLengthBuckets: [512, 1024, 5120, 10240, 51200, 102400], // bytes
     responseLengthBuckets: [512, 1024, 5120, 10240, 51200, 102400], // bytes
     prefix,
+    customLabels: [], // Must be an array, even if empty
     
     // Normalize paths to avoid high cardinality
     // e.g., /api/v1/users/123 -> /api/v1/users/:id
@@ -60,9 +55,6 @@ export function createMetricsMiddleware(options: MetricsOptions = {}) {
       ['/api/v1/wallets/:id', '/api/v1/wallets/#ID'],
       ['/api/v1/transactions/:id', '/api/v1/transactions/#ID'],
     ],
-
-    // Add custom labels
-    customLabels,
   });
 }
 

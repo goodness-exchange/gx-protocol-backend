@@ -9,7 +9,7 @@ declare module 'express-prometheus-middleware' {
     requestLengthBuckets?: number[];
     responseLengthBuckets?: number[];
     prefix?: string;
-    customLabels?: Record<string, string>;
+    customLabels?: string[]; // Array of additional label names
     normalizePath?: Array<[string, string]>;
     authenticate?: (req: any) => boolean;
   }

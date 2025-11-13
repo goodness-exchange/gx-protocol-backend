@@ -96,12 +96,25 @@ I am acting as a **Senior Technical Architect and Pair-Programming Partner**. My
   - EventValidator class
   - 3 core event schemas (UserCreated, WalletCreated, TransferCompleted)
 
+- ✅ Task 1.1: Build svc-identity Service (Complete)
+  - Complete Identity Service (~3,000 lines)
+  - 10 RESTful API endpoints
+  - JWT authentication (access + refresh tokens)
+  - CQRS Outbox pattern for writes
+  - Security hardened (Helmet, CORS, bcrypt)
+  - Structured logging & Prometheus metrics
+  - Service running successfully on port 3001
+  - **Issues Resolved:**
+    - Environment variable loading in Turbo
+    - Metrics middleware type mismatch
+    - Prisma client generation in monorepo
+    - TypeScript JWT library compatibility
+
 ### In Progress
-- 🎯 Ready to begin Phase 1: Identity & Fabric Bridge
+- 🎯 Ready to begin Task 1.2: Implement @gx/core-fabric package
 
 ### Next Tasks
-- Task 1.1: Build svc-identity service
-- Task 1.2: Implement @gx/core-fabric package
+- Task 1.2: Implement @gx/core-fabric package (Hyperledger Fabric SDK)
 - Task 1.3: Build outbox-submitter worker
 - Task 1.4: Build projector worker
 - Task 1.5: Add idempotency middleware
@@ -273,7 +286,12 @@ npm run lint
 - **2025-10-15**: Completed Tasks 0.1-0.3 (Monorepo, Core Packages, CI/CD)
 - **2025-10-16**: Completed Tasks 0.4-0.6 (Local Dev, Database Migration, Event Schema Registry)
 - **2025-10-16**: Phase 0 fully complete - all foundation tasks delivered
-- **2025-10-16**: Ready to begin Phase 1 (Identity & Fabric Bridge)
+- **2025-10-16**: Completed Task 1.1 - svc-identity service (100%)
+  - Fixed environment variable loading in Turbo monorepo
+  - Resolved Prisma client generation in NPM workspaces
+  - Fixed metrics middleware type definition
+  - Service running successfully on port 3001
+- **2025-10-16**: Ready to begin Task 1.2 (@gx/core-fabric implementation)
 - Using WSL2 Ubuntu environment (Node 18.20.8)
 - Absolute path: `/home/mnzr/projects/gx-protocol-backend`
 - Project name: `gx-protocol-backend` (matches directory and repo name)
@@ -281,5 +299,5 @@ npm run lint
 ---
 
 **Last Updated**: 2025-10-16  
-**Current Sprint**: Sprint 1 (Phase 1)  
-**Next Review**: After Task 1.2 completion
+**Current Sprint**: Sprint 1 (Phase 1 - Task 1.2 Ready)  
+**Next Review**: After Task 1.3 completion

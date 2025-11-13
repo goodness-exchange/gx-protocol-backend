@@ -1,9 +1,24 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import { resolve } from 'path';
+import { existsSync } from 'fs';
 
-// Load .env file variables into process.env
-// This should be done before any other code reads from process.env
-dotenv.config();
+// Try to load .env from multiple possible locations
+const possibleEnvPaths = [
+  resolve(process.cwd(), '.env'),
+  resolve(process.cwd(), '../../.env'),
+  resolve(__dirname, '../../../.env'),
+];
+
+for (const envPath of possibleEnvPaths) {
+  if (existsSync(envPath)) {
+    const result = dotenv.config({ path: envPath });
+    if (!result.error) {
+      console.log(`[core-config] Loaded environment from: ${envPath}`);
+      break;
+    }
+  }
+}
 
 /**
  * Defines the schema for all environment variables used in the application.
@@ -20,8 +35,8 @@ const envSchema = z.object({
 
     // Service Ports
     // process.env values are strings, so we coerce them to numbers
-    IDENTITY_SERVICE_PORT: z.coerce.number().int().positive(),
-    TOKENOMICS_SERVICE_PORT: z.coerce.number().int().positive(),
+    IDENTITY_SERVICE_PORT: z.coerce.number().int().positive().default(3001),
+    TOKENOMICS_SERVICE_PORT: z.coerce.number().int().positive().default(3002),
 
     // Security
     JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters long'),

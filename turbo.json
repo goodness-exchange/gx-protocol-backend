@@ -1,5 +1,20 @@
 {
-  "globalDependencies": ["**/.env.*local"],
+  "globalDependencies": ["**/.env.*local", ".env"],
+  "globalEnv": [
+    "NODE_ENV",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "JWT_SECRET",
+    "LOG_LEVEL",
+    "PORT",
+    "IDENTITY_SERVICE_PORT",
+    "TOKENOMICS_SERVICE_PORT",
+    "PROJECTION_LAG_THRESHOLD_MS",
+    "ENABLE_IDEMPOTENCY",
+    "IDEMPOTENCY_TTL_HOURS",
+    "JWT_EXPIRY",
+    "JWT_REFRESH_EXPIRY"
+  ],
   "pipeline": {
     "build": {
       "dependsOn": ["^build"],
