@@ -701,7 +701,7 @@ class Projector {
     event: BlockchainEvent
   ): Promise<void> {
     // Use transaction to ensure atomicity
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Get sender and receiver wallets
       const senderWallet = await tx.wallet.findFirst({
         where: { profileId: payload.fromUserId },
@@ -1233,7 +1233,7 @@ class Projector {
    * Handle SystemBootstrapped event
    */
   private async handleSystemBootstrapped(
-    payload: any,
+    _payload: any,
     event: BlockchainEvent
   ): Promise<void> {
     await this.prisma.systemParameter.upsert({
@@ -1354,7 +1354,7 @@ class Projector {
    * Handle SystemResumed event
    */
   private async handleSystemResumed(
-    payload: any,
+    _payload: any,
     event: BlockchainEvent
   ): Promise<void> {
     await this.prisma.systemParameter.upsert({
@@ -1401,7 +1401,7 @@ class Projector {
    * Handle TreasuryActivated event
    */
   private async handleTreasuryActivated(
-    payload: any,
+    _payload: any,
     event: BlockchainEvent
   ): Promise<void> {
     await this.prisma.systemParameter.upsert({
