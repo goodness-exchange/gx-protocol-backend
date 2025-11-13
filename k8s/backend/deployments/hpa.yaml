@@ -1,0 +1,118 @@
+---
+# HorizontalPodAutoscaler for Identity Service
+#
+# Automatically scales svc-identity pods based on CPU utilization.
+# This ensures the API can handle traffic spikes without manual intervention.
+#
+# How it works:
+# 1. Metrics Server collects CPU/memory usage from pods
+# 2. HPA controller checks metrics every 15 seconds
+# 3. If average CPU > 70%, scale up (add pods)
+# 4. If average CPU < 30%, scale down (remove pods)
+# 5. Scale up/down by doubling/halving (up to min/max bounds)
+#
+# Requirements:
+# - Metrics Server must be installed: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+# - Pods must have resource requests defined (see deployment)
+#
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: svc-identity-hpa
+  namespace: backend-mainnet
+  labels:
+    app: svc-identity
+    component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: svc-identity
+
+  # Min/max replicas
+  minReplicas: 3   # Always have 3 pods for high availability
+  maxReplicas: 10  # Scale up to 10 pods during peak traffic
+
+  # Scaling behavior
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60  # Wait 60s before scaling up again
+      policies:
+      - type: Percent
+        value: 100  # Double the number of pods
+        periodSeconds: 60
+      - type: Pods
+        value: 2    # Or add 2 pods (whichever is larger)
+        periodSeconds: 60
+      selectPolicy: Max  # Use the policy that scales faster
+
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+      - type: Percent
+        value: 50   # Remove half the pods
+        periodSeconds: 60
+      - type: Pods
+        value: 1    # Or remove 1 pod (whichever is smaller)
+        periodSeconds: 60
+      selectPolicy: Min  # Use the policy that scales slower (more conservative)
+
+  # Metrics to scale on
+  metrics:
+  # CPU utilization target: 70%
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+
+  # Memory utilization target: 80%
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# HorizontalPodAutoscaler for Outbox Submitter
+#
+# Scales outbox-submitter based on queue depth (custom metric).
+# Requires Prometheus Adapter for custom metrics.
+#
+# Uncomment if Prometheus Adapter is installed:
+#
+# apiVersion: autoscaling/v2
+# kind: HorizontalPodAutoscaler
+# metadata:
+#   name: outbox-submitter-hpa
+#   namespace: backend-mainnet
+#   labels:
+#     app: outbox-submitter
+# spec:
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: outbox-submitter
+#
+#   minReplicas: 2
+#   maxReplicas: 8
+#
+#   metrics:
+#   # Custom metric: Outbox queue depth
+#   - type: Pods
+#     pods:
+#       metric:
+#         name: outbox_queue_depth
+#       target:
+#         type: AverageValue
+#         averageValue: "100"  # Scale up if avg queue depth > 100 per pod
+#
+#   # CPU utilization
+#   - type: Resource
+#     resource:
+#       name: cpu
+#       target:
+#         type: Utilization
+#         averageUtilization: 70

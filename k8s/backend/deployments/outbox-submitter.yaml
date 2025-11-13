@@ -1,0 +1,213 @@
+---
+# Outbox Submitter Worker Deployment
+#
+# This worker implements the Transactional Outbox pattern for reliable
+# blockchain transaction submission. It polls the OutboxCommand table
+# and submits commands to Hyperledger Fabric chaincode.
+#
+# Key Features:
+# - Pessimistic locking (FOR UPDATE SKIP LOCKED)
+# - Circuit breaker for Fabric failures
+# - Automatic retries with exponential backoff
+# - Dead Letter Queue (DLQ) for failed commands
+# - Prometheus metrics on port 9090
+#
+# Scaling:
+# - Horizontal: Multiple replicas can run safely (locking prevents duplicates)
+# - Vertical: Increase CPU/memory for faster processing
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outbox-submitter
+  namespace: backend-mainnet
+  labels:
+    app: outbox-submitter
+    component: worker
+    tier: backend
+spec:
+  # Replicas: Start with 2 for high availability
+  # Scale up if queue depth increases
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: outbox-submitter
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero downtime during updates
+
+  template:
+    metadata:
+      labels:
+        app: outbox-submitter
+        component: worker
+        tier: backend
+      annotations:
+        # Prometheus scraping
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Service account for RBAC
+      serviceAccountName: backend-worker
+
+      # Pod anti-affinity: Spread replicas across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - outbox-submitter
+              topologyKey: kubernetes.io/hostname
+
+      containers:
+      - name: outbox-submitter
+        image: gx-protocol/outbox-submitter:2.0.0  # TODO: Replace with actual registry
+        imagePullPolicy: IfNotPresent
+
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: backend-config
+
+        # Sensitive environment variables from Secrets
+        env:
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DATABASE_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DATABASE_PASSWORD
+
+        # Construct DATABASE_URL from components
+        - name: DATABASE_URL
+          value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)?schema=public"
+
+        # Worker-specific config
+        - name: WORKER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name  # Use pod name as worker ID
+        - name: METRICS_PORT
+          value: "9090"
+
+        # Volume mounts for Fabric credentials
+        volumeMounts:
+        - name: fabric-credentials
+          mountPath: /etc/fabric
+          readOnly: true
+
+        # Resource requests and limits
+        resources:
+          requests:
+            cpu: 250m       # 0.25 CPU cores
+            memory: 512Mi   # 512 MB RAM
+          limits:
+            cpu: 1000m      # 1 CPU core
+            memory: 1Gi     # 1 GB RAM
+
+        # Liveness probe: Restart if worker is stuck
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness probe: Don't route metrics scraping if not ready
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 2
+
+        # Security context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+
+      # Volumes
+      volumes:
+      - name: fabric-credentials
+        secret:
+          secretName: fabric-credentials
+          defaultMode: 0400  # Read-only for owner
+
+      # DNS policy
+      dnsPolicy: ClusterFirst
+
+      # Restart policy
+      restartPolicy: Always
+
+      # Grace period for shutdown
+      terminationGracePeriodSeconds: 30
+
+---
+# Service for Outbox Submitter Metrics
+#
+# Exposes Prometheus metrics endpoint for scraping.
+# This is a ClusterIP service (internal only).
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: outbox-submitter-metrics
+  namespace: backend-mainnet
+  labels:
+    app: outbox-submitter
+    component: worker
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: outbox-submitter
+
+---
+# ServiceMonitor for Prometheus Operator
+#
+# If using Prometheus Operator, this resource tells Prometheus
+# to scrape metrics from outbox-submitter pods.
+#
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: outbox-submitter
+  namespace: backend-mainnet
+  labels:
+    app: outbox-submitter
+    release: prometheus  # Match your Prometheus Operator release name
+spec:
+  selector:
+    matchLabels:
+      app: outbox-submitter
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics

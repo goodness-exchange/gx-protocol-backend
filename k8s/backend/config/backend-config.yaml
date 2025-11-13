@@ -1,0 +1,161 @@
+---
+# Backend Configuration ConfigMap
+#
+# This ConfigMap contains non-sensitive configuration for all backend services.
+# Sensitive configuration (passwords, keys, certificates) should be in Secrets.
+#
+# Services:
+# - svc-identity (HTTP API)
+# - outbox-submitter (worker)
+# - projector (worker)
+#
+# Educational Note:
+# ConfigMaps vs Secrets:
+# - ConfigMap: Non-sensitive config (endpoints, feature flags, timeouts)
+# - Secret: Sensitive config (passwords, API keys, certificates)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: backend-mainnet
+  labels:
+    app: gx-protocol-backend
+    tier: config
+data:
+  # ========== Common Configuration ==========
+
+  # Environment
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  TENANT_ID: "default"
+
+  # ========== Database Configuration ==========
+
+  # PostgreSQL connection (non-sensitive part)
+  # Full connection string assembled from Secret
+  DATABASE_HOST: "postgres.backend-mainnet.svc.cluster.local"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "gx_protocol"
+
+  # ========== Redis Configuration ==========
+
+  REDIS_HOST: "redis-master.backend-mainnet.svc.cluster.local"
+  REDIS_PORT: "6379"
+
+  # ========== Fabric Network Configuration ==========
+
+  # Fabric Peer endpoint
+  FABRIC_PEER_ENDPOINT: "peer0-org1.fabric.svc.cluster.local:7051"
+  FABRIC_MSP_ID: "Org1MSP"
+  FABRIC_CHANNEL_NAME: "gxchannel"
+  FABRIC_CHAINCODE_NAME: "gxtv3"
+
+  # Fabric gRPC settings
+  FABRIC_GRPC_KEEPALIVE: "true"
+  FABRIC_GRPC_KEEPALIVE_TIMEOUT: "120000"
+
+  # Fabric certificate paths (mounted from Secret)
+  FABRIC_CERT_PATH: "/etc/fabric/cert.pem"
+  FABRIC_KEY_PATH: "/etc/fabric/key.pem"
+  FABRIC_PEER_TLS_CA_CERT_PATH: "/etc/fabric/ca-cert.pem"
+
+  # ========== Worker Configuration ==========
+
+  # Outbox Submitter
+  POLL_INTERVAL: "100"                # Poll every 100ms
+  BATCH_SIZE: "10"                    # Process 10 commands per batch
+  MAX_RETRIES: "5"                    # Max retries before DLQ
+  LOCK_TIMEOUT: "30000"               # 30 second stale lock timeout
+  ENABLE_METRICS: "true"
+  OUTBOX_METRICS_PORT: "9090"
+
+  # Projector
+  START_BLOCK: "0"                    # Start from genesis (or set to latest for new deployments)
+  CHECKPOINT_INTERVAL: "10"           # Save checkpoint every 10 events
+  PROJECTOR_METRICS_PORT: "9091"
+
+  # ========== API Service Configuration ==========
+
+  # Identity Service
+  IDENTITY_SERVICE_PORT: "3001"
+
+  # JWT settings
+  JWT_EXPIRY: "24h"
+  JWT_REFRESH_EXPIRY: "7d"
+
+  # Idempotency
+  ENABLE_IDEMPOTENCY: "true"
+  IDEMPOTENCY_TTL_HOURS: "24"
+
+  # Projection lag monitoring (for readiness probe)
+  PROJECTION_LAG_THRESHOLD_MS: "5000"  # 5 seconds
+
+  # Rate limiting
+  RATE_LIMIT_WINDOW_MS: "900000"      # 15 minutes
+  RATE_LIMIT_MAX_REQUESTS: "100"
+
+  # CORS (comma-separated list of allowed origins)
+  # ALLOWED_ORIGINS: "https://app.gxcoin.com,https://admin.gxcoin.com"
+
+---
+# Backend Secrets (Example - Create with real values)
+#
+# IMPORTANT: This is a TEMPLATE. In production:
+# 1. Generate strong random values
+# 2. Base64 encode them
+# 3. Store in a secure secret manager (HashiCorp Vault, AWS Secrets Manager, etc.)
+# 4. Apply with: kubectl apply -f backend-secrets.yaml
+#
+# Example generation:
+# openssl rand -base64 32 | base64 -w 0
+#
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secrets
+  namespace: backend-mainnet
+  labels:
+    app: gx-protocol-backend
+    tier: config
+type: Opaque
+data:
+  # Database credentials (base64 encoded)
+  # Example: echo -n "gx_admin" | base64
+  DATABASE_USER: Z3hfYWRtaW4=                    # gx_admin
+  DATABASE_PASSWORD: Y2hhbmdlbWVfcHJvZHVjdGlvbg==  # changeme_production (CHANGE THIS!)
+
+  # Redis password (if enabled)
+  # REDIS_PASSWORD: <base64-encoded-password>
+
+  # JWT Secret (minimum 32 characters, base64 encoded)
+  # Generate: openssl rand -base64 32 | base64 -w 0
+  JWT_SECRET: VGhpc0lzQVNlY3VyZVJhbmRvbVNlY3JldEtleUZvckpXVEF1dGhlbnRpY2F0aW9u  # CHANGE THIS!
+
+---
+# Fabric Credentials Secret
+#
+# This Secret contains TLS certificates and private keys for Fabric network access.
+# Certificates should be generated from Fabric CA or copied from existing crypto-config.
+#
+# To create this Secret:
+# kubectl create secret generic fabric-credentials \
+#   --from-file=cert.pem=/path/to/peer/cert.pem \
+#   --from-file=key.pem=/path/to/peer/key.pem \
+#   --from-file=ca-cert.pem=/path/to/ca/cert.pem \
+#   -n backend-mainnet
+#
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fabric-credentials
+  namespace: backend-mainnet
+  labels:
+    app: gx-protocol-backend
+    tier: fabric
+type: Opaque
+data:
+  # Base64-encoded PEM certificates
+  # These will be mounted as files at the paths specified in ConfigMap
+  # cert.pem: <base64-encoded-certificate>
+  # key.pem: <base64-encoded-private-key>
+  # ca-cert.pem: <base64-encoded-ca-certificate>

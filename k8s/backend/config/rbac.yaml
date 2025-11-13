@@ -1,0 +1,105 @@
+---
+# RBAC Configuration for Backend Services
+#
+# This file defines Role-Based Access Control (RBAC) for backend pods.
+# Following the principle of least privilege, each service type
+# has its own ServiceAccount with minimal required permissions.
+#
+# Service Accounts:
+# - backend-worker: For outbox-submitter and projector workers
+# - backend-api: For svc-identity API service
+#
+# Educational Note:
+# RBAC is crucial for security in Kubernetes:
+# - Prevents pods from accessing resources they don't need
+# - Limits blast radius if a pod is compromised
+# - Enables audit trails of actions by service accounts
+#
+
+---
+# ServiceAccount for Worker Pods
+#
+# Used by:
+# - outbox-submitter
+# - projector
+#
+# Permissions:
+# - None currently (pods don't need Kubernetes API access)
+# - Future: Add permissions for leader election (projector HA)
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-worker
+  namespace: backend-mainnet
+  labels:
+    app: gx-protocol-backend
+    tier: worker
+
+---
+# ServiceAccount for API Pods
+#
+# Used by:
+# - svc-identity
+# - (future) other API services
+#
+# Permissions:
+# - None currently (API pods don't need Kubernetes API access)
+# - Future: Add permissions for dynamic config reload
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-api
+  namespace: backend-mainnet
+  labels:
+    app: gx-protocol-backend
+    tier: api
+
+---
+# Role for Worker Pods (Optional - for future enhancements)
+#
+# Uncomment if workers need to access Kubernetes API.
+# Example: Leader election for projector high availability.
+#
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: Role
+# metadata:
+#   name: backend-worker-role
+#   namespace: backend-mainnet
+# rules:
+# - apiGroups: [""]
+#   resources: ["configmaps"]
+#   verbs: ["get", "list", "watch", "create", "update"]  # For leader election
+# - apiGroups: ["coordination.k8s.io"]
+#   resources: ["leases"]
+#   verbs: ["get", "list", "watch", "create", "update"]  # For leader election
+
+---
+# RoleBinding for Worker Pods (Optional)
+#
+# Uncomment if workers need the role above.
+#
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: RoleBinding
+# metadata:
+#   name: backend-worker-rolebinding
+#   namespace: backend-mainnet
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: Role
+#   name: backend-worker-role
+# subjects:
+# - kind: ServiceAccount
+#   name: backend-worker
+#   namespace: backend-mainnet
+
+---
+# PodSecurityPolicy (Deprecated in K8s 1.25+)
+#
+# Note: PodSecurityPolicy is deprecated. Use Pod Security Standards instead.
+# https://kubernetes.io/docs/concepts/security/pod-security-standards/
+#
+# For K8s 1.25+, apply namespace label:
+# kubectl label namespace backend-mainnet pod-security.kubernetes.io/enforce=restricted
+#
