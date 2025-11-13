@@ -86,22 +86,6 @@ spec:
         runAsUser: 999  # postgres user
         runAsNonRoot: true
 
-      initContainers:
-      # Initialize PostgreSQL data directory permissions
-      - name: init-permissions
-        image: postgres:15-alpine
-        command:
-        - sh
-        - -c
-        - |
-          chown -R 999:999 /var/lib/postgresql/data
-          chmod 0700 /var/lib/postgresql/data
-        volumeMounts:
-        - name: postgres-storage
-          mountPath: /var/lib/postgresql/data
-        securityContext:
-          runAsUser: 0  # Run as root for chown
-
       containers:
       - name: postgres
         image: postgres:15-alpine
