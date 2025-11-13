@@ -305,7 +305,7 @@ class OutboxSubmitter {
   private async findAndLockCommands() {
     const lockTimeout = new Date(Date.now() - this.config.lockTimeout);
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Find commands to process
       const commands = await tx.outboxCommand.findMany({
         where: {
@@ -336,7 +336,7 @@ class OutboxSubmitter {
       // Lock commands
       await tx.outboxCommand.updateMany({
         where: {
-          id: { in: commands.map((c) => c.id) },
+          id: { in: commands.map((c: any) => c.id) },
         },
         data: {
           status: 'LOCKED',
@@ -370,7 +370,7 @@ class OutboxSubmitter {
       });
 
       // Parse payload (should be JSON)
-      const payload = command.payload as Prisma.JsonObject;
+      const payload = command.payload as any;
 
       // Submit to Fabric
       const result = await this.submitToFabric(command.commandType, payload);
@@ -439,7 +439,7 @@ class OutboxSubmitter {
    */
   private async submitToFabric(
     commandType: string,
-    payload: Prisma.JsonObject
+    payload: any
   ): Promise<{ transactionId: string; blockNumber?: bigint }> {
     // Map command type to chaincode contract and function
     const { contractName, functionName, args } = this.mapCommandToChaincode(
@@ -468,7 +468,7 @@ class OutboxSubmitter {
    */
   private mapCommandToChaincode(
     commandType: string,
-    payload: Prisma.JsonObject
+    payload: any
   ): { contractName: string; functionName: string; args: string[] } {
     switch (commandType) {
       // ========== IdentityContract ==========
