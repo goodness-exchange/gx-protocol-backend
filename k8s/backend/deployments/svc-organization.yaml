@@ -1,0 +1,280 @@
+---
+# Organization Service Deployment
+#
+# This HTTP API service handles multi-signature organizations,
+# stakeholder management, and authorization rules using CQRS.
+#
+# Key Features:
+# - Organization proposals and endorsements
+# - Multi-signature authorization rules
+# - Multi-signature transaction management
+# - Organization queries
+# - Health checks (liveness, readiness, projection lag)
+# - Prometheus metrics
+#
+# Scaling:
+# - Horizontal: Multiple replicas for high availability (stateless)
+# - Vertical: Increase CPU/memory for more concurrent requests
+# - Auto-scaling: HPA based on CPU or request rate
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-organization
+  namespace: backend-mainnet
+  labels:
+    app: svc-organization
+    component: api
+    tier: backend
+spec:
+  # Replicas: Start with 3 for high availability
+  # Scale based on load (use HPA)
+  replicas: 3
+
+  selector:
+    matchLabels:
+      app: svc-organization
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero downtime during updates
+
+  template:
+    metadata:
+      labels:
+        app: svc-organization
+        component: api
+        tier: backend
+      annotations:
+        # Prometheus scraping (via express metrics middleware)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3003"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Service account for RBAC
+      serviceAccountName: backend-api
+
+      # Pod anti-affinity: Spread replicas across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - svc-organization
+              topologyKey: kubernetes.io/hostname
+
+      containers:
+      - name: svc-organization
+        image: gx-protocol/svc-organization:2.0.0  # TODO: Replace with actual registry
+        imagePullPolicy: IfNotPresent
+
+        # Container port
+        ports:
+        - name: http
+          containerPort: 3003
+          protocol: TCP
+
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: backend-config
+
+        # Sensitive environment variables from Secrets
+        env:
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DATABASE_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DATABASE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: JWT_SECRET
+
+        # Construct DATABASE_URL and REDIS_URL
+        - name: DATABASE_URL
+          value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)?schema=public"
+        - name: REDIS_URL
+          value: "redis://$(REDIS_HOST):$(REDIS_PORT)"
+
+        # Resource requests and limits
+        resources:
+          requests:
+            cpu: 200m       # 0.2 CPU cores
+            memory: 256Mi   # 256 MB RAM
+          limits:
+            cpu: 1000m      # 1 CPU core
+            memory: 512Mi   # 512 MB RAM
+
+        # Liveness probe: Restart if service is stuck
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 3003
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness probe: Check database + projection lag
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 3003
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+          successThreshold: 1
+
+        # Startup probe: Allow extra time for initial startup
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 3003
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+
+        # Security context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+
+        # Volume mounts (for tmp directory - readonly root filesystem)
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+
+      # Volumes
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+      # DNS policy
+      dnsPolicy: ClusterFirst
+
+      # Restart policy
+      restartPolicy: Always
+
+      # Grace period for shutdown
+      terminationGracePeriodSeconds: 30
+
+---
+# Organization Service - ClusterIP Service (Internal)
+#
+# This service is used for internal cluster communication.
+# External access is via Ingress or LoadBalancer (see below).
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-organization
+  namespace: backend-mainnet
+  labels:
+    app: svc-organization
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3003
+    protocol: TCP
+  selector:
+    app: svc-organization
+
+---
+# Organization Service - NodePort Service (External Access Option 1)
+#
+# Use this if you don't have a LoadBalancer or Ingress Controller.
+# Access via: http://<node-ip>:30303
+#
+# Uncomment to enable:
+#
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: svc-organization-external
+#   namespace: backend-mainnet
+#   labels:
+#     app: svc-organization
+#     component: api
+# spec:
+#   type: NodePort
+#   ports:
+#   - name: http
+#     port: 80
+#     targetPort: 3003
+#     nodePort: 30303
+#     protocol: TCP
+#   selector:
+#     app: svc-organization
+
+---
+# Organization Service - LoadBalancer Service (External Access Option 2)
+#
+# Use this if your cluster has LoadBalancer support (cloud providers).
+# Access via: http://<load-balancer-ip>
+#
+# Uncomment to enable:
+#
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: svc-organization-lb
+#   namespace: backend-mainnet
+#   labels:
+#     app: svc-organization
+#     component: api
+# spec:
+#   type: LoadBalancer
+#   ports:
+#   - name: http
+#     port: 80
+#     targetPort: 3003
+#     protocol: TCP
+#   selector:
+#     app: svc-organization
+
+---
+# ServiceMonitor for Prometheus Operator
+#
+# If using Prometheus Operator, this resource tells Prometheus
+# to scrape metrics from svc-organization pods.
+#
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: svc-organization
+  namespace: backend-mainnet
+  labels:
+    app: svc-organization
+    release: prometheus  # Match your Prometheus Operator release name
+spec:
+  selector:
+    matchLabels:
+      app: svc-organization
+  endpoints:
+  - port: http
+    interval: 30s
+    path: /metrics

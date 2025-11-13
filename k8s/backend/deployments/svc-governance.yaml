@@ -1,0 +1,159 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-governance
+  namespace: backend-mainnet
+  labels:
+    app: svc-governance
+    component: api
+    tier: backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: svc-governance
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: svc-governance
+        component: api
+        tier: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3005"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: backend-api
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - svc-governance
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: svc-governance
+        image: gx-protocol/svc-governance:2.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 3005
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        env:
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DATABASE_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DATABASE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: JWT_SECRET
+        - name: DATABASE_URL
+          value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)?schema=public"
+        - name: REDIS_URL
+          value: "redis://$(REDIS_HOST):$(REDIS_PORT)"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 3005
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 3005
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 3005
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-governance
+  namespace: backend-mainnet
+  labels:
+    app: svc-governance
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3005
+    protocol: TCP
+  selector:
+    app: svc-governance
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: svc-governance
+  namespace: backend-mainnet
+  labels:
+    app: svc-governance
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: svc-governance
+  endpoints:
+  - port: http
+    interval: 30s
+    path: /metrics
