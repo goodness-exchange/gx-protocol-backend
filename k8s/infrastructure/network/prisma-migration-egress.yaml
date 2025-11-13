@@ -1,0 +1,41 @@
+# NetworkPolicy to allow Prisma migration job to access npm registry
+# This policy allows external HTTPS access for npm package installation
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prisma-migration-egress
+  namespace: backend-mainnet
+spec:
+  podSelector:
+    matchLabels:
+      app: prisma-migration
+  policyTypes:
+  - Egress
+  egress:
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow HTTPS to any destination (npm registry, GitHub, etc.)
+  - ports:
+    - protocol: TCP
+      port: 443
+  # Allow HTTP (some npm mirrors use HTTP)
+  - ports:
+    - protocol: TCP
+      port: 80
+  # Allow PostgreSQL connection (internal)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432

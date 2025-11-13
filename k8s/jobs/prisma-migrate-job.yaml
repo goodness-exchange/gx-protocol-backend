@@ -1,0 +1,116 @@
+# Kubernetes Job to run Prisma migrations
+# Executes migrations from within the cluster (production-appropriate)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: prisma-migrate-initial
+  namespace: backend-mainnet
+  labels:
+    app: prisma-migration
+    version: v2.1
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600  # Clean up job after 10 minutes
+  template:
+    metadata:
+      labels:
+        app: prisma-migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: default
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: prisma-migrate
+        image: node:18-slim
+        workingDir: /app
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "=== Prisma Migration Job Started ==="
+          echo "Node version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Copy schema to working directory
+          echo "Copying Prisma schema..."
+          mkdir -p /tmp/prisma
+          cp /app/schema/schema.prisma /tmp/prisma/
+          cd /tmp/prisma
+
+          # Install Prisma CLI locally
+          echo "Installing Prisma CLI locally..."
+          npm init -y
+          npm install prisma@5.7.1 @prisma/client@5.7.1
+
+          # Verify Prisma installation
+          echo "Prisma version:"
+          npx prisma --version
+
+          # Wait for database (with retries)
+          echo "Testing database connection..."
+          for i in $(seq 1 10); do
+            echo "Connection attempt $i/10..."
+            if npx prisma db execute --stdin <<< "SELECT 1;" 2>/dev/null; then
+              echo "Database connection successful!"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "Failed to connect to database after 10 attempts"
+              exit 1
+            fi
+            echo "Connection failed, retrying in 5 seconds..."
+            sleep 5
+          done
+
+          # Run migrations
+          echo "Running Prisma migrations..."
+          npx prisma migrate deploy
+
+          # Verify schema
+          echo "Verifying database schema..."
+          npx prisma validate
+
+          # Generate Prisma Client
+          echo "Generating Prisma Client..."
+          npx prisma generate
+
+          # Query database to verify tables created
+          echo "Verifying tables..."
+          npx prisma db execute --stdin <<< "
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+            ORDER BY table_name;
+          "
+
+          echo "=== Migration completed successfully! ==="
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: DATABASE_URL
+        - name: NODE_ENV
+          value: "production"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        volumeMounts:
+        - name: schema-volume
+          mountPath: /app/schema
+          readOnly: true
+      volumes:
+      - name: schema-volume
+        configMap:
+          name: prisma-schema

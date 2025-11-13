@@ -1,0 +1,425 @@
+apiVersion: v1
+data:
+  schema.prisma: "// =============================================================================\n//
+    GX COIN PROTOCOL - ENHANCED PRODUCTION SCHEMA\n// =============================================================================\n//
+    Version: 2.0 (Enhanced)\n// Date: October 16, 2025\n// \n// This schema incorporates:\n//
+    - Multi-tenancy across all tables\n// - CQRS/Event-Driven Architecture\n// - Trust
+    Score & Family Relationship Tree (80 points)\n// - Business Account Governance
+    & Multi-Signature\n// - Comprehensive Audit Trail\n// - Session & Device Management\n//
+    - Notification System\n// - Enhanced KYC Document Management\n// - Transaction
+    Limits & Fraud Prevention\n// - Contact Management\n// - Hoarding Tax Calculation\n//
+    =============================================================================\n\ngenerator
+    client {\n  provider = \"prisma-client-js\"\n  output   = \"../../packages/core-db/node_modules/.prisma/client\"\n}\n\ndatasource
+    db {\n  provider = \"postgresql\"\n  url      = env(\"DATABASE_URL\")\n}\n\n//
+    =============================================================================\n//
+    SECTION 1: ENUMs (Custom Data Types)\n// =============================================================================\n\n//
+    Existing ENUMs\nenum OutboxStatus {\n  PENDING\n  LOCKED\n  SUBMITTED\n  COMMITTED\n
+    \ FAILED\n}\n\nenum CommandType {\n  CREATE_USER\n  TRANSFER_TOKENS\n}\n\nenum
+    UserProfileStatus {\n  PENDING_VERIFICATION\n  VERIFIED\n  REJECTED\n  SUSPENDED\n
+    \ CLOSED\n}\n\nenum KycStatus {\n  PENDING\n  APPROVED\n  REJECTED\n  EXPIRED\n}\n\nenum
+    OrgProfileStatus {\n  PENDING_VERIFICATION\n  VERIFIED\n  REJECTED\n  SUSPENDED\n}\n\nenum
+    PartnerStatus {\n  PENDING\n  ACTIVE\n  REVOKED\n}\n\nenum LicenseStatus {\n  ACTIVE\n
+    \ EXPIRED\n  REVOKED\n}\n\nenum CredentialStatus {\n  ACTIVE\n  REVOKED\n}\n\nenum
+    LegalTenderStatusEnum {\n  RECOGNIZED\n  SANDBOX\n  ACTIVE_LEGAL_TENDER\n}\n\nenum
+    OffChainTxType {\n  MINT\n  SENT\n  RECEIVED\n  TAX\n  LOAN_DISBURSEMENT\n  LOAN_REPAYMENT\n}\n\nenum
+    CollateralStatus {\n  PLEDGED\n  RELEASED\n}\n\n// NEW ENUMs for Enhanced Features\nenum
+    RelationType {\n  FATHER\n  MOTHER\n  SPOUSE\n  CHILD\n  SIBLING\n  BUSINESS_PARTNER\n
+    \ DIRECTOR\n  WORKPLACE_ASSOCIATE\n  FRIEND\n}\n\nenum RelationshipStatus {\n
+    \ PENDING          // Invitation sent, awaiting confirmation\n  CONFIRMED        //
+    Both parties confirmed\n  REJECTED         // Rejected by invitee\n  DECEASED
+    \        // Marked deceased with documentation\n  DIVORCED         // Marked divorced
+    with documentation\n  NOT_APPLICABLE   // User indicated N/A (triggers re-weighting)\n}\n\nenum
+    SignatoryRole {\n  OWNER\n  DIRECTOR\n  AUTHORIZED_SIGNATORY\n  ACCOUNTANT\n  VIEWER\n}\n\nenum
+    ApprovalStatus {\n  PENDING\n  APPROVED\n  REJECTED\n  EXPIRED\n}\n\nenum AuditEventType
+    {\n  USER_LOGIN\n  USER_LOGOUT\n  USER_REGISTERED\n  PROFILE_UPDATED\n  PASSWORD_CHANGED\n
+    \ KYC_SUBMITTED\n  KYC_APPROVED\n  KYC_REJECTED\n  TRANSACTION_INITIATED\n  TRANSACTION_APPROVED\n
+    \ TRANSACTION_REJECTED\n  TRANSACTION_COMPLETED\n  TRANSACTION_FAILED\n  WALLET_CREATED\n
+    \ BENEFICIARY_ADDED\n  BENEFICIARY_REMOVED\n  RELATIONSHIP_INVITED\n  RELATIONSHIP_CONFIRMED\n
+    \ RELATIONSHIP_REJECTED\n  BUSINESS_SIGNATORY_ADDED\n  BUSINESS_SIGNATORY_REVOKED\n
+    \ ADMIN_ACCOUNT_FROZEN\n  ADMIN_ACCOUNT_UNFROZEN\n  ADMIN_ACCOUNT_CLOSED\n  SESSION_CREATED\n
+    \ SESSION_REVOKED\n  DEVICE_TRUSTED\n  DEVICE_UNTRUSTED\n}\n\nenum SessionStatus
+    {\n  ACTIVE\n  EXPIRED\n  REVOKED\n  LOGGED_OUT\n}\n\nenum NotificationType {\n
+    \ RELATIONSHIP_INVITATION\n  RELATIONSHIP_CONFIRMED\n  RELATIONSHIP_REJECTED\n
+    \ BUSINESS_SIGNATORY_INVITATION\n  TRANSACTION_APPROVAL_REQUEST\n  TRANSACTION_APPROVED\n
+    \ TRANSACTION_REJECTED\n  TRANSACTION_COMPLETED\n  KYC_STATUS_UPDATE\n  WALLET_CREDITED\n
+    \ WALLET_DEBITED\n  SYSTEM_ANNOUNCEMENT\n  SECURITY_ALERT\n}\n\nenum NotificationStatus
+    {\n  UNREAD\n  READ\n  ARCHIVED\n  ACTIONED\n}\n\nenum DocumentType {\n  NATIONAL_ID\n
+    \ PASSPORT\n  DRIVERS_LICENSE\n  PROOF_OF_ADDRESS\n  DEATH_CERTIFICATE\n  DIVORCE_CERTIFICATE\n
+    \ BUSINESS_REGISTRATION\n  TAX_REGISTRATION\n  BANK_STATEMENT\n  UTILITY_BILL\n
+    \ SELFIE_PHOTO\n  OTHER\n}\n\nenum LimitType {\n  DAILY_SEND\n  DAILY_RECEIVE\n
+    \ MONTHLY_SEND\n  MONTHLY_RECEIVE\n  SINGLE_TRANSACTION\n  VELOCITY_CHECK\n}\n\nenum
+    ContactStatus {\n  ACTIVE\n  BLOCKED\n  ARCHIVED\n}\n\n// =============================================================================\n//
+    SECTION 2: CORE IDENTITY & GOVERNANCE MODELS\n// =============================================================================\n\nmodel
+    Country {\n  countryCode           String                @id @db.Char(2)\n  countryName
+    \          String\n  region                String?\n  legalTenderStatuses   LegalTenderStatus[]\n
+    \ organizationProfiles  OrganizationProfile[]\n  licensedPartners      LicensedPartner[]\n
+    \ kycDocuments          KYCDocument[]\n  userProfiles          UserProfile[]          //
+    Users with this nationality\n}\n\nmodel LegalTenderStatus {\n  statusId      String
+    \               @id @default(uuid())\n  countryCode   String                @db.Char(2)\n
+    \ status        LegalTenderStatusEnum\n  effectiveDate DateTime              @db.Timestamptz(3)\n
+    \ createdAt     DateTime              @default(now()) @db.Timestamptz(3)\n  country
+    \      Country               @relation(fields: [countryCode], references: [countryCode])\n
+    \ \n  @@index([countryCode, effectiveDate])\n}\n\nmodel UserProfile {\n  profileId
+    \      String            @id @default(uuid())\n  tenantId        String\n  firstName
+    \      String\n  lastName        String\n  email           String?           @unique
+    \ // Case-insensitive unique index added via migration\n  phoneNum        String?
+    \          @unique\n  identityNum     String?\n  biometricHash   String            @unique\n
+    \ passwordHash    String\n  nationalityCountryCode String?    @db.Char(2)  //
+    For genesis coin distribution to national treasury\n  status          UserProfileStatus
+    @default(PENDING_VERIFICATION)\n  \n  // Soft delete support\n  deletedAt       DateTime?
+    \        @db.Timestamptz(3)\n  \n  createdAt       DateTime          @default(now())
+    @db.Timestamptz(3)\n  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)\n
+    \ \n  // Existing relations\n  kycVerifications      KYCVerification[]\n  wallets
+    \              Wallet[]\n  beneficiaries         Beneficiary[]\n  organizationLinks
+    \    UserOrganizationLink[]\n  \n  // NEW: Trust Score & Relationships\n  trustScore
+    \           TrustScore?\n  initiatedRelationships FamilyRelationship[] @relation(\"InitiatedRelationships\")\n
+    \ receivedRelationships FamilyRelationship[] @relation(\"ReceivedRelationships\")\n
+    \ \n  // NEW: Security & Sessions\n  sessions              UserSession[]\n  trustedDevices
+    \       TrustedDevice[]\n  \n  // NEW: Notifications\n  notifications         Notification[]\n
+    \ pushTokens            PushToken[]\n  \n  // NEW: Business Governance\n  businessSignatories
+    \  BusinessSignatory[]\n  \n  // NEW: Contact Management\n  ownedContacts         Contact[]
+    \        @relation(\"OwnedContacts\")\n  contactedBy           Contact[]         @relation(\"ContactedBy\")\n
+    \ \n  // NEW: Transaction Limits\n  transactionLimits     TransactionLimit[]\n
+    \ \n  // Relations to Country\n  nationalityCountry    Country?          @relation(fields:
+    [nationalityCountryCode], references: [countryCode])\n  \n  @@index([tenantId,
+    status])\n  @@index([tenantId, email])\n  @@index([tenantId, phoneNum])\n  @@index([tenantId,
+    deletedAt])\n  @@index([tenantId, nationalityCountryCode])\n}\n\nmodel KYCVerification
+    {\n  kycId           String      @id @default(uuid())\n  profileId       String\n
+    \ status          KycStatus\n  verifiedAt      DateTime?   @db.Timestamptz(3)\n
+    \ verifierDetails String?\n  \n  // Legacy fields (kept for backward compatibility)\n
+    \ evidenceHash    String?     // sha256 of doc bundle\n  evidenceSize    Int?
+    \       // bytes\n  evidenceMime    String?\n  \n  createdAt       DateTime    @default(now())
+    @db.Timestamptz(3)\n  updatedAt       DateTime    @updatedAt @db.Timestamptz(3)\n
+    \ \n  userProfile     UserProfile @relation(fields: [profileId], references: [profileId],
+    onDelete: Cascade)\n  \n  // NEW: Document management\n  documents       KYCDocument[]\n
+    \ \n  @@index([profileId])\n  @@index([status])\n}\n\nmodel OrganizationProfile
+    {\n  orgProfileId            String           @id @default(uuid())\n  tenantId
+    \               String\n  legalName               String\n  registrationNumber
+    \     String?\n  jurisdictionCountryCode String           @db.Char(2)\n  address
+    \                String?\n  status                  OrgProfileStatus @default(PENDING_VERIFICATION)\n
+    \ \n  // Soft delete support\n  deletedAt               DateTime?        @db.Timestamptz(3)\n
+    \ \n  createdAt               DateTime         @default(now()) @db.Timestamptz(3)\n
+    \ updatedAt               DateTime         @updatedAt @db.Timestamptz(3)\n  \n
+    \ country                 Country          @relation(fields: [jurisdictionCountryCode],
+    references: [countryCode])\n  userLinks               UserOrganizationLink[]\n
+    \ \n  // NEW: Business Account Support\n  businessAccounts        BusinessAccount[]\n
+    \ \n  @@index([tenantId, status])\n  @@index([tenantId, deletedAt])\n}\n\n// =============================================================================\n//
+    SECTION 3: TRUST SCORE & FAMILY RELATIONSHIPS\n// =============================================================================\n\nmodel
+    FamilyRelationship {\n  relationshipId      String             @id @default(uuid())\n
+    \ tenantId            String\n  initiatorProfileId  String             // User
+    who sent the invite\n  relatedProfileId    String?            // Target user (null
+    if not on platform yet)\n  relatedEmail        String?            // For off-platform
+    invitations\n  relationType        RelationType\n  status              RelationshipStatus
+    @default(PENDING)\n  \n  // Status documentation\n  statusDocumentUrl   String?
+    \           // Death cert, divorce cert, etc.\n  statusDocumentHash  String?\n
+    \ statusRemarks       String?\n  \n  // Confirmation workflow\n  confirmedAt         DateTime?
+    \         @db.Timestamptz(3)\n  rejectedAt          DateTime?          @db.Timestamptz(3)\n
+    \ \n  // Trust score contribution\n  pointsAwarded       Int                @default(0)\n
+    \ isApplicable        Boolean            @default(true)\n  \n  createdAt           DateTime
+    \          @default(now()) @db.Timestamptz(3)\n  updatedAt           DateTime
+    \          @updatedAt @db.Timestamptz(3)\n  \n  initiator           UserProfile
+    \       @relation(\"InitiatedRelationships\", fields: [initiatorProfileId], references:
+    [profileId], onDelete: Cascade)\n  related             UserProfile?       @relation(\"ReceivedRelationships\",
+    fields: [relatedProfileId], references: [profileId], onDelete: Cascade)\n  \n
+    \ @@unique([tenantId, initiatorProfileId, relatedProfileId, relationType])\n  @@index([tenantId,
+    initiatorProfileId])\n  @@index([tenantId, relatedProfileId])\n  @@index([tenantId,
+    status])\n  @@index([tenantId, relationType, status])\n}\n\nmodel TrustScore {\n
+    \ profileId         String      @id\n  tenantId          String\n  \n  // Score
+    breakdown (max 100 points)\n  familyScore       Int         @default(0)   // Max
+    80\n  businessScore     Int         @default(0)   // Max 10\n  friendsScore      Int
+    \        @default(0)   // Max 10\n  totalScore        Int         @default(0)
+    \  // Max 100\n  \n  // Weighting factors (for dynamic re-weighting when categories
+    N/A)\n  familyWeight      Decimal     @default(0.80) @db.Decimal(5,2)\n  businessWeight
+    \   Decimal     @default(0.10) @db.Decimal(5,2)\n  friendsWeight     Decimal     @default(0.10)
+    @db.Decimal(5,2)\n  \n  // Meta\n  lastCalculatedAt  DateTime    @db.Timestamptz(3)\n
+    \ calculationVersion String     @default(\"1.0\")\n  \n  userProfile       UserProfile
+    @relation(fields: [profileId], references: [profileId], onDelete: Cascade)\n  \n
+    \ @@index([tenantId, totalScore])\n}\n\n// =============================================================================\n//
+    SECTION 4: WALLET & TRANSACTIONS\n// =============================================================================\n\nmodel
+    Wallet {\n  walletId         String      @id @default(uuid())\n  tenantId         String\n
+    \ profileId        String\n  primaryAccountId String\n  walletName       String\n
+    \ cachedBalance    Decimal     @default(0) @db.Decimal(36, 9)\n  \n  // Soft delete
+    support\n  deletedAt        DateTime?   @db.Timestamptz(3)\n  \n  createdAt        DateTime
+    \   @default(now()) @db.Timestamptz(3)\n  updatedAt        DateTime    @updatedAt
+    @db.Timestamptz(3)\n  \n  userProfile      UserProfile @relation(fields: [profileId],
+    references: [profileId], onDelete: Cascade)\n  transactions     Transaction[]\n
+    \ \n  // NEW: Business Account Support\n  businessAccount  BusinessAccount?\n
+    \ \n  // NEW: Hoarding Tax\n  hoardingTaxSnapshots HoardingTaxSnapshot[]\n  \n
+    \ @@unique([tenantId, primaryAccountId])\n  @@index([tenantId, profileId])\n  @@index([tenantId,
+    deletedAt])\n}\n\nmodel Transaction {\n  offTxId      String         @id @default(uuid())\n
+    \ tenantId     String\n  onChainTxId  String?\n  walletId     String\n  type         OffChainTxType\n
+    \ counterparty String\n  amount       Decimal        @db.Decimal(36, 9)\n  fee
+    \         Decimal        @default(0) @db.Decimal(36, 9)\n  remark       String?\n
+    \ timestamp    DateTime       @db.Timestamptz(3)\n  blockNumber  BigInt?\n  \n
+    \ wallet       Wallet         @relation(fields: [walletId], references: [walletId],
+    onDelete: Cascade)\n  \n  // NEW: Risk Scoring\n  riskScore    TransactionRiskScore?\n
+    \ \n  @@unique([tenantId, onChainTxId])\n  @@index([tenantId, walletId, timestamp])\n
+    \ @@index([tenantId, counterparty, timestamp])\n  @@index([timestamp])\n}\n\nmodel
+    Beneficiary {\n  beneficiaryId         String      @id @default(uuid())\n  tenantId
+    \             String\n  ownerProfileId        String\n  beneficiaryIdentityId
+    String\n  nickname              String\n  \n  createdAt             DateTime    @default(now())
+    @db.Timestamptz(3)\n  \n  userProfile           UserProfile @relation(fields:
+    [ownerProfileId], references: [profileId], onDelete: Cascade)\n  \n  @@unique([tenantId,
+    ownerProfileId, beneficiaryIdentityId])\n  @@index([ownerProfileId])\n}\n\nmodel
+    Contact {\n  contactId         String        @id @default(uuid())\n  tenantId
+    \         String\n  ownerProfileId    String\n  \n  // Contact details\n  contactProfileId
+    \ String?       // If registered on GX\n  displayName       String\n  phoneNumber
+    \      String?\n  email             String?\n  notes             String?\n  \n
+    \ // Metadata\n  isFavorite        Boolean       @default(false)\n  transactionCount
+    \ Int           @default(0)\n  lastTransactionAt DateTime?     @db.Timestamptz(3)\n
+    \ \n  status            ContactStatus @default(ACTIVE)\n  createdAt         DateTime
+    \     @default(now()) @db.Timestamptz(3)\n  updatedAt         DateTime      @updatedAt
+    @db.Timestamptz(3)\n  \n  owner             UserProfile   @relation(\"OwnedContacts\",
+    fields: [ownerProfileId], references: [profileId], onDelete: Cascade)\n  contactProfile
+    \   UserProfile?  @relation(\"ContactedBy\", fields: [contactProfileId], references:
+    [profileId], onDelete: SetNull)\n  \n  @@unique([tenantId, ownerProfileId, contactProfileId])\n
+    \ @@index([tenantId, ownerProfileId])\n  @@index([tenantId, status])\n}\n\n//
+    =============================================================================\n//
+    SECTION 5: BUSINESS ACCOUNTS & MULTI-SIGNATURE\n// =============================================================================\n\nmodel
+    BusinessAccount {\n  businessAccountId     String              @id @default(uuid())\n
+    \ tenantId              String\n  orgProfileId          String              //
+    Links to OrganizationProfile\n  walletId              String              @unique\n
+    \ \n  // Multi-sig configuration\n  defaultRequiredApprovals Int              @default(1)\n
+    \ \n  createdAt             DateTime            @default(now()) @db.Timestamptz(3)\n
+    \ updatedAt             DateTime            @updatedAt @db.Timestamptz(3)\n  \n
+    \ organization          OrganizationProfile @relation(fields: [orgProfileId],
+    references: [orgProfileId], onDelete: Cascade)\n  wallet                Wallet
+    \             @relation(fields: [walletId], references: [walletId])\n  signatories
+    \          BusinessSignatory[]\n  signatoryRules        SignatoryRule[]\n  pendingApprovals
+    \     TransactionApproval[]\n  \n  @@unique([tenantId, orgProfileId])\n  @@index([tenantId])\n}\n\nmodel
+    BusinessSignatory {\n  signatoryId         String          @id @default(uuid())\n
+    \ tenantId            String\n  businessAccountId   String\n  profileId           String
+    \         // UserProfile\n  role                SignatoryRole\n  \n  // Permissions\n
+    \ canInitiateTransactions Boolean     @default(false)\n  canApproveTransactions
+    \ Boolean     @default(false)\n  maxTransactionLimit     Decimal?    @db.Decimal(36,
+    9)\n  \n  // Status\n  invitedAt           DateTime        @default(now()) @db.Timestamptz(3)\n
+    \ confirmedAt         DateTime?       @db.Timestamptz(3)\n  revokedAt           DateTime?
+    \      @db.Timestamptz(3)\n  \n  businessAccount     BusinessAccount @relation(fields:
+    [businessAccountId], references: [businessAccountId], onDelete: Cascade)\n  userProfile
+    \        UserProfile     @relation(fields: [profileId], references: [profileId],
+    onDelete: Cascade)\n  approvalVotes       ApprovalVote[]\n  \n  @@unique([tenantId,
+    businessAccountId, profileId])\n  @@index([tenantId, profileId])\n  @@index([tenantId,
+    businessAccountId])\n}\n\nmodel SignatoryRule {\n  ruleId            String          @id
+    @default(uuid())\n  tenantId          String\n  businessAccountId String\n  \n
+    \ // Rule definition\n  minAmount         Decimal?        @db.Decimal(36, 9)  //
+    null = applies to all\n  maxAmount         Decimal?        @db.Decimal(36, 9)
+    \ // null = no upper limit\n  requiredApprovals Int             // e.g., 2 of
+    3\n  \n  // Optional constraints\n  transactionType   OffChainTxType?\n  dailyLimit
+    \       Decimal?        @db.Decimal(36, 9)\n  \n  isActive          Boolean         @default(true)\n
+    \ createdAt         DateTime        @default(now()) @db.Timestamptz(3)\n  updatedAt
+    \        DateTime        @updatedAt @db.Timestamptz(3)\n  \n  businessAccount
+    \  BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId],
+    onDelete: Cascade)\n  \n  @@index([tenantId, businessAccountId])\n  @@index([tenantId,
+    isActive])\n}\n\nmodel TransactionApproval {\n  approvalId        String              @id
+    @default(uuid())\n  tenantId          String\n  businessAccountId String\n  outboxCommandId
+    \  String              // Links to OutboxCommand\n  \n  // Approval tracking\n
+    \ requiredApprovals Int\n  receivedApprovals Int                 @default(0)\n
+    \ \n  status            ApprovalStatus      @default(PENDING)\n  expiresAt         DateTime
+    \           @db.Timestamptz(3)\n  \n  createdAt         DateTime            @default(now())
+    @db.Timestamptz(3)\n  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)\n
+    \ \n  businessAccount   BusinessAccount     @relation(fields: [businessAccountId],
+    references: [businessAccountId], onDelete: Cascade)\n  outboxCommand     OutboxCommand
+    \      @relation(fields: [outboxCommandId], references: [id], onDelete: Cascade)\n
+    \ approvers         ApprovalVote[]\n  \n  @@unique([tenantId, outboxCommandId])\n
+    \ @@index([tenantId, businessAccountId, status])\n  @@index([status, expiresAt])\n}\n\nmodel
+    ApprovalVote {\n  voteId          String              @id @default(uuid())\n  tenantId
+    \       String\n  approvalId      String\n  signatoryId     String              //
+    BusinessSignatory\n  \n  approved        Boolean\n  remarks         String?\n
+    \ votedAt         DateTime            @default(now()) @db.Timestamptz(3)\n  \n
+    \ approval        TransactionApproval @relation(fields: [approvalId], references:
+    [approvalId], onDelete: Cascade)\n  signatory       BusinessSignatory   @relation(fields:
+    [signatoryId], references: [signatoryId], onDelete: Cascade)\n  \n  @@unique([tenantId,
+    approvalId, signatoryId])\n  @@index([tenantId, signatoryId])\n}\n\n// =============================================================================\n//
+    SECTION 6: ENHANCED KYC & DOCUMENT MANAGEMENT\n// =============================================================================\n\nmodel
+    KYCDocument {\n  documentId      String       @id @default(uuid())\n  tenantId
+    \       String\n  kycId           String\n  \n  // Document metadata\n  documentType
+    \   DocumentType\n  documentNumber  String?\n  issuingCountry  String?      @db.Char(2)\n
+    \ issuedDate      DateTime?    @db.Date\n  expiryDate      DateTime?    @db.Date\n
+    \ \n  // File storage\n  storageUrl      String       // S3/Azure Blob URL\n  fileHash
+    \       String       // SHA-256\n  fileSize        Int          // Bytes\n  mimeType
+    \       String\n  \n  // Security\n  encryptionKey   String?      // If end-to-end
+    encrypted\n  virusScanStatus String?      // \"clean\", \"infected\", \"pending\"\n
+    \ virusScanDate   DateTime?    @db.Timestamptz(3)\n  \n  // Versioning\n  version
+    \        Int          @default(1)\n  replacesDocumentId String?   // Previous
+    version\n  \n  uploadedAt      DateTime     @default(now()) @db.Timestamptz(3)\n
+    \ verifiedAt      DateTime?    @db.Timestamptz(3)\n  verifiedBy      String?      //
+    Admin profileId\n  \n  kycVerification KYCVerification @relation(fields: [kycId],
+    references: [kycId], onDelete: Cascade)\n  country         Country?        @relation(fields:
+    [issuingCountry], references: [countryCode])\n  \n  @@index([tenantId, kycId])\n
+    \ @@index([documentType])\n  @@index([fileHash])\n}\n\n// =============================================================================\n//
+    SECTION 7: FRAUD PREVENTION & TRANSACTION LIMITS\n// =============================================================================\n\nmodel
+    TransactionLimit {\n  limitId           String       @id @default(uuid())\n  tenantId
+    \         String\n  profileId         String?      // null = global default\n
+    \ walletId          String?      // null = applies to all wallets\n  \n  limitType
+    \        LimitType\n  limitAmount       Decimal      @db.Decimal(36, 9)\n  \n
+    \ // Velocity limits\n  maxCount          Int?         // Max N transactions\n
+    \ timeWindowMinutes Int?         // Per time window\n  \n  isActive          Boolean
+    \     @default(true)\n  createdAt         DateTime     @default(now()) @db.Timestamptz(3)\n
+    \ updatedAt         DateTime     @updatedAt @db.Timestamptz(3)\n  \n  userProfile
+    \      UserProfile? @relation(fields: [profileId], references: [profileId], onDelete:
+    Cascade)\n  \n  @@index([tenantId, profileId])\n  @@index([tenantId, walletId])\n
+    \ @@index([tenantId, isActive])\n}\n\nmodel TransactionRiskScore {\n  riskId          String
+    \     @id @default(uuid())\n  tenantId        String\n  offTxId         String
+    \     @unique  // Transaction.offTxId\n  \n  riskScore       Int         // 0-100\n
+    \ riskFactors     Json        // { \"unusual_time\": true, \"new_counterparty\":
+    true }\n  \n  requiresReview  Boolean     @default(false)\n  reviewedAt      DateTime?
+    \  @db.Timestamptz(3)\n  reviewedBy      String?     // Admin profileId\n  reviewNotes
+    \    String?\n  \n  calculatedAt    DateTime    @default(now()) @db.Timestamptz(3)\n
+    \ \n  transaction     Transaction @relation(fields: [offTxId], references: [offTxId],
+    onDelete: Cascade)\n  \n  @@index([tenantId, requiresReview])\n  @@index([tenantId,
+    riskScore])\n}\n\n// =============================================================================\n//
+    SECTION 8: HOARDING TAX (PER WHITEPAPER)\n// =============================================================================\n\nmodel
+    HoardingTaxSnapshot {\n  snapshotId    String   @id @default(uuid())\n  tenantId
+    \     String\n  walletId      String\n  \n  // Snapshot data\n  snapshotDate  DateTime
+    @db.Date\n  balance       Decimal  @db.Decimal(36, 9)\n  daysHeld      Int      //
+    Days since last >100 GX threshold crossing\n  \n  // Tax calculation\n  taxableAmount
+    Decimal  @db.Decimal(36, 9)\n  taxRate       Decimal  @db.Decimal(5,4)  // 0.0300
+    = 3%, 0.0600 = 6%\n  taxOwed       Decimal  @db.Decimal(36, 9)\n  \n  // Status\n
+    \ taxPaid       Boolean  @default(false)\n  paidAt        DateTime? @db.Timestamptz(3)\n
+    \ fabricTxId    String?\n  \n  createdAt     DateTime @default(now()) @db.Timestamptz(3)\n
+    \ \n  wallet        Wallet   @relation(fields: [walletId], references: [walletId],
+    onDelete: Cascade)\n  \n  @@unique([tenantId, walletId, snapshotDate])\n  @@index([tenantId,
+    snapshotDate, taxPaid])\n  @@index([tenantId, taxPaid])\n}\n\n// =============================================================================\n//
+    SECTION 9: SECURITY - SESSION & DEVICE MANAGEMENT\n// =============================================================================\n\nmodel
+    UserSession {\n  sessionId       String        @id @default(uuid())\n  tenantId
+    \       String\n  profileId       String\n  \n  // Device info\n  deviceId        String
+    \       // UUID or fingerprint\n  deviceName      String?       // \"iPhone 14
+    Pro\"\n  deviceOs        String?       // \"iOS 17.1\"\n  ipAddress       String\n
+    \ userAgent       String\n  \n  // Session lifecycle\n  status          SessionStatus
+    @default(ACTIVE)\n  createdAt       DateTime      @default(now()) @db.Timestamptz(3)\n
+    \ lastActivityAt  DateTime      @default(now()) @db.Timestamptz(3)\n  expiresAt
+    \      DateTime      @db.Timestamptz(3)\n  revokedAt       DateTime?     @db.Timestamptz(3)\n
+    \ revokedReason   String?\n  \n  // Security\n  refreshToken    String        @unique\n
+    \ refreshTokenHash String       // Hashed version for lookup\n  \n  userProfile
+    \    UserProfile   @relation(fields: [profileId], references: [profileId], onDelete:
+    Cascade)\n  \n  @@unique([tenantId, sessionId])\n  @@index([tenantId, profileId,
+    status])\n  @@index([refreshTokenHash])\n  @@index([expiresAt])\n  @@index([tenantId,
+    deviceId])\n}\n\nmodel TrustedDevice {\n  deviceId          String      @id @default(uuid())\n
+    \ tenantId          String\n  profileId         String\n  \n  deviceName        String\n
+    \ deviceFingerprint String      @unique\n  deviceOs          String?\n  \n  firstSeenAt
+    \      DateTime    @default(now()) @db.Timestamptz(3)\n  lastSeenAt        DateTime
+    \   @default(now()) @db.Timestamptz(3)\n  isTrusted         Boolean     @default(false)\n
+    \ trustVerifiedAt   DateTime?   @db.Timestamptz(3)\n  \n  userProfile       UserProfile
+    @relation(fields: [profileId], references: [profileId], onDelete: Cascade)\n  \n
+    \ @@unique([tenantId, profileId, deviceFingerprint])\n  @@index([tenantId, profileId])\n
+    \ @@index([tenantId, isTrusted])\n}\n\n// =============================================================================\n//
+    SECTION 10: NOTIFICATION SYSTEM\n// =============================================================================\n\nmodel
+    Notification {\n  notificationId    String             @id @default(uuid())\n
+    \ tenantId          String\n  recipientId       String             // UserProfile\n
+    \ \n  // Content\n  type              NotificationType\n  title             String\n
+    \ message           String\n  \n  // Action metadata\n  actionUrl         String?
+    \           // Deep link to app screen\n  actionRequired    Boolean            @default(false)\n
+    \ actionResourceType String?           // \"FamilyRelationship\", \"TransactionApproval\"\n
+    \ actionResourceId  String?\n  \n  // Status\n  status            NotificationStatus
+    @default(UNREAD)\n  readAt            DateTime?          @db.Timestamptz(3)\n
+    \ actionedAt        DateTime?          @db.Timestamptz(3)\n  \n  // Delivery\n
+    \ sentViaEmail      Boolean            @default(false)\n  sentViaPush       Boolean
+    \           @default(false)\n  emailSentAt       DateTime?          @db.Timestamptz(3)\n
+    \ pushSentAt        DateTime?          @db.Timestamptz(3)\n  \n  createdAt         DateTime
+    \          @default(now()) @db.Timestamptz(3)\n  expiresAt         DateTime?          @db.Timestamptz(3)\n
+    \ \n  recipient         UserProfile        @relation(fields: [recipientId], references:
+    [profileId], onDelete: Cascade)\n  \n  @@index([tenantId, recipientId, status])\n
+    \ @@index([tenantId, recipientId, createdAt])\n  @@index([expiresAt])\n  @@index([tenantId,
+    type, status])\n}\n\nmodel PushToken {\n  tokenId       String      @id @default(uuid())\n
+    \ tenantId      String\n  profileId     String\n  \n  token         String      @unique\n
+    \ deviceId      String?\n  platform      String      // \"ios\", \"android\",
+    \"web\"\n  \n  isActive      Boolean     @default(true)\n  createdAt     DateTime
+    \   @default(now()) @db.Timestamptz(3)\n  lastUsedAt    DateTime    @default(now())
+    @db.Timestamptz(3)\n  \n  userProfile   UserProfile @relation(fields: [profileId],
+    references: [profileId], onDelete: Cascade)\n  \n  @@unique([tenantId, profileId,
+    token])\n  @@index([tenantId, profileId])\n  @@index([tenantId, isActive])\n}\n\n//
+    =============================================================================\n//
+    SECTION 11: AUDIT TRAIL & COMPLIANCE\n// =============================================================================\n\nmodel
+    AuditLog {\n  auditId         String         @id @default(uuid())\n  tenantId
+    \       String\n  \n  // Event details\n  eventType       AuditEventType\n  actorProfileId
+    \ String?        // Who performed the action (null for system)\n  targetProfileId
+    String?        // Who was affected\n  resourceType    String?        // e.g.,
+    \"Transaction\", \"KYCVerification\"\n  resourceId      String?        // UUID
+    of the affected resource\n  \n  // Context\n  ipAddress       String?\n  userAgent
+    \      String?\n  deviceId        String?\n  sessionId       String?\n  \n  //
+    Data\n  previousValue   Json?          // Before state (for updates)\n  newValue
+    \       Json?          // After state\n  metadata        Json?          // Additional
+    context\n  \n  // Integrity\n  eventHash       String         // SHA-256 of event
+    data for tamper detection\n  timestamp       DateTime       @default(now()) @db.Timestamptz(3)\n
+    \ \n  @@index([tenantId, eventType, timestamp])\n  @@index([tenantId, actorProfileId,
+    timestamp])\n  @@index([tenantId, targetProfileId, timestamp])\n  @@index([tenantId,
+    resourceType, resourceId])\n  @@index([timestamp])\n}\n\n// =============================================================================\n//
+    SECTION 12: USER ORGANIZATION LINKS\n// =============================================================================\n\nmodel
+    UserOrganizationLink {\n  id                  String              @id @default(cuid())\n
+    \ tenantId            String\n  userProfileId       String\n  orgProfileId        String\n
+    \ role                String\n  addedAt             DateTime            @default(now())
+    @db.Timestamptz(3)\n  \n  userProfile         UserProfile         @relation(fields:
+    [userProfileId], references: [profileId], onDelete: Cascade)\n  organizationProfile
+    OrganizationProfile @relation(fields: [orgProfileId], references: [orgProfileId],
+    onDelete: Cascade)\n  \n  @@unique([tenantId, userProfileId, orgProfileId])\n
+    \ @@index([userProfileId])\n  @@index([orgProfileId])\n  @@index([tenantId])\n}\n\n//
+    =============================================================================\n//
+    SECTION 13: LICENSING & ECONOMIC ACTIVITIES\n// =============================================================================\n\nmodel
+    LicensedPartner {\n  partnerId               String        @id @default(uuid())\n
+    \ tenantId                String\n  companyName             String\n  jurisdictionCountryCode
+    String        @db.Char(2)\n  status                  PartnerStatus @default(PENDING)\n
+    \ createdAt               DateTime      @default(now()) @db.Timestamptz(3)\n  \n
+    \ country                 Country       @relation(fields: [jurisdictionCountryCode],
+    references: [countryCode])\n  applications            Application[]\n  partnerGrants
+    \          PartnerGrant[]\n  \n  @@unique([tenantId, companyName])\n  @@index([tenantId,
+    status])\n}\n\nmodel Application {\n  appId     String          @id @default(uuid())\n
+    \ tenantId  String\n  partnerId String\n  appName   String\n  createdAt DateTime
+    \       @default(now()) @db.Timestamptz(3)\n  \n  partner   LicensedPartner @relation(fields:
+    [partnerId], references: [partnerId], onDelete: Cascade)\n  licenses  License[]\n
+    \ \n  @@unique([tenantId, appName])\n  @@index([tenantId, partnerId])\n}\n\nmodel
+    License {\n  licenseId   String        @id @default(uuid())\n  tenantId    String\n
+    \ appId       String\n  licenseType String\n  status      LicenseStatus @default(ACTIVE)\n
+    \ expiryDate  DateTime?     @db.Timestamptz(3)\n  createdAt   DateTime      @default(now())
+    @db.Timestamptz(3)\n  \n  application Application   @relation(fields: [appId],
+    references: [appId], onDelete: Cascade)\n  credentials Credential[]\n  \n  @@index([tenantId,
+    appId])\n  @@index([tenantId, status])\n}\n\nmodel Credential {\n  credentialId
+    \    String           @id @default(uuid())\n  tenantId         String\n  licenseId
+    \       String\n  clientId         String\n  clientSecretHash String\n  status
+    \          CredentialStatus @default(ACTIVE)\n  createdAt        DateTime         @default(now())
+    @db.Timestamptz(3)\n  \n  license          License          @relation(fields:
+    [licenseId], references: [licenseId], onDelete: Cascade)\n  \n  @@unique([tenantId,
+    clientId])\n  @@index([tenantId, licenseId])\n}\n\nmodel PartnerGrant {\n  grantId
+    \          String          @id @default(uuid())\n  tenantId          String\n
+    \ partnerId         String\n  amount            Decimal         @db.Decimal(36,
+    9)\n  purpose           String?\n  issuanceTimestamp DateTime?       @db.Timestamptz(3)\n
+    \ onChainTxId       String?\n  \n  partner           LicensedPartner @relation(fields:
+    [partnerId], references: [partnerId], onDelete: Cascade)\n  \n  @@index([tenantId,
+    partnerId])\n}\n\nmodel Collateral {\n  collateralId      String           @id
+    @default(uuid())\n  onChainLoanId     String           @unique\n  documentReference
+    String\n  documentHash      String\n  documentSize      Int?\n  documentMime      String?\n
+    \ status            CollateralStatus @default(PLEDGED)\n  createdAt         DateTime
+    \        @default(now()) @db.Timestamptz(3)\n  \n  @@index([onChainLoanId])\n
+    \ @@index([status])\n}\n\n// =============================================================================\n//
+    SECTION 14: CQRS & EVENT HANDLING\n// =============================================================================\n\nmodel
+    OutboxCommand {\n  id          String       @id @default(cuid())\n  tenantId    String\n
+    \ service     String\n  commandType CommandType\n  requestId   String\n  payload
+    \    Json\n  status      OutboxStatus @default(PENDING)\n  attempts    Int          @default(0)\n
+    \ lockedBy    String?\n  lockedAt    DateTime?    @db.Timestamptz(3)\n  submittedAt
+    DateTime?    @db.Timestamptz(3)\n  fabricTxId  String?\n  commitBlock BigInt?\n
+    \ errorCode   String?\n  error       String?\n  createdAt   DateTime     @default(now())
+    @db.Timestamptz(3)\n  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)\n
+    \ \n  // NEW: Transaction Approval Support\n  transactionApprovals TransactionApproval[]\n
+    \ \n  @@unique([tenantId, requestId])\n  @@index([status, createdAt])\n  @@index([tenantId,
+    status])\n  @@index([fabricTxId])\n}\n\nmodel ProjectorState {\n  tenantId       String\n
+    \ projectorName  String\n  channel        String\n  lastBlock      BigInt\n  lastEventIndex
+    Int\n  updatedAt      DateTime @updatedAt @db.Timestamptz(3)\n  \n  @@id([tenantId,
+    projectorName, channel])\n}\n\nmodel HttpIdempotency {\n  tenantId        String\n
+    \ method          String\n  path            String\n  bodyHash        String\n
+    \ responseBody    Json\n  responseHeaders Json?\n  statusCode      Int\n  createdAt
+    \      DateTime  @default(now()) @db.Timestamptz(3)\n  ttlExpiresAt    DateTime?
+    @db.Timestamptz(3)\n  \n  @@id([tenantId, method, path, bodyHash])\n  @@index([ttlExpiresAt])\n}\n\nmodel
+    EventLog {\n  id           String   @id @default(cuid())\n  tenantId     String\n
+    \ fabricTxId   String\n  blockNumber  BigInt\n  channel      String\n  chaincode
+    \   String\n  eventName    String\n  eventVersion String\n  payload      Json\n
+    \ txTimestamp  DateTime @db.Timestamptz(3)\n  ingestedAt   DateTime @default(now())
+    @db.Timestamptz(3)\n  \n  @@index([tenantId, blockNumber])\n  @@index([fabricTxId])\n
+    \ @@index([tenantId, eventName])\n}\n\nmodel EventDLQ {\n  id          String
+    \  @id @default(cuid())\n  tenantId    String\n  reason      String\n  rawPayload
+    \ Json\n  fabricTxId  String?\n  blockNumber BigInt?\n  channel     String?\n
+    \ chaincode   String?\n  createdAt   DateTime @default(now()) @db.Timestamptz(3)\n
+    \ \n  @@index([tenantId, createdAt])\n}\n"
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: prisma-schema
+  namespace: backend-mainnet
