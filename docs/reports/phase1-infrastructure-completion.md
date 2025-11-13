@@ -158,7 +158,215 @@ requirepass: ${REDIS_PASSWORD}
 
 ---
 
-## 2. Database Schema Enhancements
+## 2. Multi-Server Architecture Decision
+
+### 2.1 Infrastructure Context
+
+The GX Protocol operates on a **4-node Kubernetes cluster** with geographically distributed servers:
+
+| Node | Server ID | Location | Role | Resources | Fabric Services |
+|------|-----------|----------|------|-----------|-----------------|
+| srv1089618 | 5.255.96.106 | Control Plane | Master | 16GB RAM, 8 vCPU | orderer0, orderer1, peer0-org1 |
+| srv1089624 | 88.99.245.67 | Control Plane | Master | 16GB RAM, 8 vCPU | orderer2, orderer3, peer1-org1 |
+| srv1092158 | 65.21.237.127 | Control Plane | Master | 16GB RAM, 8 vCPU | orderer4, peer0-org2, peer1-org2 |
+| srv1117946 | 89.117.71.129 | Worker | Agent | 16GB RAM, 8 vCPU | fabric-testnet |
+
+**Kubernetes Version**: K3s v1.33.5
+**Container Runtime**: containerd v1.7.27
+**Network Plugin**: Flannel v0.27.2
+**Total Capacity**: 64GB RAM, 32 vCPU across 4 nodes
+
+### 2.2 Architecture Decision: Co-Located Deployment
+
+**Decision**: Deploy backend services on the **SAME Kubernetes cluster** as Hyperledger Fabric, co-located with their corresponding Fabric environments.
+
+#### Deployment Mapping
+
+**Backend Mainnet** (`backend-mainnet` namespace):
+- **Target Nodes**: srv1089618, srv1089624, srv1092158 (3 control-plane nodes)
+- **Co-located With**: `fabric` namespace (mainnet: 5 orderers, 4 peers)
+- **Network**: Direct internal communication via Kubernetes service DNS
+- **Services**: svc-identity, svc-wallet, svc-payment, outbox-submitter, projector
+- **Resource Allocation**: ~20 pods, ~6 cores CPU, ~12Gi RAM, ~150Gi storage
+
+**Backend Testnet** (`backend-testnet` namespace):
+- **Target Node**: srv1117946 (1 worker node)
+- **Co-located With**: `fabric-testnet` namespace
+- **Network**: Isolated namespace with NetworkPolicy
+- **Services**: Same as mainnet with reduced replicas
+- **Resource Allocation**: ~8 pods, ~2 cores CPU, ~4Gi RAM, ~50Gi storage
+
+**Backend Devnet** (`backend-devnet` namespace):
+- **Target Node**: srv1117946 (1 worker node) - Planned
+- **Co-located With**: `fabric-devnet` namespace (when deployed)
+- **Network**: Isolated namespace with NetworkPolicy
+- **Services**: Single-replica development environment
+- **Resource Allocation**: ~6 pods, ~1 core CPU, ~2Gi RAM, ~30Gi storage
+
+### 2.3 Rationale for Co-Location
+
+**1. Ultra-Low Latency (<1ms)**
+- Fabric SDK → Chaincode: <1ms intra-cluster latency
+- Cross-datacenter latency: 50-200ms (unacceptable for write operations)
+- Critical for outbox-submitter worker submitting commands to Fabric
+
+**2. Network Efficiency**
+- Internal Kubernetes DNS: `orderer0.fabric.svc.cluster.local`
+- No egress costs, no public TLS handshakes
+- Fabric event stream: low-latency, high-throughput
+
+**3. Simplified Operations**
+- Single cluster to manage (kubectl, monitoring, backups)
+- Unified observability (Prometheus metrics, Grafana dashboards)
+- Consistent deployment patterns (Helm charts, GitOps)
+
+**4. Resource Optimization**
+- **Current Cluster Capacity**: 64GB RAM, 32 vCPU
+- **Current Fabric Usage**: ~38GB RAM, ~19 vCPU
+- **Available Capacity**: ~26GB RAM, ~13 vCPU (40% remaining)
+- Backend mainnet requires: ~12Gi RAM, ~6 vCPU (fits comfortably)
+
+**5. Security & Isolation**
+- Kubernetes NetworkPolicies enforce zero-trust between namespaces
+- `backend-mainnet` can ONLY communicate with `fabric` namespace
+- `backend-testnet` isolated from `backend-mainnet`
+- RBAC controls namespace-level access
+
+### 2.4 Network Connectivity Architecture
+
+**Intra-Cluster Communication**:
+```yaml
+# Outbox Submitter Worker → Fabric Chaincode
+fabric-sdk:
+  host: peer0-org1.fabric.svc.cluster.local
+  port: 7051
+  tls: true
+
+# Projector Worker ← Fabric Event Stream
+fabric-events:
+  host: peer0-org1.fabric.svc.cluster.local
+  port: 7053
+  protocol: grpc
+```
+
+**NetworkPolicy Configuration** (already in place):
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-fabric
+  namespace: backend-mainnet
+spec:
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: fabric
+    ports:
+    - protocol: TCP
+      port: 7050  # Orderer
+    - protocol: TCP
+      port: 7051  # Peer
+    - protocol: TCP
+      port: 7053  # Event stream
+    - protocol: TCP
+      port: 7054  # Fabric CA
+```
+
+### 2.5 Node Affinity Configuration
+
+Backend pods will use node affinity to schedule on appropriate nodes:
+
+**Backend Mainnet** (3 control-plane nodes):
+```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+  podAntiAffinity:  # Spread across nodes
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchLabels:
+            app: postgres
+        topologyKey: kubernetes.io/hostname
+```
+
+**Backend Testnet** (1 worker node):
+```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [srv1117946]
+```
+
+### 2.6 Alternative Architectures Considered
+
+**❌ Option 1: Single-Server Deployment**
+- Deploy backend on one control-plane node only
+- **Rejected**: Single point of failure, no HA, resource bottleneck
+
+**❌ Option 2: Active-Passive (Separate Datacenter)**
+- Deploy backend in separate datacenter, failover to secondary
+- **Rejected**: 50-200ms cross-datacenter latency unacceptable for write operations
+
+**❌ Option 3: Active-Active (Multi-Region)**
+- Backend replicas in multiple regions, nearest to Fabric peers
+- **Rejected**: Eventual consistency issues, complex coordination, egress costs
+
+**✅ Option 4: Co-Located on Same Cluster (SELECTED)**
+- Backend services co-located with Fabric on same Kubernetes cluster
+- **Advantages**: <1ms latency, simplified ops, resource efficiency, zero egress costs
+- **Tradeoffs**: Requires capacity planning to avoid resource contention
+
+### 2.7 Resource Allocation Summary
+
+| Environment | Namespace | Nodes | CPU Request | Memory Request | Storage | Services |
+|-------------|-----------|-------|-------------|----------------|---------|----------|
+| **Mainnet** | backend-mainnet | 3 control-plane | 6 cores | 12Gi | 150Gi | 20 pods |
+| **Testnet** | backend-testnet | 1 worker | 2 cores | 4Gi | 50Gi | 8 pods |
+| **Devnet** | backend-devnet | 1 worker | 1 core | 2Gi | 30Gi | 6 pods (planned) |
+| **Total** | | | **9 cores** | **18Gi** | **230Gi** | **34 pods** |
+
+**Cluster Capacity After Backend Deployment**:
+- CPU: 28 cores used / 32 cores total (88% utilization)
+- Memory: 56Gi used / 64Gi total (88% utilization)
+- Sufficient headroom for burst traffic and monitoring stack
+
+### 2.8 Benefits Realized
+
+1. **Performance**: <1ms Fabric SDK latency (vs 50-200ms cross-datacenter)
+2. **Cost**: Zero egress costs for backend ↔ Fabric communication
+3. **Operations**: Single kubectl context, unified monitoring
+4. **Security**: Kubernetes NetworkPolicies enforce zero-trust
+5. **Scalability**: Horizontal pod autoscaling within same cluster
+6. **Simplicity**: No VPN, no cross-datacenter coordination
+
+### 2.9 Future Scaling Considerations
+
+**When to add dedicated backend nodes**:
+- Mainnet backend CPU utilization consistently >70%
+- Memory pressure on control-plane nodes (swap usage)
+- Fabric block production impacted by backend workload
+
+**Scaling Path**:
+1. **Phase 1** (Current): Co-located backend on existing nodes
+2. **Phase 2**: Add 1-2 dedicated worker nodes for backend-mainnet if needed
+3. **Phase 3**: Separate backend cluster if traffic exceeds 10,000 TPS
+
+**Current Verdict**: Co-location is optimal for current and near-future scale (1,000-5,000 TPS).
+
+---
+
+## 3. Database Schema Enhancements
 
 ### 2.1 Prisma Schema v2.1
 
@@ -552,9 +760,267 @@ Can't resolve instance hostname.
 
 ---
 
-## 7. Next Steps (Phase 2)
+## 7. Multi-Server Co-Located Architecture
 
-### 7.1 Database Initialization
+### 7.1 Deployment Strategy Decision
+
+**Decision**: Deploy backend services on the **SAME Kubernetes cluster** as Hyperledger Fabric network, with namespace isolation for security and resource management.
+
+**Kubernetes Cluster**: 4-node K3s v1.33.5 cluster with existing Fabric deployment
+
+| Node | Role | Fabric Environment | Backend Environment | Resources |
+|------|------|-------------------|---------------------|-----------|
+| srv1089618 | control-plane | fabric (mainnet) | backend-mainnet | 16 CPU, 64GB RAM |
+| srv1089624 | control-plane | fabric (mainnet) | backend-mainnet | 16 CPU, 64GB RAM |
+| srv1092158 | control-plane | fabric (mainnet) | backend-mainnet | 16 CPU, 64GB RAM |
+| srv1117946 | worker | fabric-testnet | backend-testnet | 16 CPU, 64GB RAM |
+
+### 7.2 Rationale for Co-Located Architecture
+
+#### Performance Benefits
+1. **Ultra-Low Latency**: Backend → Fabric communication within same node (<1ms)
+   - No network hops between data centers
+   - Kubernetes internal DNS resolution (*.fabric.svc.cluster.local)
+   - Same-node pod communication via localhost when scheduled together
+
+2. **Network Efficiency**:
+   - No inter-datacenter bandwidth costs
+   - Reduced external network dependency
+   - Fabric SDK connects to local peer endpoints
+
+3. **Resource Optimization**:
+   - Cluster has ~40% remaining capacity (60% used by Fabric)
+   - backend-mainnet: ~20 pods, ~8 CPU cores, ~16Gi RAM, ~150Gi storage
+   - backend-testnet: ~8 pods, ~3 CPU cores, ~6Gi RAM, ~50Gi storage
+   - Total backend footprint: 11 cores, 22Gi RAM (within 40% available)
+
+#### Operational Benefits
+1. **Unified Management**:
+   - Single kubectl context for both Fabric and backend
+   - Consistent monitoring stack (Prometheus, Grafana)
+   - Centralized logging
+
+2. **Simplified Deployment**:
+   - No cross-cluster networking setup
+   - No VPN/VPC peering required
+   - Kubernetes NetworkPolicies handle isolation
+
+3. **Cost Efficiency**:
+   - No additional infrastructure provisioning
+   - Shared monitoring and logging infrastructure
+   - Reduced operational overhead
+
+### 7.3 Namespace Architecture
+
+**Mainnet Environment** (Production):
+```
+Nodes: srv1089618, srv1089624, srv1092158
+├── fabric (namespace)
+│   ├── orderer0-org0, orderer1-org0, orderer2-org0, orderer3-org0, orderer4-org0
+│   ├── peer0-org1, peer1-org1, peer0-org2, peer1-org2
+│   └── couchdb-org1, couchdb-org2
+└── backend-mainnet (namespace)
+    ├── postgres (3 replicas)
+    ├── redis (3 replicas)
+    ├── outbox-submitter (2 replicas)
+    ├── projector (2 replicas)
+    ├── svc-identity (3 replicas)
+    ├── svc-wallet (3 replicas)
+    ├── svc-tokenomics (3 replicas)
+    └── api-gateway (3 replicas)
+```
+
+**Testnet Environment**:
+```
+Node: srv1117946
+├── fabric-testnet (namespace)
+│   ├── orderer0-org0
+│   ├── peer0-org1, peer0-org2
+│   └── couchdb-org1, couchdb-org2
+└── backend-testnet (namespace)
+    ├── postgres (1 replica)
+    ├── redis (1 replica)
+    ├── outbox-submitter (1 replica)
+    ├── projector (1 replica)
+    ├── svc-identity (1 replica)
+    ├── svc-wallet (1 replica)
+    └── svc-tokenomics (1 replica)
+```
+
+**Devnet Environment** (Planned):
+```
+Node: srv1117946 (shared with testnet)
+├── fabric-devnet (namespace - to be created)
+│   └── [Minimal Fabric setup]
+└── backend-devnet (namespace)
+    └── [Minimal backend setup]
+```
+
+### 7.4 Network Connectivity
+
+#### Fabric SDK Connection Pattern
+```typescript
+// Backend services connect to Fabric via Kubernetes internal DNS
+const fabricConnection = {
+  orderers: [
+    'orderer0-org0.fabric.svc.cluster.local:7050',
+    'orderer1-org0.fabric.svc.cluster.local:7050'
+  ],
+  peers: [
+    'peer0-org1.fabric.svc.cluster.local:7051',
+    'peer0-org2.fabric.svc.cluster.local:7051'
+  ]
+};
+```
+
+#### NetworkPolicy Configuration
+```yaml
+# Allow backend-mainnet → fabric communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fabric-egress
+  namespace: backend-mainnet
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: fabric
+    ports:
+    - protocol: TCP
+      port: 7050  # Orderer
+    - protocol: TCP
+      port: 7051  # Peer
+    - protocol: TCP
+      port: 7054  # CA
+```
+
+### 7.5 Node Affinity and Scheduling
+
+#### Mainnet Services (Control-Plane Nodes)
+```yaml
+# backend-mainnet services scheduled on control-plane nodes
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchLabels:
+            app: postgres
+        topologyKey: kubernetes.io/hostname
+```
+
+#### Testnet Services (Worker Node)
+```yaml
+# backend-testnet services scheduled on srv1117946
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: [srv1117946]
+```
+
+### 7.6 Resource Allocation
+
+#### Current Cluster Capacity
+```
+Total Cluster Resources (4 nodes):
+- CPU: 64 cores (16 per node)
+- Memory: 256Gi (64Gi per node)
+- Storage: ~2Ti local-path
+
+Fabric Usage (Existing):
+- CPU: ~35 cores (55%)
+- Memory: ~160Gi (62%)
+- Pods: ~35 pods
+
+Available for Backend:
+- CPU: ~29 cores (45%)
+- Memory: ~96Gi (38%)
+- Headroom: Sufficient for backend deployment
+```
+
+#### Backend Resource Plan
+```
+backend-mainnet (across 3 control-plane nodes):
+- PostgreSQL: 3 cores, 6Gi RAM, 300Gi storage
+- Redis: 1.5 cores, 3Gi RAM, 60Gi storage
+- Workers: 2 cores, 4Gi RAM
+- API Services: 4 cores, 8Gi RAM
+- Total: ~11 cores, ~22Gi RAM, ~400Gi storage
+
+backend-testnet (on srv1117946):
+- PostgreSQL: 1 core, 2Gi RAM, 100Gi storage
+- Redis: 0.5 core, 1Gi RAM, 20Gi storage
+- Workers: 1 core, 2Gi RAM
+- API Services: 1 core, 2Gi RAM
+- Total: ~3.5 cores, ~7Gi RAM, ~150Gi storage
+```
+
+### 7.7 Alternative Architectures Considered
+
+#### ❌ Option 1: Separate Backend Cluster
+- **Pros**: Complete isolation, independent scaling
+- **Cons**: Higher latency (50-200ms cross-datacenter), inter-DC bandwidth costs, complex networking
+- **Verdict**: Rejected due to latency requirements for CQRS projector
+
+#### ❌ Option 2: Active-Passive Multi-Cluster
+- **Pros**: Disaster recovery, geographic redundancy
+- **Cons**: Blockchain state synchronization complexity, underutilized standby cluster
+- **Verdict**: Deferred to Phase 3 (DR planning)
+
+#### ✅ Option 3: Co-Located with Namespace Isolation (Selected)
+- **Pros**: <1ms latency, resource efficiency, operational simplicity
+- **Cons**: Shared fate (cluster failure impacts both), requires namespace security
+- **Mitigation**: NetworkPolicies, ResourceQuotas, PodDisruptionBudgets
+
+### 7.8 Security Isolation
+
+Despite co-location, backend and Fabric remain isolated via:
+
+1. **Namespace Boundaries**: backend-mainnet ≠ fabric
+2. **NetworkPolicies**: Default deny + explicit allow rules
+3. **RBAC**: Separate ServiceAccounts, Roles, RoleBindings
+4. **Resource Quotas**: Prevent resource exhaustion attacks
+5. **Pod Security Standards**: Restricted execution policies
+6. **Secret Isolation**: Secrets not shared across namespaces
+
+### 7.9 Implementation Status
+
+**Phase 1 (Completed)**:
+- ✅ backend-mainnet namespace created
+- ✅ backend-testnet namespace created
+- ✅ backend-devnet namespace created
+- ✅ PostgreSQL deployed in backend-mainnet
+- ✅ Redis deployed in backend-mainnet
+- ✅ NetworkPolicies configured (default deny + DNS/Fabric egress)
+
+**Phase 2 (Next)**:
+- [ ] Configure node affinity labels
+- [ ] Deploy PostgreSQL/Redis in backend-testnet
+- [ ] Create backend → fabric NetworkPolicies
+- [ ] Deploy Fabric SDK integration (core-fabric)
+- [ ] Deploy CQRS workers
+- [ ] Deploy API services
+
+---
+
+## 8. Next Steps (Phase 2)
+
+### 8.1 Database Initialization
 
 1. **Apply Prisma Migrations**
    - Fix port-forward connectivity
@@ -568,7 +1034,7 @@ Can't resolve instance hostname.
    - System configuration defaults
    - Feature flags (all disabled initially)
 
-### 7.2 Hyperledger Fabric Integration
+### 8.2 Hyperledger Fabric Integration
 
 1. **Fabric SDK Setup**
    - Install Fabric SDK dependencies (`@hyperledger/fabric-gateway`)
@@ -582,7 +1048,7 @@ Can't resolve instance hostname.
    - Error handling and retries
    - Event listener setup
 
-### 7.3 CQRS Workers
+### 8.3 CQRS Workers
 
 1. **Outbox Submitter Worker**
    - Poll `OutboxCommand` table for PENDING commands
@@ -597,7 +1063,7 @@ Can't resolve instance hostname.
    - Update read models (UserProfile, Wallet, Transaction)
    - Track projection state (last block, last event index)
 
-### 7.4 Infrastructure Enhancements
+### 8.4 Infrastructure Enhancements
 
 1. **PostgreSQL Streaming Replication**
    - Configure WAL archiving
@@ -624,9 +1090,9 @@ Can't resolve instance hostname.
 
 ---
 
-## 8. Lessons Learned
+## 9. Lessons Learned
 
-### 8.1 Technical Insights
+### 9.1 Technical Insights
 
 1. **Kubernetes Security Policies**: Non-root container policies prevent root initContainers. Solution: Use fsGroup for volume ownership management.
 
@@ -638,7 +1104,7 @@ Can't resolve instance hostname.
 
 5. **PVC Binding**: local-path StorageClass PVCs bind instantly, but other storage classes may have delays. Factor this into StatefulSet startup times.
 
-### 8.2 Process Improvements
+### 9.2 Process Improvements
 
 1. **Git Workflow**: Namespace conflicts occur when branch names collide (e.g., `dev` exists, can't create `dev/phase1`). Use flat naming: `phase1-infrastructure` instead of `dev/phase1-infrastructure`.
 
@@ -650,7 +1116,7 @@ Can't resolve instance hostname.
 
 ---
 
-## 9. Conclusion
+## 10. Conclusion
 
 Phase 1 Infrastructure Foundation is successfully completed with all core objectives met:
 
