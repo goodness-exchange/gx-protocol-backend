@@ -169,7 +169,7 @@ async function loadConfigFromEnvironment(): Promise<FabricConfig> {
         process.env[ENV_VARS.GRPC_KEEPALIVE] === 'true' ||
         DEFAULTS.grpcKeepAlive,
       keepAliveTimeout: process.env[ENV_VARS.GRPC_KEEPALIVE_TIMEOUT]
-        ? parseInt(process.env[ENV_VARS.GRPC_KEEPALIVE_TIMEOUT], 10)
+        ? parseInt(process.env[ENV_VARS.GRPC_KEEPALIVE_TIMEOUT]!, 10)
         : DEFAULTS.grpcKeepAliveTimeout,
     },
   };
