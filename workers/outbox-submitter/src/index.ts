@@ -471,6 +471,7 @@ class OutboxSubmitter {
     payload: Prisma.JsonObject
   ): { contractName: string; functionName: string; args: string[] } {
     switch (commandType) {
+      // ========== IdentityContract ==========
       case 'CREATE_USER':
         return {
           contractName: 'IdentityContract',
@@ -482,6 +483,7 @@ class OutboxSubmitter {
           ],
         };
 
+      // ========== TokenomicsContract ==========
       case 'TRANSFER_TOKENS':
         return {
           contractName: 'TokenomicsContract',
@@ -490,10 +492,204 @@ class OutboxSubmitter {
             payload.fromUserId as string,
             payload.toUserId as string,
             payload.amount as string,
+            payload.remark as string || '',
           ],
         };
 
-      // Add more command mappings here...
+      case 'DISTRIBUTE_GENESIS':
+        return {
+          contractName: 'TokenomicsContract',
+          functionName: 'DistributeGenesis',
+          args: [
+            payload.userId as string,
+            payload.userType as string,
+            payload.countryCode as string,
+          ],
+        };
+
+      case 'FREEZE_WALLET':
+        return {
+          contractName: 'TokenomicsContract',
+          functionName: 'FreezeWallet',
+          args: [
+            payload.userId as string,
+            payload.reason as string,
+          ],
+        };
+
+      case 'UNFREEZE_WALLET':
+        return {
+          contractName: 'TokenomicsContract',
+          functionName: 'UnfreezeWallet',
+          args: [payload.userId as string],
+        };
+
+      // ========== OrganizationContract ==========
+      case 'PROPOSE_ORGANIZATION':
+        return {
+          contractName: 'OrganizationContract',
+          functionName: 'ProposeOrganization',
+          args: [
+            payload.orgId as string,
+            payload.orgName as string,
+            payload.orgType as string,
+            JSON.stringify(payload.stakeholderIds),
+          ],
+        };
+
+      case 'ENDORSE_MEMBERSHIP':
+        return {
+          contractName: 'OrganizationContract',
+          functionName: 'EndorseMembership',
+          args: [payload.orgId as string],
+        };
+
+      case 'ACTIVATE_ORGANIZATION':
+        return {
+          contractName: 'OrganizationContract',
+          functionName: 'ActivateOrganization',
+          args: [payload.orgId as string],
+        };
+
+      case 'DEFINE_AUTH_RULE':
+        return {
+          contractName: 'OrganizationContract',
+          functionName: 'DefineAuthRule',
+          args: [
+            payload.orgId as string,
+            JSON.stringify(payload.rule),
+          ],
+        };
+
+      case 'INITIATE_MULTISIG_TX':
+        return {
+          contractName: 'OrganizationContract',
+          functionName: 'InitiateMultiSigTx',
+          args: [
+            payload.orgId as string,
+            payload.toUserId as string,
+            payload.amount as string,
+            payload.remark as string || '',
+          ],
+        };
+
+      case 'APPROVE_MULTISIG_TX':
+        return {
+          contractName: 'OrganizationContract',
+          functionName: 'ApproveMultiSigTx',
+          args: [payload.pendingTxId as string],
+        };
+
+      // ========== LoanPoolContract ==========
+      case 'APPLY_FOR_LOAN':
+        return {
+          contractName: 'LoanPoolContract',
+          functionName: 'ApplyForLoan',
+          args: [
+            payload.borrowerId as string,
+            payload.amount as string,
+            payload.collateralHash as string,
+          ],
+        };
+
+      case 'APPROVE_LOAN':
+        return {
+          contractName: 'LoanPoolContract',
+          functionName: 'ApproveLoan',
+          args: [payload.loanId as string],
+        };
+
+      // ========== GovernanceContract ==========
+      case 'SUBMIT_PROPOSAL':
+        return {
+          contractName: 'GovernanceContract',
+          functionName: 'SubmitProposal',
+          args: [
+            payload.targetParam as string,
+            payload.newValue as string,
+          ],
+        };
+
+      case 'VOTE_ON_PROPOSAL':
+        return {
+          contractName: 'GovernanceContract',
+          functionName: 'VoteOnProposal',
+          args: [
+            payload.proposalId as string,
+            String(payload.vote),
+          ],
+        };
+
+      case 'EXECUTE_PROPOSAL':
+        return {
+          contractName: 'GovernanceContract',
+          functionName: 'ExecuteProposal',
+          args: [payload.proposalId as string],
+        };
+
+      // ========== AdminContract ==========
+      case 'BOOTSTRAP_SYSTEM':
+        return {
+          contractName: 'AdminContract',
+          functionName: 'BootstrapSystem',
+          args: [],
+        };
+
+      case 'INITIALIZE_COUNTRY_DATA':
+        return {
+          contractName: 'AdminContract',
+          functionName: 'InitializeCountryData',
+          args: [JSON.stringify(payload.countriesData)],
+        };
+
+      case 'UPDATE_SYSTEM_PARAMETER':
+        return {
+          contractName: 'AdminContract',
+          functionName: 'UpdateSystemParameter',
+          args: [
+            payload.paramId as string,
+            payload.newValue as string,
+          ],
+        };
+
+      case 'PAUSE_SYSTEM':
+        return {
+          contractName: 'AdminContract',
+          functionName: 'PauseSystem',
+          args: [payload.reason as string],
+        };
+
+      case 'RESUME_SYSTEM':
+        return {
+          contractName: 'AdminContract',
+          functionName: 'ResumeSystem',
+          args: [],
+        };
+
+      case 'APPOINT_ADMIN':
+        return {
+          contractName: 'AdminContract',
+          functionName: 'AppointAdmin',
+          args: [payload.newAdminId as string],
+        };
+
+      case 'ACTIVATE_TREASURY':
+        return {
+          contractName: 'AdminContract',
+          functionName: 'ActivateTreasuryAccount',
+          args: [payload.countryCode as string],
+        };
+
+      // ========== TaxAndFeeContract ==========
+      case 'APPLY_VELOCITY_TAX':
+        return {
+          contractName: 'TaxAndFeeContract',
+          functionName: 'ApplyVelocityTax',
+          args: [
+            payload.accountId as string,
+            String(payload.taxRateBps),
+          ],
+        };
 
       default:
         throw new Error(`Unknown command type: ${commandType}`);
