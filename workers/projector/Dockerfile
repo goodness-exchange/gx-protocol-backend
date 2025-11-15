@@ -62,9 +62,7 @@ COPY --from=builder /app/db/prisma ./db/prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
-# Copy Fabric connection profiles and crypto materials
-COPY --from=builder /app/workers/projector/connection-profile.yaml ./workers/projector/
-COPY --from=builder /app/workers/projector/crypto ./workers/projector/crypto
+# Fabric connection profiles and crypto materials will be mounted via Kubernetes ConfigMaps/Secrets
 
 # Create non-root user
 RUN (addgroup -g 1001 gxprotocol || true) && \
