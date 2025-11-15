@@ -42,8 +42,44 @@ enum OutboxStatus {
 }
 
 enum CommandType {
+  // IdentityContract
   CREATE_USER
+
+  // TokenomicsContract
   TRANSFER_TOKENS
+  DISTRIBUTE_GENESIS
+  FREEZE_WALLET
+  UNFREEZE_WALLET
+
+  // OrganizationContract
+  PROPOSE_ORGANIZATION
+  ENDORSE_MEMBERSHIP
+  ACTIVATE_ORGANIZATION
+  DEFINE_AUTH_RULE
+  INITIATE_MULTISIG_TX
+  APPROVE_MULTISIG_TX
+  EXECUTE_MULTISIG_TX
+
+  // LoanPoolContract
+  APPLY_FOR_LOAN
+  APPROVE_LOAN
+
+  // GovernanceContract
+  SUBMIT_PROPOSAL
+  CAST_VOTE
+  EXECUTE_PROPOSAL
+
+  // AdminContract
+  BOOTSTRAP_SYSTEM
+  INITIALIZE_COUNTRY
+  UPDATE_SYSTEM_PARAMETER
+  PAUSE_SYSTEM
+  RESUME_SYSTEM
+  APPOINT_ADMIN
+  ACTIVATE_TREASURY
+
+  // TaxAndFeeContract
+  APPLY_VELOCITY_TAX
 }
 
 enum UserProfileStatus {
@@ -1129,6 +1165,90 @@ model EventDLQ {
   channel     String?
   chaincode   String?
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
-  
+
   @@index([tenantId, createdAt])
+}
+
+// ========== Phase 3 Models (Microservices) ==========
+
+model Organization {
+  orgId         String    @id
+  tenantId      String
+  orgName       String
+  orgType       String
+  status        String    // PROPOSED, ACTIVE, SUSPENDED
+  stakeholders  Json      // Array of stakeholder IDs
+  endorsers     Json?     // Array of endorser IDs
+  authRules     Json?     // Authorization rules
+  activatedAt   DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model MultiSigTransaction {
+  txId                 String    @id
+  tenantId             String
+  orgId                String
+  proposerId           String
+  operation            String
+  params               Json
+  status               String    // PENDING, EXECUTED, REJECTED
+  requiredSignatures   Int
+  currentSignatures    Int       @default(0)
+  approvers            Json?     // Array of approver IDs
+  executedAt           DateTime? @db.Timestamptz(3)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId, orgId])
+  @@index([status])
+}
+
+model Loan {
+  loanId      String    @id
+  tenantId    String
+  borrowerId  String
+  amount      Float
+  purpose     String
+  status      String    // PENDING_APPROVAL, ACTIVE, REPAID, DEFAULTED
+  approvedBy  String?
+  approvedAt  DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId, borrowerId])
+  @@index([status])
+}
+
+model Proposal {
+  proposalId    String    @id
+  tenantId      String
+  title         String
+  description   String
+  proposerId    String
+  proposalType  String
+  status        String    // ACTIVE, EXECUTED, REJECTED
+  votesFor      Int       @default(0)
+  votesAgainst  Int       @default(0)
+  voters        Json?     // Array of voter IDs
+  executedAt    DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([proposerId])
+}
+
+model SystemParameter {
+  tenantId   String
+  paramKey   String
+  paramValue String
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@id([tenantId, paramKey])
+  @@index([tenantId])
 }
