@@ -1208,19 +1208,22 @@ model MultiSigTransaction {
 }
 
 model Loan {
-  loanId      String    @id
-  tenantId    String
-  borrowerId  String
-  amount      Float
-  purpose     String
-  status      String    // PENDING_APPROVAL, ACTIVE, REPAID, DEFAULTED
-  approvedBy  String?
-  approvedAt  DateTime? @db.Timestamptz(3)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  loanId         String    @id
+  tenantId       String
+  borrowerId     String
+  amount         Float
+  collateralHash String?
+  appliedAt      DateTime  @default(now()) @db.Timestamptz(3)
+  purpose        String
+  status         String    // PENDING_APPROVAL, ACTIVE, REPAID, DEFAULTED
+  approvedBy     String?
+  approvedAt     DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([tenantId, borrowerId])
   @@index([status])
+  @@index([appliedAt])
 }
 
 model Proposal {

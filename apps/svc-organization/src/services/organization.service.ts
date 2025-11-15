@@ -333,7 +333,7 @@ class OrganizationService {
    * CQRS Read Operation: Queries projected PendingTransaction table
    */
   async getPendingTransactions(orgId: string): Promise<PendingTransactionDTO[]> {
-    const pendingTxs = await db.pendingTransaction.findMany({
+    const pendingTxs = await db.multiSigTransaction.findMany({
       where: {
         orgId,
         status: 'Pending',
@@ -341,7 +341,7 @@ class OrganizationService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return pendingTxs.map((tx) => ({
+    return pendingTxs.map((tx: any) => ({
       txId: tx.txId,
       orgId: tx.orgId,
       toId: tx.toId,

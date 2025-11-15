@@ -54,7 +54,7 @@ class GovernanceService {
         tenantId: 'default',
         service: 'svc-governance',
         requestId: `vote-${proposalId}-${voterId}-${Date.now()}`,
-        commandType: 'VOTE_ON_PROPOSAL',
+        commandType: 'CAST_VOTE',
         payload: {
           proposalId,
           vote,
