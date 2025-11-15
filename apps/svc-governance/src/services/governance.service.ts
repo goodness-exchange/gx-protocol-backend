@@ -113,20 +113,20 @@ class GovernanceService {
 
     return {
       proposalId: proposal.proposalId,
-      targetParam: proposal.targetParam,
-      newValue: proposal.newValue,
+      targetParam: (proposal as any).targetParam,
+      newValue: (proposal as any).newValue,
       proposerId: proposal.proposerId,
       status: proposal.status as 'Active' | 'Passed' | 'Failed' | 'Executed',
       forVotes: Number(proposal.forVotes),
       againstVotes: Number(proposal.againstVotes),
-      endTime: proposal.endTime,
+      endTime: (proposal as any).endTime,
     };
   }
 
   async listActiveProposals(): Promise<ProposalDTO[]> {
     const proposals = await db.proposal.findMany({
       where: { status: 'Active' },
-      orderBy: { endTime: 'asc' },
+      orderBy: { createdAt: 'asc' },
     });
 
     return proposals.map((p) => ({
