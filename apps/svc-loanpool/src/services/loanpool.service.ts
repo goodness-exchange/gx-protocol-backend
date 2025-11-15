@@ -145,10 +145,10 @@ class LoanPoolService {
       borrowerId: loan.borrowerId,
       amount: Number(loan.amount),
       status: loan.status as 'PendingApproval' | 'Active' | 'Defaulted' | 'Paid',
-      collateralHash: loan.collateralHash,
+      collateralHash: loan.collateralHash || '',
       appliedAt: loan.appliedAt,
       approvedAt: loan.approvedAt || undefined,
-    }));
+    })) as any;
   }
 
   /**
@@ -170,7 +170,7 @@ class LoanPoolService {
       borrowerId: loan.borrowerId,
       amount: Number(loan.amount),
       status: loan.status as 'PendingApproval' | 'Active' | 'Defaulted' | 'Paid',
-      collateralHash: loan.collateralHash,
+      collateralHash: loan.collateralHash || '',
       appliedAt: loan.appliedAt,
       approvedAt: loan.approvedAt || undefined,
     };

@@ -117,8 +117,8 @@ class GovernanceService {
       newValue: (proposal as any).newValue,
       proposerId: proposal.proposerId,
       status: proposal.status as 'Active' | 'Passed' | 'Failed' | 'Executed',
-      forVotes: Number(proposal.forVotes),
-      againstVotes: Number(proposal.againstVotes),
+      forVotes: Number(proposal.votesFor),
+      againstVotes: Number(proposal.votesAgainst),
       endTime: (proposal as any).endTime,
     };
   }
@@ -131,13 +131,13 @@ class GovernanceService {
 
     return proposals.map((p) => ({
       proposalId: p.proposalId,
-      targetParam: p.targetParam,
-      newValue: p.newValue,
+      targetParam: (p as any).targetParam,
+      newValue: (p as any).newValue,
       proposerId: p.proposerId,
       status: p.status as 'Active' | 'Passed' | 'Failed' | 'Executed',
-      forVotes: Number(p.forVotes),
-      againstVotes: Number(p.againstVotes),
-      endTime: p.endTime,
+      forVotes: Number(p.votesFor),
+      againstVotes: Number(p.votesAgainst),
+      endTime: (p as any).endTime,
     }));
   }
 }

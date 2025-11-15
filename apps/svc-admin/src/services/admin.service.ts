@@ -1,4 +1,3 @@
-import { logger } from '@gx/core-logger';
 import { db } from '@gx/core-db';
 import type {
   InitializeCountryDataRequestDTO,
@@ -46,7 +45,7 @@ class AdminService {
         service: 'svc-admin',
         requestId: `update-param-${data.paramId}-${Date.now()}`,
         commandType: 'UPDATE_SYSTEM_PARAMETER',
-        payload: data,
+        payload: data as any,
         status: 'PENDING',
         attempts: 0,
       },
@@ -61,7 +60,7 @@ class AdminService {
         service: 'svc-admin',
         requestId: `pause-${Date.now()}`,
         commandType: 'PAUSE_SYSTEM',
-        payload: data,
+        payload: data as any,
         status: 'PENDING',
         attempts: 0,
       },
@@ -91,7 +90,7 @@ class AdminService {
         service: 'svc-admin',
         requestId: `appoint-admin-${data.newAdminId}-${Date.now()}`,
         commandType: 'APPOINT_ADMIN',
-        payload: data,
+        payload: data as any,
         status: 'PENDING',
         attempts: 0,
       },
@@ -106,7 +105,7 @@ class AdminService {
         service: 'svc-admin',
         requestId: `activate-treasury-${data.countryCode}-${Date.now()}`,
         commandType: 'ACTIVATE_TREASURY',
-        payload: data,
+        payload: data as any,
         status: 'PENDING',
         attempts: 0,
       },
@@ -115,29 +114,33 @@ class AdminService {
   }
 
   async getSystemStatus() {
-    const status = await db.systemStatus.findFirst();
+    const status = await db.systemParameter.findUnique({
+      where: { tenantId_paramKey: { tenantId: 'default', paramKey: 'SYSTEM_STATUS' } }
+    });
     if (!status) throw new Error('System status not found');
     return status;
   }
 
-  async getSystemParameter(paramId: string) {
-    const param = await db.systemParameter.findUnique({ where: { paramId } });
+  async getSystemParameter(paramKey: string) {
+    const param = await db.systemParameter.findUnique({
+      where: { tenantId_paramKey: { tenantId: 'default', paramKey } }
+    });
     if (!param) throw new Error('System parameter not found');
     return param;
   }
 
   async getCountryStats(countryCode: string) {
-    const stats = await db.countryStats.findUnique({ where: { countryCode } });
+    const stats = await db.country.findUnique({ where: { countryCode } });
     if (!stats) throw new Error('Country stats not found');
     return stats;
   }
 
   async listAllCountries() {
-    return db.country.findMany({ orderBy: { code: 'asc' } });
+    return db.country.findMany({ orderBy: { countryCode: 'asc' } });
   }
 
   async getGlobalCounters() {
-    const counters = await db.globalCounters.findFirst();
+    const counters = await db.systemParameter.findFirst();
     if (!counters) throw new Error('Global counters not found');
     return counters;
   }
