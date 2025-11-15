@@ -226,7 +226,7 @@ class TokenomicsService {
       remark: tx.remark,
       timestamp: tx.timestamp,
       blockNumber: tx.blockNumber,
-    }));
+    })) as any;
   }
 
   /**
