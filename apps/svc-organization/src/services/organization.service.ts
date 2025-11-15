@@ -198,7 +198,7 @@ class OrganizationService {
         payload: {
           orgId,
           rule,
-        },
+        } as any,
         status: 'PENDING',
         attempts: 0,
       },
@@ -312,18 +312,19 @@ class OrganizationService {
       throw new Error('Organization not found');
     }
 
+    const org = organization as any;
     return {
-      orgId: organization.orgId,
-      orgName: organization.orgName,
-      accountType: organization.accountType as 'BUSINESS' | 'NGO' | 'GOVERNMENT',
-      status: organization.status as 'PendingEndorsement' | 'Verified' | 'Locked',
-      stakeholders: organization.stakeholders as string[],
-      endorsements: organization.endorsements as Record<string, boolean>,
-      rules: organization.rules as any[],
-      createdAt: organization.createdAt,
-      velocityTaxTimerStart: organization.velocityTaxTimerStart || undefined,
-      velocityTaxLastCheck: organization.velocityTaxLastCheck || undefined,
-      velocityTaxExempt: organization.velocityTaxExempt || undefined,
+      orgId: org.orgId,
+      orgName: org.orgName,
+      accountType: org.accountType as 'BUSINESS' | 'NGO' | 'GOVERNMENT',
+      status: org.status as 'PendingEndorsement' | 'Verified' | 'Locked',
+      stakeholders: org.stakeholders as string[],
+      endorsements: org.endorsements as Record<string, boolean>,
+      rules: org.rules as any[],
+      createdAt: org.createdAt,
+      velocityTaxTimerStart: org.velocityTaxTimerStart || undefined,
+      velocityTaxLastCheck: org.velocityTaxLastCheck || undefined,
+      velocityTaxExempt: org.velocityTaxExempt || undefined,
     };
   }
 

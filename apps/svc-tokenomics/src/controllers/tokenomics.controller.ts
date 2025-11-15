@@ -5,7 +5,6 @@ import type {
   AuthenticatedRequest,
   TransferRequestDTO,
   GenesisDistributionRequestDTO,
-  FreezeWalletRequestDTO,
 } from '../types/dtos';
 
 class TokenomicsController {
