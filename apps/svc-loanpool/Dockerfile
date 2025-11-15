@@ -63,8 +63,8 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Create non-root user
-RUN addgroup -g 1000 gxprotocol && \
-    adduser -D -u 1000 -G gxprotocol gxprotocol && \
+RUN (addgroup -g 1001 gxprotocol || true) && \
+    (adduser -D -u 1001 -G gxprotocol gxprotocol || true) && \
     chown -R gxprotocol:gxprotocol /app
 
 USER gxprotocol

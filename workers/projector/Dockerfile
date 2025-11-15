@@ -67,8 +67,8 @@ COPY --from=builder /app/workers/projector/connection-profile.yaml ./workers/pro
 COPY --from=builder /app/workers/projector/crypto ./workers/projector/crypto
 
 # Create non-root user
-RUN addgroup -g 1000 gxprotocol && \
-    adduser -D -u 1000 -G gxprotocol gxprotocol && \
+RUN (addgroup -g 1001 gxprotocol || true) && \
+    (adduser -D -u 1001 -G gxprotocol gxprotocol || true) && \
     chown -R gxprotocol:gxprotocol /app
 
 USER gxprotocol
