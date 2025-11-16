@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gx-protocol.com/schemas/transfer-event.v1.json",
+  "title": "TransferEvent v1.0",
+  "description": "Emitted when GX tokens are transferred between two user wallets. Includes fee calculation details for both sender and receiver.",
+  "type": "object",
+
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this event instance"
+    },
+    "eventName": {
+      "type": "string",
+      "const": "TransferEvent",
+      "description": "Event type identifier"
+    },
+    "eventVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version of this event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the event occurred"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fabric block number where this transaction was committed"
+    },
+    "txId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric transaction ID"
+    },
+    "chaincodeName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the chaincode that emitted this event"
+    },
+    "channelName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric channel name"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Transfer transaction data from chaincode",
+      "properties": {
+        "fromID": {
+          "type": "string",
+          "minLength": 1,
+          "description": "User ID of the sender"
+        },
+        "toID": {
+          "type": "string",
+          "minLength": 1,
+          "description": "User ID of the receiver"
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Amount transferred in Qirat (before fees)"
+        },
+        "senderFee": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Transaction fee paid by sender in Qirat"
+        },
+        "receiverFee": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Transaction fee paid by receiver in Qirat"
+        },
+        "totalFee": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total fee (senderFee + receiverFee) in Qirat"
+        },
+        "netReceived": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Net amount received after deducting receiver fee (amount - receiverFee) in Qirat"
+        }
+      },
+      "required": [
+        "fromID",
+        "toID",
+        "amount",
+        "senderFee",
+        "receiverFee",
+        "totalFee",
+        "netReceived"
+      ],
+      "additionalProperties": false
+    }
+  },
+
+  "required": [
+    "eventId",
+    "eventName",
+    "eventVersion",
+    "timestamp",
+    "blockNumber",
+    "txId",
+    "chaincodeName",
+    "channelName",
+    "payload"
+  ],
+
+  "additionalProperties": false
+}

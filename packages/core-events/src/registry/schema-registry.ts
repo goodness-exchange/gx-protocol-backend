@@ -14,6 +14,20 @@ import { SchemaMetadata } from '../types/base';
 import userCreatedV1 from '../schemas/user-created.v1.json';
 import walletCreatedV1 from '../schemas/wallet-created.v1.json';
 import transferCompletedV1 from '../schemas/transfer-completed.v1.json';
+import relationshipRequestedV1 from '../schemas/relationship-requested.v1.json';
+import relationshipConfirmedV1 from '../schemas/relationship-confirmed.v1.json';
+import genesisDistributionEventV1 from '../schemas/genesis-distribution-event.v1.json';
+import treasuryAllocationEventV1 from '../schemas/treasury-allocation-event.v1.json';
+import transferEventV1 from '../schemas/transfer-event.v1.json';
+import orgTransferEventV1 from '../schemas/org-transfer-event.v1.json';
+import internalTransferEventV1 from '../schemas/internal-transfer-event.v1.json';
+import velocityTaxAppliedV1 from '../schemas/velocity-tax-applied.v1.json';
+import orgTxApprovedV1 from '../schemas/org-tx-approved.v1.json';
+import orgTxExecutedV1 from '../schemas/org-tx-executed.v1.json';
+import orgTxExecutionFailedV1 from '../schemas/org-tx-execution-failed.v1.json';
+import systemPausedV1 from '../schemas/system-paused.v1.json';
+import systemResumedV1 from '../schemas/system-resumed.v1.json';
+import treasuryAccountActivatedV1 from '../schemas/treasury-account-activated.v1.json';
 
 /**
  * Schema registry key format: {eventName}@{version}
@@ -122,9 +136,131 @@ export class SchemaRegistry {
       deprecated: false,
     });
 
-    // TODO: Register additional schemas as they are created
-    // Example:
-    // this.registerSchema('UserCreated', '2.0', userCreatedV2, { ... });
+    // Register RelationshipRequested v1.0
+    this.registerSchema('RelationshipRequested', '1.0', relationshipRequestedV1 as JSONSchemaType<any>, {
+      eventName: 'RelationshipRequested',
+      version: '1.0',
+      schemaPath: 'schemas/relationship-requested.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register RelationshipConfirmed v1.0
+    this.registerSchema('RelationshipConfirmed', '1.0', relationshipConfirmedV1 as JSONSchemaType<any>, {
+      eventName: 'RelationshipConfirmed',
+      version: '1.0',
+      schemaPath: 'schemas/relationship-confirmed.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register GenesisDistributionEvent v1.0
+    this.registerSchema('GenesisDistributionEvent', '1.0', genesisDistributionEventV1 as JSONSchemaType<any>, {
+      eventName: 'GenesisDistributionEvent',
+      version: '1.0',
+      schemaPath: 'schemas/genesis-distribution-event.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register TreasuryAllocationEvent v1.0
+    this.registerSchema('TreasuryAllocationEvent', '1.0', treasuryAllocationEventV1 as JSONSchemaType<any>, {
+      eventName: 'TreasuryAllocationEvent',
+      version: '1.0',
+      schemaPath: 'schemas/treasury-allocation-event.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register TransferEvent v1.0
+    this.registerSchema('TransferEvent', '1.0', transferEventV1 as JSONSchemaType<any>, {
+      eventName: 'TransferEvent',
+      version: '1.0',
+      schemaPath: 'schemas/transfer-event.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register OrgTransferEvent v1.0
+    this.registerSchema('OrgTransferEvent', '1.0', orgTransferEventV1 as JSONSchemaType<any>, {
+      eventName: 'OrgTransferEvent',
+      version: '1.0',
+      schemaPath: 'schemas/org-transfer-event.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register InternalTransferEvent v1.0
+    this.registerSchema('InternalTransferEvent', '1.0', internalTransferEventV1 as JSONSchemaType<any>, {
+      eventName: 'InternalTransferEvent',
+      version: '1.0',
+      schemaPath: 'schemas/internal-transfer-event.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register VelocityTaxApplied v1.0
+    this.registerSchema('VelocityTaxApplied', '1.0', velocityTaxAppliedV1 as JSONSchemaType<any>, {
+      eventName: 'VelocityTaxApplied',
+      version: '1.0',
+      schemaPath: 'schemas/velocity-tax-applied.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register OrgTxApproved v1.0
+    this.registerSchema('OrgTxApproved', '1.0', orgTxApprovedV1 as JSONSchemaType<any>, {
+      eventName: 'OrgTxApproved',
+      version: '1.0',
+      schemaPath: 'schemas/org-tx-approved.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register OrgTxExecuted v1.0
+    this.registerSchema('OrgTxExecuted', '1.0', orgTxExecutedV1 as JSONSchemaType<any>, {
+      eventName: 'OrgTxExecuted',
+      version: '1.0',
+      schemaPath: 'schemas/org-tx-executed.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register OrgTxExecutionFailed v1.0
+    this.registerSchema('OrgTxExecutionFailed', '1.0', orgTxExecutionFailedV1 as JSONSchemaType<any>, {
+      eventName: 'OrgTxExecutionFailed',
+      version: '1.0',
+      schemaPath: 'schemas/org-tx-execution-failed.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register SystemPaused v1.0
+    this.registerSchema('SystemPaused', '1.0', systemPausedV1 as JSONSchemaType<any>, {
+      eventName: 'SystemPaused',
+      version: '1.0',
+      schemaPath: 'schemas/system-paused.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register SystemResumed v1.0
+    this.registerSchema('SystemResumed', '1.0', systemResumedV1 as JSONSchemaType<any>, {
+      eventName: 'SystemResumed',
+      version: '1.0',
+      schemaPath: 'schemas/system-resumed.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
+
+    // Register TreasuryAccountActivated v1.0
+    this.registerSchema('TreasuryAccountActivated', '1.0', treasuryAccountActivatedV1 as JSONSchemaType<any>, {
+      eventName: 'TreasuryAccountActivated',
+      version: '1.0',
+      schemaPath: 'schemas/treasury-account-activated.v1.json',
+      registeredAt: new Date(),
+      deprecated: false,
+    });
   }
 
   /**

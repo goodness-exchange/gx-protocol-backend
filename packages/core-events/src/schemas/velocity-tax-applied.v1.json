@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gx-protocol.com/schemas/velocity-tax-applied.v1.json",
+  "title": "VelocityTaxApplied Event v1.0",
+  "description": "Emitted when velocity tax (hoarding tax) is applied to an account. Tax is split 50/50 between government treasury and redistribution pool. Tax timer is reset after application.",
+  "type": "object",
+
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this event instance"
+    },
+    "eventName": {
+      "type": "string",
+      "const": "VelocityTaxApplied",
+      "description": "Event type identifier"
+    },
+    "eventVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version of this event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the event occurred"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fabric block number where this transaction was committed"
+    },
+    "txId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric transaction ID"
+    },
+    "chaincodeName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the chaincode that emitted this event"
+    },
+    "channelName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric channel name"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Velocity tax application data from chaincode",
+      "properties": {
+        "accountID": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Account ID subject to velocity tax"
+        },
+        "accountType": {
+          "type": "string",
+          "enum": ["INDIVIDUAL", "BUSINESS", "NGO", "GOVERNMENT"],
+          "description": "Type of account being taxed"
+        },
+        "taxAmount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total tax amount collected in Qirat"
+        },
+        "taxRateBps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "description": "Tax rate in basis points (e.g., 500 = 5%)"
+        },
+        "govtShare": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Government's 50% share of tax in Qirat"
+        },
+        "redistributionShare": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Redistribution pool's 50% share of tax in Qirat"
+        },
+        "balance": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Account balance at time of tax application in Qirat"
+        },
+        "timerStart": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Date when tax timer was reset (YYYY-MM-DD format)"
+        }
+      },
+      "required": [
+        "accountID",
+        "accountType",
+        "taxAmount",
+        "taxRateBps",
+        "govtShare",
+        "redistributionShare",
+        "balance",
+        "timerStart"
+      ],
+      "additionalProperties": false
+    }
+  },
+
+  "required": [
+    "eventId",
+    "eventName",
+    "eventVersion",
+    "timestamp",
+    "blockNumber",
+    "txId",
+    "chaincodeName",
+    "channelName",
+    "payload"
+  ],
+
+  "additionalProperties": false
+}

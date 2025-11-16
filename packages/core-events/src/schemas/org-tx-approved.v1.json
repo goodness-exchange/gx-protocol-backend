@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gx-protocol.com/schemas/org-tx-approved.v1.json",
+  "title": "OrgTxApproved Event v1.0",
+  "description": "Emitted when a stakeholder approves a pending multi-signature transaction. Transaction executes when required approvals threshold is met.",
+  "type": "object",
+
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this event instance"
+    },
+    "eventName": {
+      "type": "string",
+      "const": "OrgTxApproved",
+      "description": "Event type identifier"
+    },
+    "eventVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version of this event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the event occurred"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fabric block number where this transaction was committed"
+    },
+    "txId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric transaction ID"
+    },
+    "chaincodeName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the chaincode that emitted this event"
+    },
+    "channelName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric channel name"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Multi-sig transaction approval data from chaincode",
+      "properties": {
+        "pendingTxID": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for the pending multi-sig transaction"
+        },
+        "orgID": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Organization ID that owns the transaction"
+        },
+        "approverID": {
+          "type": "string",
+          "minLength": 1,
+          "description": "User ID of the stakeholder who approved"
+        }
+      },
+      "required": [
+        "pendingTxID",
+        "orgID",
+        "approverID"
+      ],
+      "additionalProperties": false
+    }
+  },
+
+  "required": [
+    "eventId",
+    "eventName",
+    "eventVersion",
+    "timestamp",
+    "blockNumber",
+    "txId",
+    "chaincodeName",
+    "channelName",
+    "payload"
+  ],
+
+  "additionalProperties": false
+}

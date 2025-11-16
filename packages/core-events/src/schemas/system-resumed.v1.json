@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gx-protocol.com/schemas/system-resumed.v1.json",
+  "title": "SystemResumed Event v1.0",
+  "description": "Emitted when the GX Protocol system is resumed by a super admin after being paused. All chaincode functions return to normal operation.",
+  "type": "object",
+
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this event instance"
+    },
+    "eventName": {
+      "type": "string",
+      "const": "SystemResumed",
+      "description": "Event type identifier"
+    },
+    "eventVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version of this event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the event occurred"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fabric block number where this transaction was committed"
+    },
+    "txId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric transaction ID"
+    },
+    "chaincodeName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the chaincode that emitted this event"
+    },
+    "channelName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fabric channel name"
+    },
+    "payload": {
+      "type": "object",
+      "description": "System resume data from chaincode (empty payload)",
+      "additionalProperties": false
+    }
+  },
+
+  "required": [
+    "eventId",
+    "eventName",
+    "eventVersion",
+    "timestamp",
+    "blockNumber",
+    "txId",
+    "chaincodeName",
+    "channelName",
+    "payload"
+  ],
+
+  "additionalProperties": false
+}
