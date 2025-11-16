@@ -51,15 +51,16 @@ COPY package.json package-lock.json* ./
 COPY workers/outbox-submitter/package.json ./workers/outbox-submitter/
 COPY packages/ ./packages/
 
-# Copy Prisma schema BEFORE npm install so it's available for generation
-COPY --from=builder /app/db/prisma ./db/prisma
-
-RUN npm ci --production --legacy-peer-deps --ignore-scripts && \
-    npx prisma generate --schema=./db/prisma/schema.prisma
-
 # Copy built artifacts from builder
 COPY --from=builder /app/workers/outbox-submitter/dist ./workers/outbox-submitter/dist
 COPY --from=builder /app/packages/ ./packages/
+
+# Copy Prisma schema and generated client
+COPY --from=builder /app/db/prisma ./db/prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
+RUN npm ci --production --legacy-peer-deps --ignore-scripts
 
 # Fabric connection profiles and crypto materials will be mounted via Kubernetes ConfigMaps/Secrets
 
