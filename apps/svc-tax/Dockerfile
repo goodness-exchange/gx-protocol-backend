@@ -49,13 +49,13 @@ WORKDIR /app
 # Install production dependencies only
 COPY package.json package-lock.json* ./
 COPY apps/svc-tax/package.json ./apps/svc-tax/
-COPY packages/*/package.json ./packages/
+COPY packages/ ./packages/
 
-RUN npm ci --production --legacy-peer-deps
+RUN npm ci --production --legacy-peer-deps --ignore-scripts
 
 # Copy built artifacts from builder
 COPY --from=builder /app/apps/svc-tax/dist ./apps/svc-tax/dist
-COPY --from=builder /app/packages/*/dist ./packages/
+COPY --from=builder /app/packages/ ./packages/
 
 # Copy Prisma schema and generated client
 COPY --from=builder /app/db/prisma ./db/prisma
