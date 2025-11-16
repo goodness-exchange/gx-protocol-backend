@@ -1,24 +1,27 @@
 # GX Protocol Backend - Deployment Architecture
 
-**Document Version**: 1.0
-**Date**: November 13, 2025
-**Status**: Production Architecture
+**Document Version**: 2.0
+**Date**: November 16, 2025 (Updated)
+**Previous Version**: 1.0 (November 13, 2025)
+**Status**: Production Architecture with Global Load Balancing
 **Classification**: Internal Technical Documentation
 
 ---
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [Infrastructure Topology](#infrastructure-topology)
-3. [Co-Located Architecture Decision](#co-located-architecture-decision)
-4. [Network Architecture](#network-architecture)
-5. [Service Deployment Strategy](#service-deployment-strategy)
-6. [Resource Allocation](#resource-allocation)
-7. [High Availability Design](#high-availability-design)
-8. [Security Architecture](#security-architecture)
-9. [Monitoring and Observability](#monitoring-and-observability)
-10. [Disaster Recovery](#disaster-recovery)
+1. [Overview](#1-overview)
+2. [Infrastructure Topology](#2-infrastructure-topology)
+3. [Co-Located Architecture Decision](#3-co-located-architecture-decision)
+4. [Global Load Balancing Architecture](#4-global-load-balancing-architecture) **[NEW]**
+5. [Network Architecture](#5-network-architecture)
+6. [Service Deployment Strategy](#6-service-deployment-strategy)
+7. [Resource Allocation](#7-resource-allocation)
+8. [High Availability Design](#8-high-availability-design)
+9. [Security Architecture](#9-security-architecture)
+10. [Monitoring and Observability](#10-monitoring-and-observability)
+11. [Disaster Recovery](#11-disaster-recovery)
+12. [Change Log](#12-change-log) **[NEW]**
 
 ---
 
@@ -26,14 +29,17 @@
 
 ### 1.1 Architecture Summary
 
-The GX Protocol Backend is deployed on a **4-node Kubernetes cluster** co-located with the Hyperledger Fabric blockchain network. This architecture provides ultra-low latency communication (<1ms) between backend services and blockchain nodes while maintaining strict security isolation through namespace boundaries and network policies.
+The GX Protocol Backend is deployed on a **4-node Kubernetes cluster** co-located with the Hyperledger Fabric blockchain network, with **global load balancing across 3 continents**. This architecture provides ultra-low latency communication (<1ms) between backend services and blockchain nodes, while delivering <50ms API response times to users worldwide through geographic distribution.
 
 **Key Characteristics**:
 - **Platform**: Kubernetes (K3s v1.33.5)
 - **Deployment Pattern**: Co-located with namespace isolation
+- **Global Distribution**: 3 regions (Asia, Americas, Europe)
+- **Load Balancing**: GeoDNS with Cloudflare + Nginx reverse proxy
 - **Environments**: Mainnet (production), Testnet, Devnet
-- **HA Strategy**: Multi-node deployment with pod anti-affinity
+- **HA Strategy**: Multi-node deployment with pod anti-affinity + geographic redundancy
 - **Network**: Kubernetes internal DNS for service discovery
+- **External Access**: HTTPS with Let's Encrypt SSL certificates
 
 ### 1.2 Design Principles
 
@@ -246,9 +252,403 @@ kubectl get pods -n backend-mainnet
 
 ---
 
-## 4. Network Architecture
 
-### 4.1 Namespace Structure
+
+## 4. Global Load Balancing Architecture
+
+### 4.1 Geographic Distribution Strategy
+
+**Added**: November 16, 2025
+
+To provide low-latency API access to users worldwide, the GX Protocol Backend implements **GeoDNS load balancing** across 3 continents. Each control-plane node serves as a regional entry point, routing users to the nearest server based on geographic location.
+
+**Regional Deployment:**
+
+| Region | Location | Server | Public IP | Internal IP | Role |
+|--------|----------|--------|-----------|-------------|------|
+| **Asia-Pacific** | Kuala Lumpur, Malaysia | srv1089618 | 72.60.210.201 | 10.42.0.1 | Regional LB |
+| **North America** | Phoenix, USA | srv1089624 | 217.196.51.190 | 10.42.1.1 | Regional LB |
+| **Europe** | Frankfurt, Germany | srv1092158 | 72.61.81.3 | 10.42.2.1 | Regional LB |
+
+**Geographic Coverage:**
+- **Asia-Pacific**: Serves users in Singapore, Malaysia, India, Japan, Australia
+- **North America**: Serves users in USA, Canada, Mexico, Brazil
+- **Europe**: Serves users in UK, France, Germany, Spain, Middle East, Africa
+
+### 4.2 Load Balancing Architecture
+
+**DNS Layer (Cloudflare):**
+```
+api.gxcoin.money (DNS Query)
+        ↓
+Cloudflare GeoDNS Routing
+        ↓
+┌───────┼───────┐
+↓       ↓       ↓
+Asia    USA     EU
+72.60   217.196 72.61
+.210    .51     .81
+.201    .190    .3
+```
+
+**Reverse Proxy Layer (Nginx):**
+```
+Regional Server (Nginx on port 443)
+        ↓
+HTTPS Termination (TLS 1.2/1.3)
+        ↓
+Rate Limiting (10 req/sec per IP)
+        ↓
+Security Headers (HSTS, XSS, etc.)
+        ↓
+Proxy to Kubernetes NodePort
+        ↓
+Kubernetes Service (ClusterIP)
+        ↓
+Backend Pods (3 replicas, distributed)
+```
+
+**Complete Request Flow:**
+```
+1. User in Singapore requests: https://api.gxcoin.money/identity/users
+2. DNS query → Cloudflare returns 72.60.210.201 (Malaysia, nearest)
+3. HTTPS connection → Nginx on srv1089618:443
+4. Cloudflare DDoS check passed
+5. SSL/TLS handshake with Let's Encrypt certificate
+6. Nginx receives request, applies rate limiting
+7. Nginx proxies to localhost:30001 (Kubernetes NodePort)
+8. Kubernetes routes to svc-identity pod (via ClusterIP Service)
+9. Pod processes request, queries PostgreSQL locally (<1ms)
+10. Response flows back through chain
+11. User receives response (total ~20-50ms latency)
+```
+
+### 4.3 Nginx Configuration
+
+**Deployment:** Each control-plane node runs Nginx as reverse proxy
+
+**Configuration File:** `/etc/nginx/conf.d/api.conf` (per regional server)
+
+**Key Features:**
+
+1. **Upstream Definitions** (per service):
+```nginx
+upstream identity_backend {
+    least_conn;  # Route to server with least connections
+    server 127.0.0.1:30001 max_fails=3 fail_timeout=30s;
+}
+```
+
+2. **HTTPS Termination:**
+```nginx
+listen 443 ssl http2;
+ssl_certificate /etc/letsencrypt/live/api.gxcoin.money/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/api.gxcoin.money/privkey.pem;
+ssl_protocols TLSv1.2 TLSv1.3;
+```
+
+3. **Rate Limiting:**
+```nginx
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+limit_req zone=api_limit burst=20 nodelay;
+```
+
+4. **Security Headers:**
+```nginx
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-XSS-Protection "1; mode=block" always;
+```
+
+5. **URL Routing:**
+```nginx
+location /identity {
+    proxy_pass http://identity_backend;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+### 4.4 Service Exposure via NodePort
+
+**Updated:** November 16, 2025
+
+All backend services exposed via Kubernetes NodePort for Nginx connectivity:
+
+| Service | ClusterIP Port | NodePort | URL Path |
+|---------|---------------|----------|----------|
+| svc-identity | 3001 | 30001 | /identity |
+| svc-admin | 3002 | 30002 | /admin |
+| svc-tokenomics | 3003 | 30003 | /tokenomics |
+| svc-organization | 3004 | 30004 | /organization |
+| svc-loanpool | 3005 | 30005 | /loanpool |
+| svc-governance | 3006 | 30006 | /governance |
+| svc-tax | 3007 | 30007 | /tax |
+
+**NodePort Configuration Example:**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-identity
+  namespace: backend-mainnet
+spec:
+  type: NodePort
+  selector:
+    app: svc-identity
+  ports:
+  - name: http
+    protocol: TCP
+    port: 3001
+    targetPort: 3001
+    nodePort: 30001
+```
+
+**Accessibility:**
+- **Internal**: `svc-identity.backend-mainnet.svc.cluster.local:3001` (from within cluster)
+- **External**: `<any-node-ip>:30001` (from Nginx on same node)
+
+### 4.5 Cloudflare Integration
+
+**DNS Configuration:**
+
+Three A records for `api.gxcoin.money`:
+
+```
+Type: A
+Name: api
+Content: 72.60.210.201 (Malaysia)
+Proxy: ON (orange cloud) - DDoS protection enabled
+TTL: Auto
+
+Type: A
+Name: api
+Content: 217.196.51.190 (USA)
+Proxy: ON (orange cloud) - DDoS protection enabled
+TTL: Auto
+
+Type: A
+Name: api
+Content: 72.61.81.3 (Germany)
+Proxy: ON (orange cloud) - DDoS protection enabled
+TTL: Auto
+```
+
+**Cloudflare Features Enabled:**
+
+1. **GeoDNS Routing** (FREE tier):
+   - Automatic routing based on user's geographic location
+   - Round-robin DNS for load distribution
+   - Manual failover (admin removes failed server's A record)
+
+2. **DDoS Protection** (FREE tier):
+   - Unlimited bandwidth protection
+   - Layer 3/4 and Layer 7 attack mitigation
+   - IP reputation filtering
+
+3. **CDN Caching** (Optional):
+   - Cache-Control headers respected
+   - Static assets cached at edge
+   - API responses can be cached with custom rules
+
+4. **SSL/TLS**:
+   - Flexible SSL mode (Cloudflare → Origin HTTPS)
+   - Free Universal SSL for public-facing domain
+   - Let's Encrypt on origin servers
+
+**Optional Upgrade** ($5/month):
+- **Cloudflare Load Balancing**: Active health checks, automatic failover, geo-steering
+- **Health Checks**: HTTPS GET to `/health` endpoint every 60 seconds
+- **Automatic Failover**: Remove unhealthy servers from rotation
+
+### 4.6 SSL/TLS Certificate Management
+
+**Certificate Authority:** Let's Encrypt (free, automated)
+
+**Deployment:**
+
+Each regional server obtains its own certificate:
+
+```bash
+# Malaysia server
+certbot certonly --webroot -w /var/www/certbot -d api.gxcoin.money
+
+# USA server
+certbot certonly --webroot -w /var/www/certbot -d api.gxcoin.money
+
+# Germany server
+certbot certonly --webroot -w /var/www/certbot -d api.gxcoin.money
+```
+
+**Certificate Locations:**
+- Certificate: `/etc/letsencrypt/live/api.gxcoin.money/fullchain.pem`
+- Private Key: `/etc/letsencrypt/live/api.gxcoin.money/privkey.pem`
+- Chain: `/etc/letsencrypt/live/api.gxcoin.money/chain.pem`
+
+**Auto-Renewal:**
+- Certbot cron job runs twice daily
+- Certificates renewed at 30 days before expiry
+- Nginx reloaded automatically after renewal
+
+**Validity:** 90 days per certificate
+
+### 4.7 Health Monitoring
+
+**Automated Health Checks:**
+
+Script: `/usr/local/bin/gx-health-monitor`
+
+**Functionality:**
+```bash
+# Checks all 3 regional servers every 60 seconds
+for region in Malaysia USA Germany; do
+  response=$(curl -s -o /dev/null -w "%{http_code}" \
+    --max-time 10 "https://api.gxcoin.money/health" \
+    --resolve "api.gxcoin.money:443:$ip")
+
+  if [ "$response" == "200" ]; then
+    echo "[$(date)] ✓ $region - HEALTHY"
+  else
+    echo "[$(date)] ✗ $region - DOWN (HTTP $response)"
+    send_alert "$region is DOWN"
+  fi
+done
+```
+
+**Monitoring Metrics:**
+- HTTP status code (200 = healthy)
+- Response time (<100ms = good, 100-500ms = warning, >500ms = critical)
+- SSL certificate expiry (alert at <15 days)
+
+**Alerting:**
+- Email notifications for failures
+- Slack webhook integration (optional)
+- PagerDuty integration (optional)
+
+**Log Location:** `/var/log/gx-health-monitor.log`
+
+### 4.8 Performance Characteristics
+
+**Expected Latency by User Location:**
+
+| User Location | Routes To | Expected Latency | Network Hops |
+|---------------|-----------|------------------|--------------|
+| Singapore | Malaysia | 5-20ms | 5-10 |
+| India | Malaysia | 30-50ms | 8-12 |
+| Japan | Malaysia | 80-120ms | 12-15 |
+| Australia | Malaysia | 50-100ms | 10-15 |
+| USA West Coast | USA | 5-20ms | 5-10 |
+| USA East Coast | USA | 50-80ms | 10-12 |
+| Canada | USA | 20-50ms | 8-12 |
+| UK | Germany | 10-30ms | 6-10 |
+| France | Germany | 5-20ms | 5-8 |
+| Middle East | Germany | 50-100ms | 10-15 |
+
+**Throughput Capacity:**
+
+Per Regional Server:
+- Requests per second: ~1,000 (typical API load)
+- Concurrent connections: ~10,000
+- Bandwidth: ~100 Mbps
+
+Global Aggregate:
+- Total requests per second: ~3,000
+- Total concurrent connections: ~30,000
+
+**Bottleneck Analysis:**
+- **Network**: Not a bottleneck (1Gbps+ available)
+- **Nginx**: Can handle 10,000+ req/sec with minimal CPU
+- **Kubernetes NodePort**: Negligible overhead
+- **Backend Pods**: Current bottleneck (PostgreSQL queries)
+- **Database**: Optimized with connection pooling
+
+### 4.9 Failover Scenarios
+
+**Scenario 1: Single Regional Server Failure**
+
+**Example:** Malaysia server (srv1089618) becomes unavailable
+
+**Detection:**
+- Health monitor detects failure within 60 seconds
+- Cloudflare (if using paid Load Balancing) removes server from rotation
+- FREE tier: Manual intervention required
+
+**Impact:**
+- Asian users routed to Germany (next nearest) - latency increases from 20ms to 100-150ms
+- Service remains available with degraded performance
+
+**Recovery:**
+1. Health monitor sends alert
+2. Admin investigates issue (Nginx down, Kubernetes node failure, etc.)
+3. Fix issue and restart services
+4. Health monitor detects recovery
+5. Admin re-adds server to Cloudflare DNS (or automatic with paid tier)
+6. Asian users resume low-latency connections
+
+**Mean Time To Detect (MTTD):** 60 seconds
+**Mean Time To Recover (MTTR):** 5-30 minutes (depending on failure cause)
+
+**Scenario 2: Complete Datacenter Outage**
+
+**Example:** All 3 control-plane nodes lose connectivity
+
+**Impact:**
+- All backend services unavailable
+- Fabric blockchain continues (can operate independently)
+
+**Recovery:**
+- Restore network connectivity or migrate to backup datacenter
+- Kubernetes cluster auto-recovers when nodes rejoin
+- Pods restart on available nodes
+- DNS propagates (TTL=Auto)
+
+**MTTR:** 1-4 hours (depending on outage cause)
+
+**Mitigation (Phase 5):**
+- Deploy active-passive cluster in separate datacenter
+- Implement disaster recovery automation
+
+### 4.10 Cost Analysis
+
+**Infrastructure Costs (Load Balancing):**
+
+| Component | Provider | Monthly Cost |
+|-----------|----------|--------------|
+| GeoDNS Routing | Cloudflare FREE | $0 |
+| DDoS Protection | Cloudflare FREE | $0 |
+| SSL Certificates | Let's Encrypt | $0 |
+| Nginx | Open Source | $0 |
+| Health Monitoring | Custom Script | $0 |
+| **Total (Current)** | | **$0** |
+
+**Optional Upgrades:**
+
+| Feature | Provider | Monthly Cost | Benefit |
+|---------|----------|--------------|---------|
+| Active Health Checks | Cloudflare Load Balancing | $5 | Automatic failover |
+| Advanced WAF | Cloudflare | $20 | Bot protection, advanced rules |
+| Priority Support | Cloudflare | Included in paid tiers | 24/7 support |
+
+**Comparison with Alternatives:**
+
+| Solution | Monthly Cost | Features |
+|----------|--------------|----------|
+| **Current (GeoDNS + Nginx)** | $0 | GeoDNS, DDoS, SSL, manual failover |
+| AWS Route 53 + ALB | ~$50 | GeoDNS, health checks, auto-failover |
+| Google Cloud LB | ~$60 | GeoDNS, health checks, auto-failover |
+| Azure Traffic Manager | ~$55 | GeoDNS, health checks, auto-failover |
+
+**Verdict:** Current solution provides enterprise-grade features at $0/month, with optional $5/month upgrade path for active health checks.
+
+---
+
+## 5. Network Architecture
+
+### 5.1 Namespace Structure
 
 **Isolation Model**: Namespace-based with NetworkPolicies
 
@@ -279,7 +679,7 @@ gx-protocol-cluster
     └── Network: Default Deny + DNS + Fabric-Devnet Egress
 ```
 
-### 4.2 Service Discovery
+### 5.2 Service Discovery
 
 #### Fabric Service Endpoints (from Backend perspective)
 
@@ -324,7 +724,7 @@ svc-tokenomics.backend-mainnet.svc.cluster.local:3003
 api-gateway.backend-mainnet.svc.cluster.local:8080
 ```
 
-### 4.3 NetworkPolicy Configuration
+### 5.3 NetworkPolicy Configuration
 
 #### Default Deny Policy (Applied to All Namespaces)
 
@@ -450,9 +850,9 @@ spec:
 
 ---
 
-## 5. Service Deployment Strategy
+## 6. Service Deployment Strategy
 
-### 5.1 Mainnet Deployment (backend-mainnet)
+### 6.1 Mainnet Deployment (backend-mainnet)
 
 #### PostgreSQL StatefulSet
 
@@ -603,7 +1003,7 @@ spec:
 
 **Scheduling**: 3 replicas, entry point for external traffic
 
-### 5.2 Testnet Deployment (backend-testnet)
+### 6.2 Testnet Deployment (backend-testnet)
 
 #### Configuration Differences
 
@@ -636,9 +1036,9 @@ affinity:
 
 ---
 
-## 6. Resource Allocation
+## 7. Resource Allocation
 
-### 6.1 Backend Mainnet Resource Plan
+### 7.1 Backend Mainnet Resource Plan
 
 **Total Resource Requests**:
 - CPU: ~11 cores
@@ -683,7 +1083,7 @@ spec:
 - **Headroom**: 15.5 cores (53%), 71Gi RAM (74%)
 - **Status**: ✅ Sufficient capacity
 
-### 6.2 Backend Testnet Resource Plan
+### 7.2 Backend Testnet Resource Plan
 
 **Total Resource Requests**:
 - CPU: ~3.5 cores
@@ -708,7 +1108,7 @@ spec:
     pods: "30"
 ```
 
-### 6.3 LimitRange Configuration
+### 7.3 LimitRange Configuration
 
 **Purpose**: Prevent resource-greedy pods, set defaults
 
@@ -741,9 +1141,9 @@ spec:
 
 ---
 
-## 7. High Availability Design
+## 8. High Availability Design
 
-### 7.1 Component-Level HA Strategy
+### 8.1 Component-Level HA Strategy
 
 #### Database Layer (PostgreSQL)
 
@@ -817,7 +1217,7 @@ livenessProbe:
   periodSeconds: 10
 ```
 
-### 7.2 Node-Level Fault Tolerance
+### 8.2 Node-Level Fault Tolerance
 
 **Scenario**: Control-plane node srv1089618 fails
 
@@ -840,7 +1240,7 @@ livenessProbe:
 
 **Service Impact**: Minimal (2/3 capacity maintained during recovery)
 
-### 7.3 Maintenance Windows
+### 8.3 Maintenance Windows
 
 **Rolling Updates**:
 ```yaml
@@ -866,9 +1266,9 @@ spec:
 
 ---
 
-## 8. Security Architecture
+## 9. Security Architecture
 
-### 8.1 Multi-Layer Security
+### 9.1 Multi-Layer Security
 
 **Layer 1: Network Isolation**
 - Namespace boundaries (backend-mainnet ≠ fabric)
@@ -929,7 +1329,7 @@ roleRef:
 - CPU/memory limits prevent noisy neighbors
 - Storage quotas prevent disk exhaustion
 
-### 8.2 Network Security Model
+### 9.2 Network Security Model
 
 **Zero-Trust Approach**:
 1. **Default**: All traffic blocked
@@ -953,7 +1353,7 @@ Internet → NGINX Ingress (ingress-nginx namespace)
 - backend-mainnet → kube-system (except DNS) ❌
 - Direct external access to internal services ❌
 
-### 8.3 Compliance and Audit
+### 9.3 Compliance and Audit
 
 **Audit Logging**:
 - Kubernetes API server audit logs enabled
@@ -972,9 +1372,9 @@ Internet → NGINX Ingress (ingress-nginx namespace)
 
 ---
 
-## 9. Monitoring and Observability
+## 10. Monitoring and Observability
 
-### 9.1 Metrics Collection
+### 10.1 Metrics Collection
 
 **Prometheus** (shared with Fabric):
 - Scrapes metrics from all backend services
@@ -1003,7 +1403,7 @@ Internet → NGINX Ingress (ingress-nginx namespace)
 - `redis_connected_clients`
 - `redis_memory_used_bytes`
 
-### 9.2 Dashboards (Grafana)
+### 10.2 Dashboards (Grafana)
 
 **Backend Overview Dashboard**:
 - Pod health status by namespace
@@ -1023,7 +1423,7 @@ Internet → NGINX Ingress (ingress-nginx namespace)
 - Redis cache hit rate
 - Database size growth
 
-### 9.3 Alerting (AlertManager)
+### 10.3 Alerting (AlertManager)
 
 **Critical Alerts** (PagerDuty):
 - Pod crash loop (5 restarts in 10 minutes)
@@ -1052,7 +1452,7 @@ groups:
       description: "Projector is falling behind on processing Fabric events"
 ```
 
-### 9.4 Logging Strategy
+### 10.4 Logging Strategy
 
 **Log Aggregation**: Loki or ELK Stack
 
@@ -1081,9 +1481,9 @@ groups:
 
 ---
 
-## 10. Disaster Recovery
+## 11. Disaster Recovery
 
-### 10.1 Backup Strategy
+### 11.1 Backup Strategy
 
 **PostgreSQL**:
 - **Method**: pg_dump with gzip compression
@@ -1104,7 +1504,7 @@ groups:
 - Secrets: Sealed Secrets or external secret store
 - **Restore Time**: ~5 minutes (kubectl apply)
 
-### 10.2 Failure Scenarios and Recovery
+### 11.2 Failure Scenarios and Recovery
 
 #### Scenario 1: Single Pod Failure
 **Cause**: Application crash, OOM kill
@@ -1142,7 +1542,7 @@ groups:
 
 **Mitigation** (Phase 3): Implement active-passive multi-cluster DR
 
-### 10.3 Backup Verification
+### 11.3 Backup Verification
 
 **Automated Backup Testing**:
 - Weekly: Restore backup to test environment
@@ -1220,8 +1620,56 @@ psql -c 'SELECT * FROM projector_state ORDER BY last_updated DESC LIMIT 1'
 
 ---
 
+---
+
+## 12. Change Log
+
+### Version 2.0 (November 16, 2025)
+
+**Major Updates**:
+- Added Section 4: Global Load Balancing Architecture
+  - Geographic distribution across 3 continents (Asia, Americas, Europe)
+  - GeoDNS routing with Cloudflare FREE tier
+  - Nginx reverse proxy configuration per regional server
+  - NodePort service exposure for all 7 microservices
+  - SSL/TLS certificate management with Let's Encrypt
+  - Health monitoring and automated alerting
+  - Performance characteristics and latency analysis
+  - Failover scenarios and disaster recovery
+  - Cost analysis ($0/month base cost)
+
+**Architecture Enhancements**:
+- Updated Architecture Summary to reflect global distribution
+- Updated infrastructure topology with public IP addresses
+- Added complete request flow documentation (11-step process)
+- Documented rate limiting (10 req/sec per IP)
+- Documented security headers (HSTS, XSS protection, etc.)
+
+**Documentation Improvements**:
+- Renumbered all sections (old Section 4 is now Section 5, etc.)
+- Enhanced Table of Contents with Global Load Balancing section
+- Updated document version tracking
+- Added comprehensive GeoDNS deployment details
+
+**Rationale**:
+- User access from worldwide locations requires low-latency global distribution
+- Enterprise-grade load balancing without infrastructure costs
+- Future-proof architecture supporting additional regions
+
+### Version 1.0 (November 13, 2025)
+
+**Initial Release**:
+- Complete co-located deployment architecture
+- Namespace isolation strategy
+- Network security policies
+- Resource allocation planning
+- High availability design
+- Disaster recovery procedures
+
+---
+
 **Document End**
 
-**Last Updated**: November 13, 2025
-**Next Review**: December 13, 2025
+**Last Updated**: November 16, 2025
+**Next Review**: December 16, 2025
 **Owner**: GX Protocol DevOps Team
