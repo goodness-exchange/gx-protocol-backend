@@ -25,10 +25,11 @@
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true,
   "moduleDetection": "force",
-  "incremental": true
-  },
-  "paths": {
-    "@gx/*": ["packages/*/src"]
+  "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@gx/*": ["packages/*/dist"]
+    }
   },
   "exclude": ["node_modules", "dist", "build"]
 }
