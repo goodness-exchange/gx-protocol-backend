@@ -8,6 +8,12 @@ dist/
 build/
 *.tsbuildinfo
 
+# TypeScript compiled files in source directories
+packages/*/src/*.js
+packages/*/src/*.d.ts
+packages/*/src/*.js.map
+packages/*/src/*.d.ts.map
+
 # Environment variables
 .env
 .env.local
