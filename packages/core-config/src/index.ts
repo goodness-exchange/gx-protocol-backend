@@ -30,8 +30,10 @@ const envSchema = z.object({
     LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
 
     // Infrastructure URLs
-    DATABASE_URL: z.string().url(),
-    REDIS_URL: z.string().url(),
+    // Use .string() instead of .url() to support PostgreSQL/Redis connection strings
+    // which may contain special characters that don't pass strict URL validation
+    DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+    REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 
     // Service Ports
     // process.env values are strings, so we coerce them to numbers
