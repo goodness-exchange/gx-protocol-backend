@@ -71,7 +71,7 @@ spec:
 
       containers:
       - name: outbox-submitter
-        image: gx-protocol/outbox-submitter:2.0.0  # TODO: Replace with actual registry
+        image: gx-protocol/outbox-submitter:2.0.6  # TODO: Replace with actual registry
         imagePullPolicy: IfNotPresent
 
         # Environment variables from ConfigMap

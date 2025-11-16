@@ -56,7 +56,7 @@ spec:
 
       containers:
       - name: projector
-        image: gx-protocol/projector:2.0.0  # TODO: Replace with actual registry
+        image: gx-protocol/projector:2.0.6  # TODO: Replace with actual registry
         imagePullPolicy: IfNotPresent
 
         # Environment variables from ConfigMap

@@ -44,7 +44,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: svc-admin
-        image: gx-protocol/svc-admin:2.0.0
+        image: gx-protocol/svc-admin:2.0.6
         imagePullPolicy: IfNotPresent
         ports:
         - name: http

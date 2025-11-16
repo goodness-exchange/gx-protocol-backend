@@ -44,7 +44,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: svc-governance
-        image: gx-protocol/svc-governance:2.0.0
+        image: gx-protocol/svc-governance:2.0.6
         imagePullPolicy: IfNotPresent
         ports:
         - name: http

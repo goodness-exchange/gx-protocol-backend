@@ -32,7 +32,7 @@ spec:
       serviceAccountName: backend-api
       containers:
       - name: svc-tax
-        image: gx-protocol/svc-tax:2.0.0
+        image: gx-protocol/svc-tax:2.0.6
         imagePullPolicy: IfNotPresent
         ports:
         - name: http

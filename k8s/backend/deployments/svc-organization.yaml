@@ -72,7 +72,7 @@ spec:
 
       containers:
       - name: svc-organization
-        image: gx-protocol/svc-organization:2.0.0  # TODO: Replace with actual registry
+        image: gx-protocol/svc-organization:2.0.6  # TODO: Replace with actual registry
         imagePullPolicy: IfNotPresent
 
         # Container port

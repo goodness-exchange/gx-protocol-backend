@@ -45,7 +45,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: svc-loanpool
-        image: gx-protocol/svc-loanpool:2.0.0
+        image: gx-protocol/svc-loanpool:2.0.6
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
