@@ -1,0 +1,96 @@
+---
+# Headless Service for StatefulSet (required for stable network identities)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: backend-mainnet
+  labels:
+    app: redis
+    component: cache
+    tier: infrastructure
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: redis
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+  publishNotReadyAddresses: true
+
+---
+# Master Service (read/write)
+# Points to redis-0 (first replica is always master)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  namespace: backend-mainnet
+  labels:
+    app: redis
+    component: cache
+    tier: infrastructure
+    role: master
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-0
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+
+---
+# Replica Service (read-only)
+# Load-balances across redis-1 and redis-2
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-replica
+  namespace: backend-mainnet
+  labels:
+    app: redis
+    component: cache
+    tier: infrastructure
+    role: replica
+  annotations:
+    description: "Read replicas for cache reads. Use redis-master for writes."
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+
+---
+# General Service (for applications that don't need master/replica split)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: backend-mainnet
+  labels:
+    app: redis
+    component: cache
+    tier: infrastructure
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
