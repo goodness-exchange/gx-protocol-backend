@@ -4,7 +4,7 @@
 **Phase:** Phase 5 - Production Enhancements & Security Hardening
 **Started:** November 16, 2025
 **Current Date:** November 17, 2025 (Day 2)
-**Overall Progress:** 3/36 tasks (8.3%)
+**Overall Progress:** 4/36 tasks (11.1%)
 **Branch:** `phase1-infrastructure`
 
 ---
@@ -71,14 +71,14 @@
 
 **Priority:** CRITICAL
 **Target Date:** November 16-21, 2025
-**Status:** ⏳ 3/10 tasks complete (30%)
+**Status:** ⏳ 4/10 tasks complete (40%)
 
 | # | Task | Status | Date Completed | Notes |
 |---|------|--------|----------------|-------|
 | 1 | Create event schema files for all Fabric events | ✅ Complete | Nov 16 | 17 schemas (all events) |
 | 2 | Implement admin authorization middleware | ✅ Complete | Nov 16 | JWT + RBAC in core-http |
 | 3 | Add admin role checks to sensitive endpoints | ✅ Complete | Nov 17 | 12 endpoints protected across 4 services |
-| 4 | Implement rate limiting middleware | ⏳ Pending | | DoS protection |
+| 4 | Implement rate limiting middleware | ✅ Complete | Nov 17 | 4 endpoints protected (login, register, KYC, fees) |
 | 5 | Complete svc-tax fee calculation logic | ⏳ Pending | | Currently returns 0 |
 | 6 | Complete svc-tax eligibility check logic | ⏳ Pending | | Business rules missing |
 | 7 | Add UPDATE_USER command handler to svc-identity | ⏳ Pending | | Profile updates |
@@ -98,9 +98,13 @@
   - **svc-tokenomics** (3 endpoints): Genesis (SUPER_ADMIN), freeze/unfreeze wallets (ADMIN)
   - **svc-loanpool** (1 endpoint): Loan approvals (ADMIN)
   - **svc-governance** (1 endpoint): Proposal execution (ADMIN)
+- ✅ **Rate Limiting Middleware**: In-memory implementation with automatic cleanup
+  - **Middleware**: createRateLimitMiddleware factory with configurable windows/limits
+  - **Pre-configured Limiters**: strictRateLimiter (5 req/min), moderateRateLimiter (60 req/min), lenientRateLimiter (200 req/min)
+  - **Features**: IP-based tracking, X-Forwarded-For support, RFC-compliant headers, Retry-After on 429
+  - **Protected Endpoints**: Login (5 req/min), registration (5 req/min), KYC submission (60 req/min), fee calculation (60 req/min)
 
 ### Section 1 Blockers (Remaining)
-- Rate limiting: DoS attack risk
 - svc-tax logic: Fee calculation returns 0, eligibility checks incomplete
 - Missing command handlers: UPDATE_USER, SUBMIT_KYC not implemented
 
@@ -281,10 +285,23 @@ These tasks complete Phase 4 (Production Deployment) and prepare for production 
 - Loan approvals require admin oversight
 - Proposal execution has dual-check (voting + admin approval)
 
+**Day 2 Update - Afternoon:**
+- ✅ Task 4: Implemented rate limiting middleware (348 lines)
+  - In-memory store with automatic cleanup
+  - 3 pre-configured limiters (strict, moderate, lenient)
+  - Applied to 4 critical endpoints (login, register, KYC, fee calc)
+- ✅ Investigated RAM imbalance across control plane nodes (resolved - Prometheus overhead)
+- ✅ Created 4 professional commits (rate-limit.ts, index.ts, svc-identity, svc-tax)
+
+**Phase 5 Progress:** 4/36 tasks (11.1%)
+**Section 1 Progress:** 4/10 tasks (40%)
+
+**Time Spent Today:** 4 hours
+
 **Next Tasks:**
-- Task 4: Implement rate limiting middleware (login endpoints, public APIs)
 - Task 5-6: Complete svc-tax fee calculation and eligibility logic
 - Task 7-8: Add UPDATE_USER and SUBMIT_KYC command handlers
+- Task 9: Fix Prisma version mismatch
 
 ---
 
@@ -294,7 +311,7 @@ These tasks complete Phase 4 (Production Deployment) and prepare for production 
 - [x] All 17 event schemas created and validated
 - [x] Admin authorization middleware implemented
 - [x] Admin authorization applied to all sensitive endpoints (12 endpoints across 4 services)
-- [ ] Rate limiting on all public endpoints
+- [x] Rate limiting on all public endpoints (login, registration, KYC, fee calculation)
 - [ ] svc-tax business logic complete
 - [ ] All command handlers implemented
 - [ ] Seed data loaded
