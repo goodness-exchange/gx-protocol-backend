@@ -21,6 +21,18 @@ export interface ApplyVelocityTaxResponseDTO {
 export interface CheckEligibilityResponseDTO {
   eligible: boolean;
   reason: string;
+  details?: {
+    accountType?: string;
+    timerStartDate?: string;
+    daysSinceTimerStart?: number;
+    requiredDays?: number;
+    daysRemaining?: number;
+    currentBalance?: number;
+    minimumBalance?: number;
+    balanceInCoins?: number;
+    minimumInCoins?: number;
+    velocityTaxPeriod?: number;
+  };
 }
 
 export interface JWTPayload {
