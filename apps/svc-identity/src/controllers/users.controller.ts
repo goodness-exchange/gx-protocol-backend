@@ -115,10 +115,10 @@ class UsersController {
   /**
    * PATCH /api/v1/users/:id
    * Update user profile
-   * 
+   *
    * @param req.params.id - User ID
-   * @param req.body {fullName?, phone?, dateOfBirth?}
-   * @returns {commandId}
+   * @param req.body {firstName?, lastName?, phoneNum?, identityNum?}
+   * @returns {profile: UserProfileDTO}
    */
   updateProfile = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -134,14 +134,23 @@ class UsersController {
         return;
       }
 
+      // Validate at least one field is provided
+      if (!data.firstName && !data.lastName && !data.phoneNum && !data.identityNum) {
+        res.status(400).json({
+          error: 'Bad Request',
+          message: 'At least one field must be provided for update',
+        });
+        return;
+      }
+
       const result = await usersService.updateProfile(id, data);
 
-      logger.info({ commandId: result.commandId, userId: id }, 'Profile update initiated');
+      logger.info({ userId: id, fields: Object.keys(data) }, 'Profile updated successfully');
 
-      res.status(202).json(result); // 202 Accepted (async operation)
+      res.status(200).json(result); // 200 OK (sync operation)
     } catch (error) {
       logger.error({ error, userId: req.params.id }, 'Failed to update user profile');
-      
+
       if ((error as Error).message === 'User not found') {
         res.status(404).json({
           error: 'Not Found',
@@ -160,10 +169,10 @@ class UsersController {
   /**
    * POST /api/v1/users/:id/kyc
    * Submit KYC verification request
-   * 
+   *
    * @param req.params.id - User ID
-   * @param req.body {documentType, documentNumber, documentImages, selfieImage}
-   * @returns {commandId}
+   * @param req.body {evidenceHash, evidenceSize, evidenceMime}
+   * @returns {kycRecord: KYCStatusDTO}
    */
   submitKYC = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -190,12 +199,12 @@ class UsersController {
 
       const result = await usersService.submitKYC(id, data);
 
-      logger.info({ commandId: result.commandId, userId: id }, 'KYC submission initiated');
+      logger.info({ kycId: result.kycRecord.kycId, userId: id }, 'KYC verification record created');
 
-      res.status(202).json(result); // 202 Accepted (async operation)
+      res.status(201).json(result); // 201 Created (sync operation)
     } catch (error) {
       logger.error({ error, userId: req.params.id }, 'Failed to submit KYC');
-      
+
       if ((error as Error).message === 'User not found') {
         res.status(404).json({
           error: 'Not Found',
