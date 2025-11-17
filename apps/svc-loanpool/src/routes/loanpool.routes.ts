@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { loanPoolController } from '../controllers/loanpool.controller';
 import { authenticateJWT } from '../middlewares/auth.middleware';
+import { requireAdmin } from '@gx/core-http';
 
 /**
  * Loan Pool Routes
@@ -24,12 +25,13 @@ router.post('/loans', authenticateJWT, loanPoolController.applyForLoan);
 
 /**
  * POST /api/v1/loans/:loanId/approve
- * Approve loan (admin only)
+ * Approve loan
+ * Requires ADMIN or SUPER_ADMIN role
  *
  * @param loanId - Loan ID
  * @returns {commandId: string, message: string}
  */
-router.post('/loans/:loanId/approve', authenticateJWT, loanPoolController.approveLoan);
+router.post('/loans/:loanId/approve', authenticateJWT, requireAdmin, loanPoolController.approveLoan);
 
 /**
  * GET /api/v1/users/:borrowerId/loans
