@@ -4,7 +4,7 @@
 **Phase:** Phase 5 - Production Enhancements & Security Hardening
 **Started:** November 16, 2025
 **Current Date:** November 17, 2025 (Day 2)
-**Overall Progress:** 6/36 tasks (16.7%)
+**Overall Progress:** 8/36 tasks (22.2%)
 **Branch:** `phase1-infrastructure`
 
 ---
@@ -71,7 +71,7 @@
 
 **Priority:** CRITICAL
 **Target Date:** November 16-21, 2025
-**Status:** ⏳ 6/10 tasks complete (60%)
+**Status:** ⏳ 8/10 tasks complete (80%)
 
 | # | Task | Status | Date Completed | Notes |
 |---|------|--------|----------------|-------|
@@ -81,8 +81,8 @@
 | 4 | Implement rate limiting middleware | ✅ Complete | Nov 17 | 4 endpoints protected (login, register, KYC, fees) |
 | 5 | Complete svc-tax fee calculation logic | ✅ Complete | Nov 17 | DB-driven with fallback defaults |
 | 6 | Complete svc-tax eligibility check logic | ✅ Complete | Nov 17 | Schema limitations documented |
-| 7 | Add UPDATE_USER command handler to svc-identity | ⏳ Pending | | Profile updates |
-| 8 | Add SUBMIT_KYC command handler to svc-identity | ⏳ Pending | | KYC submission |
+| 7 | Add UPDATE_USER command handler to svc-identity | ✅ Complete | Nov 17 | Direct DB update (off-chain) |
+| 8 | Add SUBMIT_KYC command handler to svc-identity | ✅ Complete | Nov 17 | Direct DB insert (off-chain) |
 | 9 | Fix Prisma version mismatch | ⏳ Pending | | Standardize to 6.17.1 |
 | 10 | Create seed data scripts | ⏳ Pending | | Countries, system parameters |
 
@@ -118,11 +118,24 @@
   - **Schema Limitation**: velocityTaxExempt and velocityTaxTimerStart fields not in schema yet (documented with NOTE)
   - **Detailed Responses**: Returns eligibility status, reason, and balance details
   - **Future**: Requires schema migration for full 360-day timer implementation
+- ✅ **Profile Update Operation** (Task 7): Direct database write for off-chain metadata updates
+  - **Architectural Decision**: Changed from outbox pattern to direct UserProfile.update()
+  - **Rationale**: Profile metadata (firstName, lastName, phoneNum, identityNum) is NOT financial data, doesn't require blockchain immutability
+  - **Implementation**: Partial updates supported, validates user existence, immediate consistency
+  - **API Change**: HTTP 200 OK (was 202 Accepted), returns `{profile: UserProfileDTO}` (was `{commandId}`)
+  - **Performance**: Eliminated outbox/worker overhead, instant user feedback
+  - **Security**: Authorization maintained (users can only update own profile)
+- ✅ **KYC Submission Operation** (Task 8): Direct KYCVerification record creation
+  - **Architectural Decision**: Changed from outbox pattern to direct database insert
+  - **Rationale**: KYC verification is administrative approval process (off-chain), doesn't need blockchain consensus
+  - **Implementation**: Creates PENDING KYC record, stores evidenceHash/size/MIME
+  - **API Change**: HTTP 201 Created (was 202 Accepted), returns `{kycRecord: KYCStatusDTO}` (was `{commandId}`)
+  - **Admin Workflow**: Future task to add KYC approval endpoint
+  - **Data Flow**: API → PostgreSQL (was: API → Outbox → Worker → Fabric → Event → Projector → DB)
 
 ### Section 1 Blockers (Remaining)
-- Missing command handlers: UPDATE_USER, SUBMIT_KYC not implemented
-- Prisma version mismatch across packages
-- No seed data for system parameters or countries
+- Prisma version mismatch across packages (Task 9)
+- No seed data for system parameters or countries (Task 10)
 
 ---
 
