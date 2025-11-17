@@ -17,7 +17,10 @@
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "migrate": "npm run migrate --workspace=@gx/core-db",
-    "migrate:dev": "npm run migrate:dev --workspace=@gx/core-db"
+    "migrate:dev": "npm run migrate:dev --workspace=@gx/core-db",
+    "seed": "npx tsx db/seeds/index.ts",
+    "seed:countries": "npx tsx db/seeds/01-countries.ts",
+    "seed:params": "npx tsx db/seeds/02-system-parameters.ts"
   },
   "devDependencies": {
     "@types/node": "^18.18.0",
