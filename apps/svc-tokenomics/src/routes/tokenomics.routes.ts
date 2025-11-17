@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { tokenomicsController } from '../controllers/tokenomics.controller';
 import { authenticateJWT } from '../middlewares/auth.middleware';
+import { requireAdmin, requireSuperAdmin } from '@gx/core-http';
 
 /**
  * Tokenomics Routes
@@ -24,12 +25,12 @@ router.post('/transfers', authenticateJWT, tokenomicsController.transfer);
 /**
  * POST /api/v1/genesis
  * Distribute genesis allocation to user
- * Admin only (TODO: Add admin role check)
+ * Requires SUPER_ADMIN role
  *
  * @body {userId: string, userType: string, countryCode: string}
  * @returns {commandId: string, message: string}
  */
-router.post('/genesis', authenticateJWT, tokenomicsController.distributeGenesis);
+router.post('/genesis', authenticateJWT, requireSuperAdmin, tokenomicsController.distributeGenesis);
 
 /**
  * GET /api/v1/wallets/:profileId/balance
@@ -65,21 +66,23 @@ router.get('/wallets/:profileId/transactions', authenticateJWT, tokenomicsContro
 
 /**
  * POST /api/v1/wallets/:walletId/freeze
- * Freeze a wallet (admin only)
+ * Freeze a wallet
+ * Requires ADMIN or SUPER_ADMIN role
  *
  * @param walletId - Wallet ID
  * @body {reason: string}
  * @returns {commandId: string, message: string}
  */
-router.post('/wallets/:walletId/freeze', authenticateJWT, tokenomicsController.freezeWallet);
+router.post('/wallets/:walletId/freeze', authenticateJWT, requireAdmin, tokenomicsController.freezeWallet);
 
 /**
  * POST /api/v1/wallets/:walletId/unfreeze
- * Unfreeze a wallet (admin only)
+ * Unfreeze a wallet
+ * Requires ADMIN or SUPER_ADMIN role
  *
  * @param walletId - Wallet ID
  * @returns {commandId: string, message: string}
  */
-router.post('/wallets/:walletId/unfreeze', authenticateJWT, tokenomicsController.unfreezeWallet);
+router.post('/wallets/:walletId/unfreeze', authenticateJWT, requireAdmin, tokenomicsController.unfreezeWallet);
 
 export default router;
