@@ -6,3 +6,7 @@ export * from './middlewares/request-logger';
 export * from './middlewares/idempotency';
 export * from './middlewares/health-checks';
 export * from './middlewares/metrics';
+export * from './middlewares/auth';
+
+// Types
+export * from './types/auth';
