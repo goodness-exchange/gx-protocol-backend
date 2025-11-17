@@ -18,7 +18,7 @@
     "@gx/core-logger": "*",
     "@gx/core-db": "*",
     "@gx/core-fabric": "*",
-    "@prisma/client": "^5.7.1",
+    "@prisma/client": "^6.17.1",
     "prom-client": "^15.0.0"
   },
   "devDependencies": {
