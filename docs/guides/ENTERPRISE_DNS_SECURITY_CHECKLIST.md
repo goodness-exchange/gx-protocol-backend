@@ -302,11 +302,11 @@ curl -I https://api.gxcoin.money/health
 ### IP Addresses (Update with actual IPs)
 
 ```
-Malaysia (APAC):     43.xxx.xxx.xxx (srv1089618, srv1089624, srv1092158)
-USA (Americas):      67.xxx.xxx.xxx (TBD)
-Germany (EMEA):      78.xxx.xxx.xxx (TBD)
+Malaysia (APAC):     72.60.210.201 (srv1089618, srv1089624, srv1092158)
+USA (Americas):      217.196.51.190 (TBD)
+Germany (EMEA):      72.61.81.3 (TBD)
 Management IP 1:     203.xxx.xxx.xxx (Office)
-Management IP 2:     67.xxx.xxx.xxx (Backup)
+Management IP 2:     217.196.51.190 (Backup)
 ```
 
 ### Domain Structure

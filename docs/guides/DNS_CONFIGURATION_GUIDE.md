@@ -27,9 +27,9 @@ This guide provides step-by-step instructions for configuring DNS records at you
 
 | Region | Server Location | Public IP | Role | Services |
 |--------|----------------|-----------|------|----------|
-| **APAC** | Kuala Lumpur, Malaysia | `TBD` | Primary | All services (3 replicas) |
-| **Americas** | Dallas, USA | `TBD` | Secondary | All services (3 replicas) |
-| **EMEA** | Frankfurt, Germany | `TBD` | Tertiary | All services (3 replicas) |
+| **APAC** | Kuala Lumpur, Malaysia | ACTUAL_IP | Primary | All services (3 replicas) |
+| **Americas** | Dallas, USA | ACTUAL_IP | Secondary | All services (3 replicas) |
+| **EMEA** | Frankfurt, Germany | ACTUAL_IP | Tertiary | All services (3 replicas) |
 
 ### Service Architecture
 
@@ -127,7 +127,7 @@ dig gxcoin.money NS +short
 ```
 Type:     A
 Name:     api
-Content:  <MALAYSIA_PUBLIC_IP>  # e.g., 43.xxx.xxx.xxx
+Content:  72.60.210.201  # e.g., 72.60.210.201
 Proxy:    ✅ Proxied (Orange cloud)
 TTL:      Auto
 ```
@@ -136,7 +136,7 @@ TTL:      Auto
 ```
 Type:     A
 Name:     api
-Content:  <USA_PUBLIC_IP>  # e.g., 67.xxx.xxx.xxx
+Content:  217.196.51.190  # e.g., 217.196.51.190
 Proxy:    ✅ Proxied (Orange cloud)
 TTL:      Auto
 ```
@@ -145,7 +145,7 @@ TTL:      Auto
 ```
 Type:     A
 Name:     api
-Content:  <GERMANY_PUBLIC_IP>  # e.g., 78.xxx.xxx.xxx
+Content:  72.61.81.3  # e.g., 72.61.81.3
 Proxy:    ✅ Proxied (Orange cloud)
 TTL:      Auto
 ```
@@ -158,7 +158,7 @@ TTL:      Auto
 ```
 Type:     A
 Name:     api-apac
-Content:  <MALAYSIA_PUBLIC_IP>
+Content:  72.60.210.201
 Proxy:    ✅ Proxied
 TTL:      Auto
 ```
@@ -167,7 +167,7 @@ TTL:      Auto
 ```
 Type:     A
 Name:     api-us
-Content:  <USA_PUBLIC_IP>
+Content:  217.196.51.190
 Proxy:    ✅ Proxied
 TTL:      Auto
 ```
@@ -176,7 +176,7 @@ TTL:      Auto
 ```
 Type:     A
 Name:     api-eu
-Content:  <GERMANY_PUBLIC_IP>
+Content:  72.61.81.3
 Proxy:    ✅ Proxied
 TTL:      Auto
 ```
@@ -387,14 +387,14 @@ Target:   https://www.gxcoin.money/$1
 # Cloudflare DNS Records (gxcoin.money)
 
 # Main API Gateway (GeoDNS)
-api              A      43.xxx.xxx.xxx   Proxied   Auto
-api              A      67.xxx.xxx.xxx   Proxied   Auto
-api              A      78.xxx.xxx.xxx   Proxied   Auto
+api              A      72.60.210.201   Proxied   Auto
+api              A      217.196.51.190   Proxied   Auto
+api              A      72.61.81.3   Proxied   Auto
 
 # Regional Testing Endpoints (Optional)
-api-apac         A      43.xxx.xxx.xxx   Proxied   Auto
-api-us           A      67.xxx.xxx.xxx   Proxied   Auto
-api-eu           A      78.xxx.xxx.xxx   Proxied   Auto
+api-apac         A      72.60.210.201   Proxied   Auto
+api-us           A      217.196.51.190   Proxied   Auto
+api-eu           A      72.61.81.3   Proxied   Auto
 
 # Root Domain (Optional - Documentation)
 @                A      <CDN_IP>         Proxied   Auto
@@ -452,7 +452,7 @@ curl https://api.gxcoin.money/api/v1/health -v 2>&1 | grep "Connected to"
 
 ```bash
 # Test direct IP access (should be blocked)
-curl http://43.xxx.xxx.xxx/api/v1/health
+curl http://72.60.210.201/api/v1/health
 # Expected: Connection refused or Cloudflare block page
 
 # Test domain access (should work)

@@ -24,12 +24,15 @@ This guide configures **iptables** firewall rules on all 4 servers to:
 
 | Server | Role | Public IP | Location | Services |
 |--------|------|-----------|----------|----------|
-| srv1089618 | Control Plane 1 | `TBD` | Malaysia | Fabric mainnet, backend-mainnet |
-| srv1089624 | Control Plane 2 | `TBD` | Malaysia | Fabric mainnet, backend-mainnet |
-| srv1092158 | Control Plane 3 | `TBD` | Malaysia | Fabric mainnet, backend-mainnet |
-| srv1117946 | Worker | `TBD` | Malaysia | Fabric testnet, backend-testnet |
+| srv1089618 | Control Plane 1 | `72.60.210.201` | Kuala Lumpur, Malaysia | Fabric mainnet, backend-mainnet |
+| srv1089624 | Control Plane 2 | `217.196.51.190` | Phoenix, Arizona, USA | Fabric mainnet, backend-mainnet |
+| srv1092158 | Control Plane 3 | `72.61.81.3` | Frankfurt am Main, Germany | Fabric mainnet, backend-mainnet |
+| srv1117946 | Worker | `72.61.116.210` | Kuala Lumpur, Malaysia | Fabric testnet, backend-testnet |
 
-**Note:** Replace `TBD` with actual public IP addresses from your hosting provider.
+**Geographic Distribution:**
+- **APAC Region:** 2 servers (Malaysia)
+- **Americas Region:** 1 server (USA - Arizona)
+- **EMEA Region:** 1 server (Germany - Frankfurt)
 
 ---
 
@@ -298,7 +301,7 @@ echo "==> Allowing inter-node Kubernetes traffic..."
 
 # Allow traffic from other cluster nodes (update IPs)
 NODE_IPS=(
-    "43.xxx.xxx.xxx"  # srv1089618 (CP1)
+    "72.60.210.201"  # srv1089618 (CP1)
     "43.yyy.yyy.yyy"  # srv1089624 (CP2)
     "43.zzz.zzz.zzz"  # srv1092158 (CP3)
     "43.aaa.aaa.aaa"  # srv1117946 (Worker)
