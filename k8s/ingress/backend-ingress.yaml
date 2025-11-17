@@ -8,6 +8,9 @@ metadata:
     # Using staging for now due to prod issuer connectivity issue
     cert-manager.io/cluster-issuer: "letsencrypt-staging"
 
+    # Skip self-check as cluster DNS cannot resolve external domain
+    acme.cert-manager.io/http01-edit-in-place: "false"
+
     # Nginx-specific annotations
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
