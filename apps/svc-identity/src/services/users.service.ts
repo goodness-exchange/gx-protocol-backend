@@ -122,58 +122,74 @@ class UsersService {
 
   /**
    * Update user profile
-   * 
-   * This is a WRITE operation using the CQRS outbox pattern.
-   * 
+   *
+   * This is a direct WRITE operation to the read model.
+   *
+   * Profile metadata (names, phone, etc.) is stored OFF-CHAIN in PostgreSQL.
+   * Only the on-chain identity (CreateUser in Fabric) establishes blockchain presence.
+   * Profile updates don't require blockchain consensus.
+   *
    * @param profileId - User Profile ID
    * @param data - Update data
-   * @returns Command ID
+   * @returns Updated profile
    */
-  async updateProfile(profileId: string, data: UpdateProfileRequestDTO): Promise<{ commandId: string }> {
-    logger.info({ profileId }, 'Updating user profile');
+  async updateProfile(profileId: string, data: UpdateProfileRequestDTO): Promise<{ profile: UserProfileDTO }> {
+    logger.info({ profileId, fields: Object.keys(data) }, 'Updating user profile');
 
     // Verify user exists
-    const user = await db.userProfile.findUnique({
+    const existingUser = await db.userProfile.findUnique({
       where: { profileId },
     });
 
-    if (!user) {
+    if (!existingUser) {
       throw new Error('User not found');
     }
 
-    // Create outbox command
-    const command = await db.outboxCommand.create({
-      data: {
-        tenantId: user.tenantId,
-        service: 'svc-identity',
-        requestId: `update-${profileId}-${Date.now()}`,
-        commandType: 'CREATE_USER', // TODO: Add UPDATE_USER to enum
-        payload: {
-          profileId,
-          ...data,
-        },
-        status: 'PENDING',
-        attempts: 0,
-      },
+    // Build update data (only include provided fields)
+    const updateData: any = {};
+    if (data.firstName !== undefined) updateData.firstName = data.firstName;
+    if (data.lastName !== undefined) updateData.lastName = data.lastName;
+    if (data.phoneNum !== undefined) updateData.phoneNum = data.phoneNum;
+    if (data.identityNum !== undefined) updateData.identityNum = data.identityNum;
+
+    // Update user profile directly
+    const updatedUser = await db.userProfile.update({
+      where: { profileId },
+      data: updateData,
     });
 
-    logger.info({ commandId: command.id, profileId }, 'Profile update command created');
+    logger.info({ profileId }, 'User profile updated successfully');
 
     return {
-      commandId: command.id,
+      profile: {
+        profileId: updatedUser.profileId,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        phoneNum: updatedUser.phoneNum,
+        identityNum: updatedUser.identityNum,
+        status: updatedUser.status,
+        nationalityCountryCode: updatedUser.nationalityCountryCode,
+        createdAt: updatedUser.createdAt,
+        updatedAt: updatedUser.updatedAt,
+      },
     };
   }
 
   /**
    * Submit KYC verification request
-   * 
-   * This is a WRITE operation using the CQRS outbox pattern.
-   * 
+   *
+   * This is a direct WRITE operation to create a KYC verification record.
+   *
+   * KYC verification is an OFF-CHAIN administrative process. The KYC document
+   * review and approval happens in the backend, not on the blockchain.
+   * Only the final approval status may optionally sync to Fabric for compliance.
+   *
    * @param profileId - User Profile ID
    * @param data - KYC submission data
-   * @returns Command ID
+   * @returns KYC verification record
    */
-  async submitKYC(profileId: string, data: SubmitKYCRequestDTO): Promise<{ commandId: string }> {
+  async submitKYC(profileId: string, data: SubmitKYCRequestDTO): Promise<{ kycRecord: KYCStatusDTO }> {
     logger.info({ profileId }, 'Submitting KYC verification');
 
     // Verify user exists
@@ -194,28 +210,32 @@ class UsersService {
       throw new Error('KYC already approved');
     }
 
-    // Create outbox command
-    const command = await db.outboxCommand.create({
+    // Create KYC verification record
+    const kycRecord = await db.kYCVerification.create({
       data: {
-        tenantId: user.tenantId,
-        service: 'svc-identity',
-        requestId: `kyc-${profileId}-${Date.now()}`,
-        commandType: 'CREATE_USER', // TODO: Add SUBMIT_KYC to enum
-        payload: {
-          profileId,
-          evidenceHash: data.evidenceHash,
-          evidenceSize: data.evidenceSize,
-          evidenceMime: data.evidenceMime,
-        },
+        profileId,
         status: 'PENDING',
-        attempts: 0,
+        evidenceHash: data.evidenceHash,
+        evidenceSize: data.evidenceSize,
+        evidenceMime: data.evidenceMime,
       },
     });
 
-    logger.info({ commandId: command.id, profileId }, 'KYC submission command created');
+    logger.info({ kycId: kycRecord.kycId, profileId }, 'KYC verification record created');
 
     return {
-      commandId: command.id,
+      kycRecord: {
+        kycId: kycRecord.kycId,
+        profileId: kycRecord.profileId,
+        status: kycRecord.status,
+        evidenceHash: kycRecord.evidenceHash,
+        evidenceSize: kycRecord.evidenceSize,
+        evidenceMime: kycRecord.evidenceMime,
+        verifiedAt: kycRecord.verifiedAt,
+        verifierDetails: kycRecord.verifierDetails,
+        createdAt: kycRecord.createdAt,
+        updatedAt: kycRecord.updatedAt,
+      },
     };
   }
 
