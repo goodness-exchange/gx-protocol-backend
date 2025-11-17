@@ -4,7 +4,7 @@
 **Phase:** Phase 5 - Production Enhancements & Security Hardening
 **Started:** November 16, 2025
 **Current Date:** November 17, 2025 (Day 2)
-**Overall Progress:** 4/36 tasks (11.1%)
+**Overall Progress:** 6/36 tasks (16.7%)
 **Branch:** `phase1-infrastructure`
 
 ---
@@ -71,7 +71,7 @@
 
 **Priority:** CRITICAL
 **Target Date:** November 16-21, 2025
-**Status:** ⏳ 4/10 tasks complete (40%)
+**Status:** ⏳ 6/10 tasks complete (60%)
 
 | # | Task | Status | Date Completed | Notes |
 |---|------|--------|----------------|-------|
@@ -79,8 +79,8 @@
 | 2 | Implement admin authorization middleware | ✅ Complete | Nov 16 | JWT + RBAC in core-http |
 | 3 | Add admin role checks to sensitive endpoints | ✅ Complete | Nov 17 | 12 endpoints protected across 4 services |
 | 4 | Implement rate limiting middleware | ✅ Complete | Nov 17 | 4 endpoints protected (login, register, KYC, fees) |
-| 5 | Complete svc-tax fee calculation logic | ⏳ Pending | | Currently returns 0 |
-| 6 | Complete svc-tax eligibility check logic | ⏳ Pending | | Business rules missing |
+| 5 | Complete svc-tax fee calculation logic | ✅ Complete | Nov 17 | DB-driven with fallback defaults |
+| 6 | Complete svc-tax eligibility check logic | ✅ Complete | Nov 17 | Schema limitations documented |
 | 7 | Add UPDATE_USER command handler to svc-identity | ⏳ Pending | | Profile updates |
 | 8 | Add SUBMIT_KYC command handler to svc-identity | ⏳ Pending | | KYC submission |
 | 9 | Fix Prisma version mismatch | ⏳ Pending | | Standardize to 6.17.1 |
@@ -103,10 +103,26 @@
   - **Pre-configured Limiters**: strictRateLimiter (5 req/min), moderateRateLimiter (60 req/min), lenientRateLimiter (200 req/min)
   - **Features**: IP-based tracking, X-Forwarded-For support, RFC-compliant headers, Retry-After on 429
   - **Protected Endpoints**: Login (5 req/min), registration (5 req/min), KYC submission (60 req/min), fee calculation (60 req/min)
+- ✅ **Transaction Fee Calculation** (Task 5): Production-ready implementation mirroring chaincode algorithm
+  - **Database-Driven**: Fetches `transactionFeeThreshold` and `transactionFeeBps` from SystemParameter table
+  - **Fallback Defaults**: 1M Qirat threshold, 10 bps fee (0.1%) matching chaincode initialization
+  - **Algorithm**: `fee = (amount * bps) / 10000` when amount > threshold, otherwise 0
+  - **Validation**: Rejects negative amounts, enforces integer Qirat values
+  - **Logging**: Structured logs with amount, threshold, bps, fee, and percentage
+  - **Example**: 50M Qirat transaction = 5K Qirat fee (0.1%)
+- ✅ **Velocity Tax Eligibility Check** (Task 6): Multi-criteria validation with schema limitation awareness
+  - **System Pool Exemption**: SYSTEM_* accounts always exempt
+  - **Account Validation**: Checks UserProfile and Organization existence
+  - **Balance Threshold**: ≥100 coins (10M Qirat) required
+  - **Decimal Handling**: Proper Prisma Decimal to number conversion
+  - **Schema Limitation**: velocityTaxExempt and velocityTaxTimerStart fields not in schema yet (documented with NOTE)
+  - **Detailed Responses**: Returns eligibility status, reason, and balance details
+  - **Future**: Requires schema migration for full 360-day timer implementation
 
 ### Section 1 Blockers (Remaining)
-- svc-tax logic: Fee calculation returns 0, eligibility checks incomplete
 - Missing command handlers: UPDATE_USER, SUBMIT_KYC not implemented
+- Prisma version mismatch across packages
+- No seed data for system parameters or countries
 
 ---
 
