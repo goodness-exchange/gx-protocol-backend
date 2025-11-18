@@ -46,21 +46,25 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
-# Install production dependencies only
+# Copy package files and install production dependencies FIRST
 COPY package.json package-lock.json* ./
 COPY workers/projector/package.json ./workers/projector/
 COPY packages/ ./packages/
+
+RUN npm ci --production --legacy-peer-deps --ignore-scripts
 
 # Copy built artifacts from builder
 COPY --from=builder /app/workers/projector/dist ./workers/projector/dist
 COPY --from=builder /app/packages/ ./packages/
 
-# Copy Prisma schema and generated client
+# Copy Prisma schema
 COPY --from=builder /app/db/prisma ./db/prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
-RUN npm ci --production --legacy-peer-deps --ignore-scripts
+# Generate Prisma client in production stage
+RUN npx prisma generate --schema=./db/prisma/schema.prisma
+
+# Copy generated Prisma client to root node_modules (monorepo fix)
+RUN cp -r /app/packages/core-db/node_modules/.prisma /app/node_modules/
 
 # Fabric connection profiles and crypto materials will be mounted via Kubernetes ConfigMaps/Secrets
 
