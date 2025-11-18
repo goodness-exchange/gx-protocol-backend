@@ -59,7 +59,7 @@ class OrganizationService {
     });
 
     if (existingStakeholders.length !== stakeholderIds.length) {
-      const foundIds = existingStakeholders.map((s) => s.profileId);
+      const foundIds = existingStakeholders.map((s: any) => s.profileId);
       const missingIds = stakeholderIds.filter((id) => !foundIds.includes(id));
       throw new Error(`Some stakeholders not found: ${missingIds.join(', ')}`);
     }

@@ -215,7 +215,7 @@ class TokenomicsService {
       skip: offset,
     });
 
-    return transactions.map((tx) => ({
+    return transactions.map((tx: any) => ({
       offTxId: tx.offTxId,
       onChainTxId: tx.onChainTxId,
       walletId: tx.walletId,
@@ -226,7 +226,7 @@ class TokenomicsService {
       remark: tx.remark,
       timestamp: tx.timestamp,
       blockNumber: tx.blockNumber,
-    })) as any;
+    })) as TransactionDTO[];
   }
 
   /**

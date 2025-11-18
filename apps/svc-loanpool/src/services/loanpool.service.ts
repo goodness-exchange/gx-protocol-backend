@@ -140,7 +140,7 @@ class LoanPoolService {
       orderBy: { appliedAt: 'desc' },
     });
 
-    return loans.map((loan) => ({
+    return loans.map((loan: any) => ({
       loanId: loan.loanId,
       borrowerId: loan.borrowerId,
       amount: Number(loan.amount),

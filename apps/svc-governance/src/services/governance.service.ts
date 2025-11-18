@@ -129,15 +129,15 @@ class GovernanceService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return proposals.map((p) => ({
+    return proposals.map((p: any) => ({
       proposalId: p.proposalId,
-      targetParam: (p as any).targetParam,
-      newValue: (p as any).newValue,
+      targetParam: p.targetParam,
+      newValue: p.newValue,
       proposerId: p.proposerId,
       status: p.status as 'Active' | 'Passed' | 'Failed' | 'Executed',
       forVotes: Number(p.votesFor),
       againstVotes: Number(p.votesAgainst),
-      endTime: (p as any).endTime,
+      endTime: p.endTime,
     }));
   }
 }
