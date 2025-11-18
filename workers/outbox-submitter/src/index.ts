@@ -407,7 +407,7 @@ class OutboxSubmitter {
           status: 'FAILED',
           attempts,
           error: error.message,
-          errorCode: error.code || 'UNKNOWN_ERROR',
+          errorCode: error.code?.toString() || 'UNKNOWN_ERROR',
           lockedBy: null,
           lockedAt: null,
         },
@@ -478,8 +478,9 @@ class OutboxSubmitter {
           functionName: 'CreateUser',
           args: [
             payload.userId as string,
-            payload.countryCode as string,
-            payload.userType as string,
+            payload.biometricHash as string,
+            payload.nationality as string,
+            payload.age.toString(),
           ],
         };
 
@@ -487,11 +488,11 @@ class OutboxSubmitter {
       case 'TRANSFER_TOKENS':
         return {
           contractName: 'TokenomicsContract',
-          functionName: 'TransferTokens',
+          functionName: 'Transfer',
           args: [
             payload.fromUserId as string,
             payload.toUserId as string,
-            payload.amount as string,
+            payload.amount.toString(),
             payload.remark as string || '',
           ],
         };
@@ -502,20 +503,12 @@ class OutboxSubmitter {
           functionName: 'DistributeGenesis',
           args: [
             payload.userId as string,
-            payload.userType as string,
-            payload.countryCode as string,
+            payload.nationality as string,
           ],
         };
 
       case 'FREEZE_WALLET':
-        return {
-          contractName: 'TokenomicsContract',
-          functionName: 'FreezeWallet',
-          args: [
-            payload.userId as string,
-            payload.reason as string,
-          ],
-        };
+        throw new Error('FREEZE_WALLET command not implemented in chaincode - use Admin:LockUser instead');
 
       case 'UNFREEZE_WALLET':
         return {
