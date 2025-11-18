@@ -538,14 +538,25 @@ export class FabricClient implements IFabricClient {
    * - Detects broken connections quickly
    * - Prevents proxy timeouts
    * - Required for event streaming
+   *
+   * TLS Server Name Override:
+   * - Allows using Kubernetes internal DNS while validating against external certificate
+   * - Example: Connect to peer0-org1.fabric.svc.cluster.local but validate as peer0.org1.prod.goodness.exchange
    */
   private getGrpcOptions(): grpc.ClientOptions {
-    return {
+    const options: grpc.ClientOptions = {
       'grpc.keepalive_time_ms': this.config.grpc?.keepAliveTimeout || 120000, // 2 minutes
       'grpc.keepalive_timeout_ms': 20000, // 20 seconds
       'grpc.keepalive_permit_without_calls': 1,
       'grpc.http2.max_pings_without_data': 0,
       'grpc.http2.min_time_between_pings_ms': 10000,
     };
+
+    // Add TLS server name override if configured
+    if (this.config.grpc?.tlsServerNameOverride) {
+      options['grpc.ssl_target_name_override'] = this.config.grpc.tlsServerNameOverride;
+    }
+
+    return options;
   }
 }
