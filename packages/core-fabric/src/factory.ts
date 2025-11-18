@@ -37,6 +37,7 @@ const ENV_VARS = {
   CHAINCODE_NAME: 'FABRIC_CHAINCODE_NAME',
   GRPC_KEEPALIVE: 'FABRIC_GRPC_KEEPALIVE',
   GRPC_KEEPALIVE_TIMEOUT: 'FABRIC_GRPC_KEEPALIVE_TIMEOUT',
+  GRPC_TLS_SERVER_NAME_OVERRIDE: 'FABRIC_TLS_SERVER_NAME_OVERRIDE',
 } as const;
 
 /**
@@ -171,6 +172,7 @@ async function loadConfigFromEnvironment(): Promise<FabricConfig> {
       keepAliveTimeout: process.env[ENV_VARS.GRPC_KEEPALIVE_TIMEOUT]
         ? parseInt(process.env[ENV_VARS.GRPC_KEEPALIVE_TIMEOUT]!, 10)
         : DEFAULTS.grpcKeepAliveTimeout,
+      tlsServerNameOverride: process.env[ENV_VARS.GRPC_TLS_SERVER_NAME_OVERRIDE],
     },
   };
 
