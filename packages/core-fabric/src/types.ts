@@ -44,6 +44,8 @@ export interface FabricConfig {
     keepAlive?: boolean;
     /** Keep-alive timeout in milliseconds */
     keepAliveTimeout?: number;
+    /** Override TLS server name for certificate validation (for Kubernetes internal DNS) */
+    tlsServerNameOverride?: string;
   };
 }
 
