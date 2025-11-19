@@ -159,9 +159,12 @@ export class FabricClient implements IFabricClient {
         // Submit strategy: gateway decides which peers to endorse
       });
 
-      // Step 4: Get channel and chaincode
+      // Step 4: Get channel (contract will be retrieved dynamically per transaction)
       this.network = this.gateway.getNetwork(this.config.channelName);
-      this.contract = this.network.getContract(this.config.chaincodeName);
+      // Note: We don't initialize this.contract here anymore since we need different
+      // contracts per transaction. The contract will be retrieved dynamically in
+      // submitTxInternal and evaluateTransaction using the contractName parameter.
+      this.contract = undefined; // Set to undefined, will be set dynamically
 
       this.isConnected = true;
       this.log('info', 'Successfully connected to Fabric network');
@@ -255,8 +258,16 @@ export class FabricClient implements IFabricClient {
         argCount: args.length,
       });
 
+      // Get the specific contract for this transaction
+      // This is necessary because the chaincode has multiple contracts registered
+      // (AdminContract, IdentityContract, TokenomicsContract, etc.)
+      const contract = this.network!.getContract(
+        this.config.chaincodeName,
+        contractName
+      );
+
       // Submit transaction and wait for commit
-      const proposal = this.contract!.newProposal(functionName, {
+      const proposal = contract.newProposal(functionName, {
         arguments: args,
       });
 
@@ -331,7 +342,13 @@ export class FabricClient implements IFabricClient {
         argCount: args.length,
       });
 
-      const result = await this.contract!.evaluateTransaction(
+      // Get the specific contract for this query
+      const contract = this.network!.getContract(
+        this.config.chaincodeName,
+        contractName
+      );
+
+      const result = await contract.evaluateTransaction(
         functionName,
         ...args
       );
