@@ -629,10 +629,15 @@ class OutboxSubmitter {
         };
 
       case 'INITIALIZE_COUNTRY_DATA':
+        // Transform payload: {code, name, percentage} -> {countryCode, percentage}
+        const transformedCountries = (payload.countriesData as Array<{code: string; name: string; percentage: number}>).map(c => ({
+          countryCode: c.code,
+          percentage: c.percentage
+        }));
         return {
           contractName: 'AdminContract',
           functionName: 'InitializeCountryData',
-          args: [JSON.stringify(payload.countriesData)],
+          args: [JSON.stringify(transformedCountries)],
         };
 
       case 'UPDATE_SYSTEM_PARAMETER':
