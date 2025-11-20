@@ -1,0 +1,242 @@
+Seq #	"Name of Country
+ or Teritory"	"ISO 3166 
+Country code"	"Country 
+Calling Code"	"Allocation
+Percentage"
+				
+				
+				
+1	India	IN	91	13.464767%
+2	China	CN	86	13.025376%
+3	United States	US	1	3.194266%
+4	Indonesia	ID	62	4.336332%
+5	Pakistan	PK	92	4.108177%
+6	Nigeria	NG	234	3.384748%
+7	Brazil	BR	55	3.032547%
+8	Bangladesh	BD	880	2.503520%
+9	Russia	RU	7	2.051941%
+10	Ethiopia	ET	251	1.930461%
+11	Mexico	MX	52	1.880230%
+12	Japan	JP	81	1.754204%
+13	Egypt	EG	20	1.686702%
+14	Philippines	PH	63	1.664202%
+15	DR Congo	CD	243	1.607843%
+16	Vietnam	VN	84	1.447775%
+17	Iran	IR	98	1.487612%
+18	Turkey	TR	90	1.249507%
+19	Germany	DE	49	0.850661%
+20	Thailand	TH	66	1.020576%
+21	Tanzania	TZ	255	1.005271%
+22	United Kingdom	GB	44	0.703711%
+23	France	FR	33	0.674363%
+24	South Africa	ZA	27	0.922642%
+25	Italy	IT	39	0.598434%
+26	Kenya	KE	254	0.819832%
+27	Myanmar	MM	95	0.781615%
+28	Colombia	CO	57	0.761309%
+29	South Korea	KR	82	0.736249%
+30	Sudan	SD	249	0.736179%
+31	Uganda	UG	256	0.732229%
+32	Spain	ES	34	0.484545%
+33	Algeria	DZ	213	0.675948%
+34	Iraq	IQ	964	0.756875%
+35	Argentina	AR	54	0.653377%
+36	Afghanistan	AF	93	0.705742%
+37	Yemen	YE	967	0.672418%
+38	Canada	CA	1	0.405996%
+39	Angola	AO	244	0.556316%
+40	Ukraine	UA	380	0.555466%
+41	Morocco	MA	212	0.547635%
+42	Poland	PL	48	0.543503%
+43	Uzbekistan	UZ	998	0.528007%
+44	Malaysia	MY	60	0.512680%
+45	Mozambique	MZ	258	0.507748%
+46	Ghana	GH	233	0.499662%
+47	Peru	PE	51	0.492714%
+48	Saudi Arabia	SA	966	0.397428%
+49	Madagascar	MG	261	0.466551%
+50	Ivory Coast	CI	225	0.466135%
+51	Cameroon	CM	237	0.425776%
+52	Nepal	NP	977	0.422054%
+53	Venezuela	VE	58	0.406363%
+54	Niger	NE	227	0.397825%
+55	Australia	AU	61	0.272918%
+56	North Korea	KP	850	0.378634%
+57	Syria	SY	963	0.388834%
+58	Mali	ML	223	0.359080%
+59	Burkina Faso	BF	226	0.343060%
+60	Sri Lanka	LK	94	0.373916%
+61	Taiwan	TW	886	0.329355%
+62	Malawi	MW	265	0.316577%
+63	Zambia	ZM	260	0.312271%
+64	Chad	TD	235	0.299300%
+65	Kazakhstan	KZ	7	0.297022%
+66	Chile	CL	56	0.283001%
+67	Somalia	SO	252	0.280077%
+68	Senegal	SN	221	0.269779%
+69	Romania	RO	40	0.269445%
+70	Guatemala	GT	502	0.266300%
+71	Netherlands	NL	31	0.185631%
+72	Ecuador	EC	593	0.260629%
+73	Cambodia	KH	855	0.254332%
+74	Zimbabwe	ZW	263	0.241547%
+75	Guinea	GN	224	0.215169%
+76	Benin	BJ	229	0.211105%
+77	Rwanda	RW	250	0.207611%
+78	Burundi	BI	257	0.205056%
+79	Bolivia	BO	591	0.179289%
+80	Tunisia	TN	216	0.175966%
+81	South Sudan	SS	211	0.173689%
+82	Haiti	HT	509	0.169661%
+83	Belgium	BE	32	0.118972%
+84	Jordan	JO	962	0.164169%
+85	Dominican Republic	DO	1	0.164166%
+86	United Arab Emirates	AE	971	0.130452%
+87	Honduras	HN	504	0.156832%
+88	Cuba	CU	53	0.155854%
+89	Tajikistan	TJ	992	0.153709%
+90	Papua New Guinea	PG	675	0.153368%
+91	Sweden	SE	46	0.107822%
+92	Czech Republic	CZ	420	0.151180%
+93	Portugal	PT	351	0.105346%
+94	Azerbaijan	AZ	994	0.148166%
+95	Greece	GR	30	0.141627%
+96	Togo	TG	228	0.138532%
+97	Hungary	HU	36	0.137259%
+98	Israel	IL	972	0.021885%
+99	Austria	AT	43	0.092210%
+100	Belarus	BY	375	0.128215%
+101	Switzerland	CH	41	0.090732%
+102	Sierra Leone	SL	232	0.125681%
+103	Laos	LA	856	0.112190%
+104	Turkmenistan	TM	993	0.108568%
+105	Libya	LY	218	0.106284%
+106	Hong Kong	HK	852	0.105393%
+107	Kyrgyzstan	KG	996	0.103953%
+108	Paraguay	PY	595	0.099936%
+109	Nicaragua	NI	505	0.099856%
+110	Bulgaria	BG	359	0.095682%
+111	Serbia	RS	381	0.095318%
+112	Republic of the Congo	CG	242	0.092402%
+113	El Salvador	SV	503	0.090708%
+114	Denmark	DK	45	0.060732%
+115	Singapore	SG	65	0.083658%
+116	Lebanon	LB	961	0.083354%
+117	Liberia	LR	231	0.081669%
+118	Finland	FI	358	0.056896%
+119	Norway	NO	47	0.056894%
+120	Palestine	PS	970	0.179948%
+121	Central African Republic	CF	236	0.078563%
+122	Oman	OM	968	0.063176%
+123	Slovakia	SK	421	0.078017%
+124	Mauritania	MR	222	0.075739%
+125	Ireland	IE	353	0.075639%
+126	New Zealand	NZ	64	0.053137%
+127	Costa Rica	CR	506	0.073429%
+128	Kuwait	KW	965	0.057788%
+129	Panama	PA	507	0.065139%
+130	Croatia	HR	385	0.054836%
+131	Georgia	GE	995	0.054245%
+132	Eritrea	ER	291	0.051399%
+133	Mongolia	MN	976	0.050118%
+134	Uruguay	UY	598	0.048231%
+135	Puerto Rico	PR	1	0.046103%
+136	Bosnia and Herzegovina	BA	387	0.044746%
+137	Qatar	QA	974	0.035825%
+138	Namibia	NA	264	0.044073%
+139	Moldova	MD	373	0.042694%
+140	Armenia	AM	374	0.042071%
+141	Jamaica	JM	1	0.040428%
+142	Lithuania	LT	370	0.040329%
+143	Gambia	GM	220	0.040214%
+144	Albania	AL	355	0.039494%
+145	Gabon	GA	241	0.036952%
+146	Botswana	BW	267	0.036510%
+147	Lesotho	LS	266	0.033677%
+148	Guinea-Bissau	GW	245	0.032055%
+149	Slovenia	SI	386	0.030168%
+150	Equatorial Guinea	GQ	240	0.027622%
+151	Latvia			0.026413%
+152	North Macedonia			0.025846%
+153	Bahrain			0.018894%
+154	Trinidad and Tobago			0.021534%
+155	Timor-Leste			0.020214%
+156	Cyprus			0.019533%
+157	Estonia			0.019155%
+158	Mauritius			0.018073%
+159	Eswatini			0.017900%
+160	Djibouti			0.016873%
+161	Fiji			0.013297%
+162	Comoros			0.012581%
+163	Reunion			0.012574%
+164	Solomon Islands			0.011951%
+165	Guyana			0.011913%
+166	Bhutan			0.011353%
+167	Macau			0.010288%
+168	Luxembourg			0.009697%
+169	Suriname			0.009118%
+170	Montenegro			0.009016%
+171	Western Sahara			0.008563%
+172	Malta			0.007772%
+173	Maldives			0.008039%
+174	Cape Verde			0.007514%
+175	Brunei			0.006645%
+176	Belize			0.006027%
+177	Bahamas			0.005743%
+178	Iceland			0.005675%
+179	Guadeloupe			0.005327%
+180	Martinique			0.004851%
+181	Mayotte			0.004802%
+182	Vanuatu			0.004776%
+183	French Guiana			0.004470%
+184	New Caledonia			0.004209%
+185	Barbados			0.004027%
+186	French Polynesia			0.004025%
+187	Sao Tome and Principe			0.003424%
+188	Samoa			0.003125%
+189	Curacao			0.002643%
+190	Saint Lucia			0.002567%
+191	Guam			0.002408%
+192	Kiribati			0.001945%
+193	Seychelles			0.001892%
+194	Grenada			0.001672%
+195	Micronesia			0.001620%
+196	Aruba			0.001541%
+197	Jersey			0.001482%
+198	Tonga			0.001478%
+199	Saint Vincent and the Grenadines			0.001424%
+200	Antigua and Barbuda			0.001342%
+201	United States Virgin Islands			0.001199%
+202	Isle of Man			0.001199%
+203	Andorra			0.001181%
+204	Cayman Islands			0.001081%
+205	Dominica			0.000939%
+206	Bermuda			0.000920%
+207	Guernsey			0.000919%
+208	Faroe Islands			0.000798%
+209	Greenland			0.000794%
+210	Saint Kitts and Nevis			0.000669%
+211	Turks and Caicos Islands			0.000668%
+212	American Samoa			0.000656%
+213	Sint Maarten			0.000626%
+214	Northern Mariana Islands			0.000620%
+215	Liechtenstein			0.000572%
+216	Gibraltar			0.000572%
+217	British Virgin Islands			0.000566%
+218	Monaco			0.000546%
+219	Marshall Islands			0.000517%
+220	San Marino			0.000478%
+221	Saint Martin			0.000356%
+222	Palau			0.000252%
+223	Anguilla			0.000210%
+224	Cook Islands			0.000189%
+225	Nauru			0.000172%
+226	Saint Barthelemy			0.000163%
+227	Wallis and Futuna			0.000160%
+228	Tuvalu			0.000135%
+229	Saint Pierre and Miquelon			0.000080%
+230	Montserrat			0.000062%
+231	Falkland Islands			0.000049%
+232	Tokelau			0.000037%
+233	Niue			0.000026%
+234	Vatican City			0.000007%
