@@ -126,6 +126,63 @@ const metrics = {
 // Register default metrics (memory, CPU, etc.)
 promClient.collectDefaultMetrics();
 
+// ========== Fabric Identity Management ==========
+
+/**
+ * Fabric identity configuration
+ *
+ * Each identity represents a different role in the system:
+ * - org1-super-admin: gx_super_admin role for system-level operations
+ * - org1-admin: gx_admin role for administrative operations
+ * - org1-partner-api: gx_partner_api role for standard operations
+ */
+interface FabricIdentity {
+  name: string;
+  role: 'super_admin' | 'admin' | 'partner_api';
+  certPath: string;
+  keyPath: string;
+}
+
+/**
+ * Map of identity name to Fabric client instance
+ *
+ * Each client maintains its own gRPC connection and circuit breaker.
+ * Clients are created once during worker initialization and reused.
+ */
+const fabricClients = new Map<string, IFabricClient>();
+
+/**
+ * Select appropriate Fabric identity based on command type
+ *
+ * ABAC (Attribute-Based Access Control) in chaincode:
+ * - Super admin commands require gx_super_admin role
+ * - Admin commands require gx_admin role
+ * - Standard commands use gx_partner_api role
+ */
+function selectIdentityForCommand(commandType: string): string {
+  const superAdminCommands = [
+    'BOOTSTRAP_SYSTEM',
+    'INITIALIZE_COUNTRY_DATA',
+    'PAUSE_SYSTEM',
+    'RESUME_SYSTEM',
+  ];
+
+  const adminCommands = [
+    'APPOINT_ADMIN',
+    'ACTIVATE_TREASURY',
+  ];
+
+  if (superAdminCommands.includes(commandType)) {
+    return 'org1-super-admin';
+  }
+
+  if (adminCommands.includes(commandType)) {
+    return 'org1-admin';
+  }
+
+  return 'org1-partner-api';
+}
+
 // ========== Main Worker Class ==========
 
 /**
@@ -142,28 +199,26 @@ promClient.collectDefaultMetrics();
 class OutboxSubmitter {
   private config: WorkerConfig;
   private prisma: PrismaClient;
-  private fabricClient: IFabricClient;
   private isRunning = false;
   private pollTimer?: NodeJS.Timeout;
 
   constructor(
     config: WorkerConfig,
-    prisma: PrismaClient,
-    fabricClient: IFabricClient
+    prisma: PrismaClient
   ) {
     this.config = config;
     this.prisma = prisma;
-    this.fabricClient = fabricClient;
   }
 
   /**
    * Start the worker
    *
    * Lifecycle:
-   * 1. Connect to Fabric
-   * 2. Start polling loop
-   * 3. Start metrics server
-   * 4. Register graceful shutdown handlers
+   * 1. Initialize Fabric clients for all 3 identities
+   * 2. Connect each client to Fabric network
+   * 3. Start polling loop
+   * 4. Start metrics server
+   * 5. Register graceful shutdown handlers
    */
   async start(): Promise<void> {
     this.log('info', 'Starting outbox submitter worker', {
@@ -173,9 +228,8 @@ class OutboxSubmitter {
     });
 
     try {
-      // Connect to Fabric network
-      await this.fabricClient.connect();
-      this.log('info', 'Connected to Fabric network');
+      // Initialize Fabric clients for all identities
+      await this.initializeFabricClients();
 
       // Start polling loop
       this.isRunning = true;
@@ -198,6 +252,100 @@ class OutboxSubmitter {
   }
 
   /**
+   * Initialize Fabric clients for all 3 identities
+   *
+   * Each identity gets its own:
+   * - gRPC connection to peer
+   * - Gateway connection with X.509 certificate
+   * - Circuit breaker for resilience
+   *
+   * Wallet structure:
+   * fabric-wallet/
+   *   ├── org1-super-admin/ (gx_super_admin role)
+   *   ├── org1-admin/       (gx_admin role)
+   *   └── org1-partner-api/ (gx_partner_api role)
+   */
+  private async initializeFabricClients(): Promise<void> {
+    const walletPath = process.env.FABRIC_WALLET_PATH || './fabric-wallet';
+
+    const identities: FabricIdentity[] = [
+      {
+        name: 'org1-super-admin',
+        role: 'super_admin',
+        certPath: `${walletPath}/org1-super-admin/cert.pem`,
+        keyPath: `${walletPath}/org1-super-admin/key.pem`,
+      },
+      {
+        name: 'org1-admin',
+        role: 'admin',
+        certPath: `${walletPath}/org1-admin/cert.pem`,
+        keyPath: `${walletPath}/org1-admin/key.pem`,
+      },
+      {
+        name: 'org1-partner-api',
+        role: 'partner_api',
+        certPath: `${walletPath}/org1-partner-api/cert.pem`,
+        keyPath: `${walletPath}/org1-partner-api/key.pem`,
+      },
+    ];
+
+    this.log('info', 'Initializing Fabric clients for all identities', {
+      identities: identities.map(i => ({ name: i.name, role: i.role })),
+    });
+
+    // Create and connect each client
+    for (const identity of identities) {
+      try {
+        this.log('info', `Connecting Fabric client for ${identity.name}`, {
+          role: identity.role,
+        });
+
+        // Create client with specific identity credentials
+        const client = await createFabricClient({
+          peerEndpoint: process.env.FABRIC_PEER_ENDPOINT!,
+          peerTLSCACert: await this.loadTLSCACert(),
+          mspId: process.env.FABRIC_MSP_ID || 'Org1MSP',
+          certPath: identity.certPath,
+          keyPath: identity.keyPath,
+          channelName: process.env.FABRIC_CHANNEL_NAME || 'gxchannel',
+          chaincodeName: process.env.FABRIC_CHAINCODE_NAME || 'gxtv3',
+          grpc: {
+            keepAlive: true,
+            keepAliveTimeout: 120000,
+            tlsServerNameOverride: process.env.FABRIC_TLS_SERVER_NAME_OVERRIDE,
+          },
+        });
+
+        // Connect to Fabric network
+        await client.connect();
+
+        // Store client in map
+        fabricClients.set(identity.name, client);
+
+        this.log('info', `Successfully connected Fabric client for ${identity.name}`);
+      } catch (error: any) {
+        this.log('error', `Failed to connect Fabric client for ${identity.name}`, {
+          error: error.message,
+        });
+        throw new Error(`Failed to initialize Fabric client ${identity.name}: ${error.message}`);
+      }
+    }
+
+    this.log('info', 'All Fabric clients initialized successfully', {
+      count: fabricClients.size,
+    });
+  }
+
+  /**
+   * Load TLS CA certificate for peer connection
+   */
+  private async loadTLSCACert(): Promise<string> {
+    const fs = require('fs').promises;
+    const caPath = `${process.env.FABRIC_WALLET_PATH || './fabric-wallet'}/ca-cert/ca-org1.pem`;
+    return await fs.readFile(caPath, 'utf-8');
+  }
+
+  /**
    * Stop the worker gracefully
    */
   async stop(): Promise<void> {
@@ -210,7 +358,13 @@ class OutboxSubmitter {
       clearTimeout(this.pollTimer);
     }
 
-    this.fabricClient.disconnect();
+    // Disconnect all Fabric clients
+    for (const [name, client] of fabricClients) {
+      this.log('info', `Disconnecting Fabric client: ${name}`);
+      client.disconnect();
+    }
+    fabricClients.clear();
+
     await this.prisma.$disconnect();
 
     this.log('info', 'Outbox submitter worker stopped');
@@ -435,20 +589,38 @@ class OutboxSubmitter {
   /**
    * Submit command to Fabric chaincode
    *
-   * Maps CommandType to Fabric chaincode function
+   * ABAC (Attribute-Based Access Control):
+   * 1. Select Fabric identity based on command type
+   * 2. Each identity has gxc_role attribute in X.509 certificate
+   * 3. Chaincode validates role before executing function
+   *
+   * Example: INITIALIZE_COUNTRY_DATA requires gx_super_admin role
    */
   private async submitToFabric(
     commandType: string,
     payload: any
   ): Promise<{ transactionId: string; blockNumber?: bigint }> {
+    // Select appropriate Fabric client for this command
+    const identityName = selectIdentityForCommand(commandType);
+    const fabricClient = fabricClients.get(identityName);
+
+    if (!fabricClient) {
+      throw new Error(`Fabric client not found for identity: ${identityName}`);
+    }
+
+    this.log('debug', 'Submitting transaction with identity', {
+      commandType,
+      identity: identityName,
+    });
+
     // Map command type to chaincode contract and function
     const { contractName, functionName, args } = this.mapCommandToChaincode(
       commandType,
       payload
     );
 
-    // Submit transaction
-    const result = await this.fabricClient.submitTransaction(
+    // Submit transaction using selected identity
+    const result = await fabricClient.submitTransaction(
       contractName,
       functionName,
       ...args
@@ -718,9 +890,16 @@ class OutboxSubmitter {
           res.setHeader('Content-Type', promClient.register.contentType);
           res.end(await promClient.register.metrics());
         } else if (req.url === '/health') {
+          // Collect circuit breaker stats from all Fabric clients
+          const circuitBreakerStats: Record<string, any> = {};
+          for (const [name, client] of fabricClients.entries()) {
+            circuitBreakerStats[name] = client.getCircuitBreakerStats();
+          }
+
           const health = {
             status: this.isRunning ? 'healthy' : 'unhealthy',
-            fabricCircuitBreaker: this.fabricClient.getCircuitBreakerStats(),
+            fabricClientsConnected: fabricClients.size,
+            fabricCircuitBreakers: circuitBreakerStats,
             queueDepth: await this.getQueueDepth(),
           };
           res.setHeader('Content-Type', 'application/json');
@@ -782,11 +961,9 @@ async function main() {
       log: ['error', 'warn'],
     });
 
-    // Initialize Fabric client
-    const fabricClient = await createFabricClient();
-
     // Create and start worker
-    const worker = new OutboxSubmitter(config, prisma, fabricClient);
+    // Note: Fabric clients will be initialized during worker.start()
+    const worker = new OutboxSubmitter(config, prisma);
     await worker.start();
   } catch (error: any) {
     console.error('Fatal error starting worker:', error);
