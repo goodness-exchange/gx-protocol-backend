@@ -6,7 +6,7 @@ export interface BootstrapSystemResponseDTO {
 }
 
 export interface InitializeCountryDataRequestDTO {
-  countriesData: Array<{ code: string; name: string }>;
+  countriesData: Array<{ code: string; name: string; percentage: number }>;
 }
 
 export interface UpdateSystemParameterRequestDTO {
