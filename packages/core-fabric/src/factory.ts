@@ -54,7 +54,7 @@ const DEFAULTS = {
 };
 
 /**
- * Create Fabric client from environment variables
+ * Create Fabric client from environment variables or explicit config
  *
  * Example environment (Kubernetes production):
  * ```yaml
@@ -75,27 +75,32 @@ const DEFAULTS = {
  *     value: "/etc/fabric/ca-cert.pem"
  * ```
  *
- * Example environment (local development):
- * ```bash
- * export FABRIC_PEER_ENDPOINT="localhost:7051"
- * export FABRIC_CERT_PATH="./crypto/cert.pem"
- * export FABRIC_KEY_PATH="./crypto/key.pem"
- * export FABRIC_PEER_TLS_CA_CERT="$(cat ./crypto/ca-cert.pem)"
+ * Example with explicit config (multi-identity scenario):
+ * ```typescript
+ * const client = await createFabricClient({
+ *   peerEndpoint: 'localhost:7051',
+ *   peerTLSCACert: fs.readFileSync('./ca-cert.pem', 'utf-8'),
+ *   certPath: './fabric-wallet/org1-admin/cert.pem',
+ *   keyPath: './fabric-wallet/org1-admin/key.pem',
+ *   mspId: 'Org1MSP',
+ *   channelName: 'gxchannel',
+ *   chaincodeName: 'gxtv3',
+ * });
  * ```
  */
-export async function createFabricClient(): Promise<FabricClient> {
+export async function createFabricClient(config?: FabricConfig): Promise<FabricClient> {
   try {
-    // Load configuration from environment
-    const config = await loadConfigFromEnvironment();
+    // If config provided, use it directly; otherwise load from environment
+    const finalConfig = config || await loadConfigFromEnvironment();
 
     // Create and return client
-    return new FabricClient(config);
+    return new FabricClient(finalConfig);
   } catch (error: any) {
     throw new FabricConnectionError(
-      'Failed to create Fabric client from environment',
+      'Failed to create Fabric client',
       {
         error: error.message,
-        missingVars: getMissingRequiredVars(),
+        missingVars: config ? [] : getMissingRequiredVars(),
       }
     );
   }
