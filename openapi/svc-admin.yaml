@@ -1,0 +1,652 @@
+openapi: 3.0.3
+
+info:
+  title: GX Protocol - Admin Service
+  version: 1.0.0
+  description: |
+    Admin service manages system-level operations, governance, and administrative controls.
+
+    **Key Features:**
+    - System bootstrap and initialization
+    - Country data management
+    - System parameter configuration
+    - System pause/resume controls
+    - Admin role management
+    - Treasury activation
+    - Global statistics and monitoring
+
+    **Authorization:** Most endpoints require SUPER_ADMIN role
+
+servers:
+  - url: http://localhost:3006/api/v1
+    description: Development server (backend-testnet)
+  - url: https://api.gxcoin.money/admin/api/v1
+    description: Production server (backend-mainnet)
+
+tags:
+  - name: System Management
+    description: System-level operations (bootstrap, pause, resume)
+  - name: Country Management
+    description: Country data initialization and statistics
+  - name: Configuration
+    description: System parameter management
+  - name: Administration
+    description: Admin role management and treasury controls
+  - name: Monitoring
+    description: System status and global statistics
+
+paths:
+  # ==========================================
+  # System Management Endpoints
+  # ==========================================
+  /bootstrap:
+    post:
+      tags:
+        - System Management
+      summary: Bootstrap system
+      description: |
+        Initialize the GX Protocol system with genesis configuration.
+        This is a one-time operation that sets up the initial system state.
+
+        **Authorization:** SUPER_ADMIN role required
+
+        **CQRS Flow:**
+        1. Command written to outbox table
+        2. Returns 202 Accepted with commandId
+        3. Outbox-submitter invokes AdminContract:BootstrapSystem
+        4. Chaincode initializes global state
+
+        **Idempotent:** Cannot bootstrap twice (checked by chaincode)
+
+        **Prerequisites:** None - this is the first operation in system lifecycle
+      operationId: bootstrapSystem
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '409':
+          description: System already bootstrapped
+          content:
+            application/json:
+              schema:
+                $ref: 'shared-schemas.yaml#/components/schemas/ErrorResponse'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /system/pause:
+    post:
+      tags:
+        - System Management
+      summary: Pause system
+      description: |
+        Pause the entire GX Protocol system to prevent all transactions.
+
+        **Authorization:** SUPER_ADMIN role required
+
+        **Effect:**
+        - All write operations blocked (transfers, KYC, proposals, etc.)
+        - Read operations still work
+        - Requires resume action to restore functionality
+
+        **Use Cases:**
+        - Emergency shutdown
+        - Critical security incident
+        - Major system upgrade
+        - Regulatory compliance
+      operationId: pauseSystem
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 500
+                  description: Reason for pausing the system (required for audit trail)
+                  example: "Emergency security incident - investigating unauthorized access"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /system/resume:
+    post:
+      tags:
+        - System Management
+      summary: Resume system
+      description: |
+        Resume a paused GX Protocol system to restore normal operations.
+
+        **Authorization:** SUPER_ADMIN role required
+
+        **Effect:**
+        - All write operations restored
+        - System returns to normal functionality
+      operationId: resumeSystem
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /system/status:
+    get:
+      tags:
+        - Monitoring
+      summary: Get system status
+      description: |
+        Retrieve current system status (paused or active).
+
+        **Public Endpoint:** No authentication required
+
+        **Read Model:** Queries projected read model (PostgreSQL)
+      operationId: getSystemStatus
+      responses:
+        '200':
+          description: System status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # Country Management Endpoints
+  # ==========================================
+  /countries/initialize:
+    post:
+      tags:
+        - Country Management
+      summary: Initialize country data
+      description: |
+        Bulk initialize country master data in the system.
+
+        **Authorization:** SUPER_ADMIN role required
+
+        **CQRS Flow:**
+        1. Command written to outbox table
+        2. Outbox-submitter invokes AdminContract:InitializeCountryData
+        3. Chaincode creates country records on-chain
+
+        **Note:** This is typically done once during system setup
+      operationId: initializeCountryData
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - countriesData
+              properties:
+                countriesData:
+                  type: array
+                  minItems: 1
+                  maxItems: 300
+                  description: Array of country data objects
+                  items:
+                    type: object
+                    required:
+                      - code
+                      - name
+                    properties:
+                      code:
+                        type: string
+                        pattern: '^[A-Z]{2}$'
+                        description: ISO 3166-1 alpha-2 country code
+                        example: "MY"
+                      name:
+                        type: string
+                        minLength: 2
+                        maxLength: 100
+                        description: Country name
+                        example: "Malaysia"
+              example:
+                countriesData:
+                  - code: "MY"
+                    name: "Malaysia"
+                  - code: "SG"
+                    name: "Singapore"
+                  - code: "US"
+                    name: "United States"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /countries:
+    get:
+      tags:
+        - Country Management
+      summary: List all countries
+      description: |
+        Retrieve list of all initialized countries in the system.
+
+        **Public Endpoint:** No authentication required
+
+        **Read Model:** Queries projected read model (PostgreSQL)
+      operationId: listAllCountries
+      responses:
+        '200':
+          description: Countries list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - countries
+                properties:
+                  countries:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - code
+                        - name
+                      properties:
+                        code:
+                          type: string
+                          example: "MY"
+                        name:
+                          type: string
+                          example: "Malaysia"
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /countries/{countryCode}/stats:
+    get:
+      tags:
+        - Country Management
+      summary: Get country statistics
+      description: |
+        Retrieve statistics for a specific country.
+
+        **Public Endpoint:** No authentication required
+
+        **Metrics:**
+        - Total supply in country
+        - User count
+      operationId: getCountryStats
+      parameters:
+        - name: countryCode
+          in: path
+          required: true
+          description: ISO 3166-1 alpha-2 country code
+          schema:
+            type: string
+            pattern: '^[A-Z]{2}$'
+            example: "MY"
+      responses:
+        '200':
+          description: Country statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CountryStats'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # Configuration Endpoints
+  # ==========================================
+  /parameters:
+    post:
+      tags:
+        - Configuration
+      summary: Update system parameter
+      description: |
+        Update a system configuration parameter.
+
+        **Authorization:** SUPER_ADMIN role required
+
+        **CQRS Flow:**
+        1. Command written to outbox table
+        2. Outbox-submitter invokes AdminContract:UpdateSystemParameter
+        3. Chaincode updates parameter on-chain
+
+        **Common Parameters:**
+        - MIN_TRANSFER_AMOUNT
+        - MAX_TRANSFER_AMOUNT
+        - FEE_PERCENTAGE
+        - HOARDING_TAX_THRESHOLD
+        - KYC_EXPIRY_DAYS
+      operationId: updateSystemParameter
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - paramId
+                - newValue
+              properties:
+                paramId:
+                  type: string
+                  description: Parameter identifier
+                  example: "MIN_TRANSFER_AMOUNT"
+                newValue:
+                  type: string
+                  description: New parameter value (stored as string, parsed by chaincode)
+                  example: "0.01"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /parameters/{paramId}:
+    get:
+      tags:
+        - Configuration
+      summary: Get system parameter
+      description: |
+        Retrieve current value of a system parameter.
+
+        **Public Endpoint:** No authentication required
+
+        **Read Model:** Queries projected read model (PostgreSQL)
+      operationId: getSystemParameter
+      parameters:
+        - name: paramId
+          in: path
+          required: true
+          description: Parameter identifier
+          schema:
+            type: string
+            example: "MIN_TRANSFER_AMOUNT"
+      responses:
+        '200':
+          description: Parameter retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemParameter'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # Administration Endpoints
+  # ==========================================
+  /admins:
+    post:
+      tags:
+        - Administration
+      summary: Appoint admin
+      description: |
+        Grant admin role to a user.
+
+        **Authorization:** SUPER_ADMIN role required
+
+        **CQRS Flow:**
+        1. Command written to outbox table
+        2. Outbox-submitter invokes AdminContract:AppointAdmin
+        3. Chaincode grants admin permissions on-chain
+      operationId: appointAdmin
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - newAdminId
+              properties:
+                newAdminId:
+                  type: string
+                  format: uuid
+                  description: User profile ID to grant admin role
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /treasury/activate:
+    post:
+      tags:
+        - Administration
+      summary: Activate treasury
+      description: |
+        Activate treasury account for a country.
+
+        **Authorization:** SUPER_ADMIN role required
+
+        **CQRS Flow:**
+        1. Command written to outbox table
+        2. Outbox-submitter invokes AdminContract:ActivateTreasury
+        3. Chaincode creates treasury account on-chain
+
+        **Prerequisites:** Country must be initialized first
+      operationId: activateTreasury
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - countryCode
+              properties:
+                countryCode:
+                  type: string
+                  pattern: '^[A-Z]{2}$'
+                  description: ISO 3166-1 alpha-2 country code
+                  example: "MY"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # Monitoring Endpoints
+  # ==========================================
+  /counters:
+    get:
+      tags:
+        - Monitoring
+      summary: Get global counters
+      description: |
+        Retrieve global system statistics and counters.
+
+        **Public Endpoint:** No authentication required
+
+        **Metrics:**
+        - Total supply (all GX Coins minted)
+        - Total users
+        - Total organizations
+
+        **Read Model:** Queries projected read model (PostgreSQL)
+      operationId: getGlobalCounters
+      responses:
+        '200':
+          description: Global counters retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalCounters'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+# ==========================================
+# Components
+# ==========================================
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: 'shared-schemas.yaml#/components/securitySchemes/BearerAuth'
+
+  schemas:
+    # System Status Schema
+    SystemStatus:
+      type: object
+      required:
+        - isPaused
+        - lastUpdated
+      properties:
+        isPaused:
+          type: boolean
+          description: Whether the system is currently paused
+          example: false
+        pauseReason:
+          type: string
+          nullable: true
+          description: Reason for system pause (only present if isPaused=true)
+          example: "Emergency security incident - investigating unauthorized access"
+        lastUpdated:
+          type: string
+          format: date-time
+          description: Timestamp of last status change
+          example: "2025-11-20T04:00:00.000Z"
+
+    # System Parameter Schema
+    SystemParameter:
+      type: object
+      required:
+        - paramId
+        - value
+        - lastUpdated
+      properties:
+        paramId:
+          type: string
+          description: Parameter identifier
+          example: "MIN_TRANSFER_AMOUNT"
+        value:
+          type: string
+          description: Parameter value
+          example: "0.01"
+        lastUpdated:
+          type: string
+          format: date-time
+          description: Timestamp of last parameter update
+          example: "2025-11-20T04:00:00.000Z"
+
+    # Country Stats Schema
+    CountryStats:
+      type: object
+      required:
+        - countryCode
+        - totalSupply
+        - userCount
+      properties:
+        countryCode:
+          type: string
+          pattern: '^[A-Z]{2}$'
+          description: ISO 3166-1 alpha-2 country code
+          example: "MY"
+        totalSupply:
+          type: number
+          format: double
+          description: Total GX Coins in circulation in this country
+          example: 5000000.00
+        userCount:
+          type: integer
+          description: Number of users registered in this country
+          example: 12345
+
+    # Global Counters Schema
+    GlobalCounters:
+      type: object
+      required:
+        - totalSupply
+        - totalUsers
+        - totalOrganizations
+      properties:
+        totalSupply:
+          type: number
+          format: double
+          description: Total GX Coins minted globally
+          example: 100000000.00
+        totalUsers:
+          type: integer
+          description: Total number of registered users
+          example: 50000
+        totalOrganizations:
+          type: integer
+          description: Total number of registered organizations
+          example: 500

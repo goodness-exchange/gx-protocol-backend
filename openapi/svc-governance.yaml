@@ -1,0 +1,410 @@
+openapi: 3.0.3
+
+info:
+  title: GX Protocol - Governance Service
+  version: 1.0.0
+  description: |
+    Governance service manages on-chain governance including proposal submissions, voting, and proposal execution.
+
+    **Key Features:**
+    - Proposal submission (any verified user)
+    - Democratic voting mechanism
+    - Proposal execution (admin approval)
+    - Active proposal tracking
+    - Proposal lifecycle management
+
+    **Governance Workflow:**
+    1. User submits proposal
+    2. Community votes (for/against/abstain)
+    3. Voting period closes
+    4. Admin executes proposal if approved
+    5. Proposal becomes active or rejected
+
+servers:
+  - url: http://localhost:3006/api/v1
+    description: Development server (backend-testnet)
+  - url: https://api.gxcoin.money/governance/api/v1
+    description: Production server (backend-mainnet)
+
+tags:
+  - name: Proposals
+    description: Proposal submission and management
+  - name: Voting
+    description: Vote on active proposals
+  - name: Execution
+    description: Execute approved proposals (admin only)
+
+paths:
+  /proposals:
+    post:
+      tags:
+        - Proposals
+      summary: Submit proposal
+      description: |
+        Submit a new governance proposal.
+
+        **Authorization:** Authenticated user with verified KYC
+
+        **Proposal Types:**
+        - Parameter change (e.g., fee rates, limits)
+        - Feature addition
+        - System upgrade
+        - Policy change
+
+        **CQRS Flow:** Command queued → GovernanceContract:SubmitProposal → Event emitted
+      operationId: submitProposal
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - description
+                - proposalType
+              properties:
+                title:
+                  type: string
+                  minLength: 10
+                  maxLength: 200
+                  description: Proposal title
+                  example: "Reduce minimum transfer fee to 0.1%"
+                description:
+                  type: string
+                  minLength: 50
+                  maxLength: 2000
+                  description: Detailed proposal description
+                  example: "Proposal to reduce the minimum transfer fee from 0.5% to 0.1% to encourage small transactions and increase adoption among low-income users."
+                proposalType:
+                  type: string
+                  enum:
+                    - PARAMETER_CHANGE
+                    - FEATURE_ADDITION
+                    - SYSTEM_UPGRADE
+                    - POLICY_CHANGE
+                  example: "PARAMETER_CHANGE"
+                targetParameter:
+                  type: string
+                  description: Parameter ID to modify (required for PARAMETER_CHANGE)
+                  example: "MIN_TRANSFER_FEE_PERCENTAGE"
+                proposedValue:
+                  type: string
+                  description: Proposed new value (required for PARAMETER_CHANGE)
+                  example: "0.1"
+      responses:
+        '202':
+          description: Proposal submitted for voting
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - commandId
+                  - proposalId
+                  - message
+                properties:
+                  commandId:
+                    type: string
+                    format: uuid
+                  proposalId:
+                    type: string
+                    example: "PROP-2025-001"
+                  message:
+                    type: string
+                    example: "Proposal submitted - voting period starts now"
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+    get:
+      tags:
+        - Proposals
+      summary: List active proposals
+      description: |
+        Retrieve all active proposals available for voting.
+
+        **Public Endpoint:** No authentication required
+      operationId: listActiveProposals
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter by proposal status
+          schema:
+            type: string
+            enum: [ACTIVE, PASSED, REJECTED, EXECUTED]
+            default: ACTIVE
+      responses:
+        '200':
+          description: Active proposals retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - proposals
+                properties:
+                  proposals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Proposal'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /proposals/{proposalId}:
+    get:
+      tags:
+        - Proposals
+      summary: Get proposal details
+      description: |
+        Retrieve detailed information about a specific proposal.
+
+        **Public Endpoint:** No authentication required
+      operationId: getProposal
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          description: Proposal identifier
+          schema:
+            type: string
+            example: "PROP-2025-001"
+      responses:
+        '200':
+          description: Proposal details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proposal'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /proposals/{proposalId}/vote:
+    post:
+      tags:
+        - Voting
+      summary: Vote on proposal
+      description: |
+        Cast a vote on an active proposal.
+
+        **Authorization:** Authenticated user with verified KYC
+
+        **Vote Options:**
+        - FOR: Support the proposal
+        - AGAINST: Oppose the proposal
+        - ABSTAIN: Neutral position
+
+        **Rules:**
+        - One vote per user per proposal
+        - Can only vote during active voting period
+        - Cannot change vote after submission
+      operationId: voteOnProposal
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - vote
+              properties:
+                vote:
+                  type: string
+                  enum: [FOR, AGAINST, ABSTAIN]
+                  description: Vote choice
+                  example: "FOR"
+                reason:
+                  type: string
+                  maxLength: 500
+                  description: Optional reason for vote (public)
+                  example: "This change will benefit small business owners"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '409':
+          description: Already voted on this proposal
+          content:
+            application/json:
+              schema:
+                $ref: 'shared-schemas.yaml#/components/schemas/ErrorResponse'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /proposals/{proposalId}/execute:
+    post:
+      tags:
+        - Execution
+      summary: Execute proposal
+      description: |
+        Execute an approved proposal (apply the changes).
+
+        **Authorization:** ADMIN or SUPER_ADMIN role required
+
+        **Prerequisites:**
+        - Proposal must have passed (majority FOR votes)
+        - Voting period must be closed
+        - Proposal not already executed
+
+        **Effect:**
+        - For PARAMETER_CHANGE: Updates system parameter
+        - For other types: Marks as executed for manual implementation
+      operationId: executeProposal
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '422':
+          $ref: 'shared-schemas.yaml#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: 'shared-schemas.yaml#/components/securitySchemes/BearerAuth'
+
+  schemas:
+    Proposal:
+      type: object
+      required:
+        - proposalId
+        - title
+        - description
+        - proposalType
+        - status
+        - proposerId
+        - votesFor
+        - votesAgainst
+        - votesAbstain
+        - createdAt
+      properties:
+        proposalId:
+          type: string
+          description: Unique proposal identifier
+          example: "PROP-2025-001"
+        title:
+          type: string
+          description: Proposal title
+          example: "Reduce minimum transfer fee to 0.1%"
+        description:
+          type: string
+          description: Detailed proposal description
+          example: "Proposal to reduce the minimum transfer fee from 0.5% to 0.1% to encourage small transactions and increase adoption among low-income users."
+        proposalType:
+          type: string
+          enum:
+            - PARAMETER_CHANGE
+            - FEATURE_ADDITION
+            - SYSTEM_UPGRADE
+            - POLICY_CHANGE
+          example: "PARAMETER_CHANGE"
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - PASSED
+            - REJECTED
+            - EXECUTED
+            - EXPIRED
+          description: Current proposal status
+          example: "ACTIVE"
+        proposerId:
+          type: string
+          format: uuid
+          description: User who submitted the proposal
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        targetParameter:
+          type: string
+          nullable: true
+          description: Parameter to modify (for PARAMETER_CHANGE proposals)
+          example: "MIN_TRANSFER_FEE_PERCENTAGE"
+        proposedValue:
+          type: string
+          nullable: true
+          description: Proposed new value (for PARAMETER_CHANGE proposals)
+          example: "0.1"
+        votesFor:
+          type: integer
+          description: Number of FOR votes
+          example: 1250
+        votesAgainst:
+          type: integer
+          description: Number of AGAINST votes
+          example: 450
+        votesAbstain:
+          type: integer
+          description: Number of ABSTAIN votes
+          example: 200
+        votingStartedAt:
+          type: string
+          format: date-time
+          description: Voting period start time
+          example: "2025-11-20T04:00:00.000Z"
+        votingEndsAt:
+          type: string
+          format: date-time
+          description: Voting period end time (typically 7 days from start)
+          example: "2025-11-27T04:00:00.000Z"
+        executedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Proposal execution timestamp
+          example: "2025-11-28T10:00:00.000Z"
+        executedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: Admin who executed the proposal
+          example: "660e8400-e29b-41d4-a716-446655440000"
+        createdAt:
+          type: string
+          format: date-time
+          description: Proposal creation timestamp
+          example: "2025-11-20T04:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-11-27T04:05:00.000Z"

@@ -1,0 +1,439 @@
+openapi: 3.0.3
+
+info:
+  title: GX Protocol - Organization Service
+  version: 1.0.0
+  description: |
+    Organization service manages multi-signature organizations, stakeholder memberships, authorization rules, and multi-signature transactions.
+
+    **Key Features:**
+    - Propose and activate organizations
+    - Stakeholder endorsement workflow
+    - Multi-signature transaction management
+    - Authorization rule configuration
+    - Pending transaction approvals
+
+    **Multi-Sig Workflow:**
+    1. Propose organization with stakeholders
+    2. Each stakeholder endorses membership
+    3. Activate organization (requires all endorsements)
+    4. Define authorization rules (M-of-N signatures)
+    5. Initiate multi-sig transactions
+    6. Approvers sign transactions
+    7. Execute when threshold reached
+
+servers:
+  - url: http://localhost:3004/api/v1
+    description: Development server (backend-testnet)
+  - url: https://api.gxcoin.money/organization/api/v1
+    description: Production server (backend-mainnet)
+
+tags:
+  - name: Organizations
+    description: Organization proposal, endorsement, and activation
+  - name: Authorization Rules
+    description: Multi-signature authorization rule configuration
+  - name: Multi-Sig Transactions
+    description: Multi-signature transaction management
+
+paths:
+  /organizations:
+    post:
+      tags:
+        - Organizations
+      summary: Propose new organization
+      description: |
+        Propose creation of a new multi-signature organization.
+
+        **Authorization:** Authenticated user (must be a proposed stakeholder)
+
+        **CQRS Flow:** Command queued → AdminContract:ProposeOrganization → Event emitted
+      operationId: proposeOrganization
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - orgId
+                - orgName
+                - orgType
+                - stakeholderIds
+              properties:
+                orgId:
+                  type: string
+                  description: Unique organization identifier
+                  example: "ORG-MY-001"
+                orgName:
+                  type: string
+                  minLength: 3
+                  maxLength: 100
+                  example: "Malaysian Treasury Board"
+                orgType:
+                  type: string
+                  enum: [government, business, nonprofit]
+                  example: "government"
+                stakeholderIds:
+                  type: array
+                  minItems: 2
+                  maxItems: 10
+                  items:
+                    type: string
+                    format: uuid
+                  example: ["550e8400-e29b-41d4-a716-446655440000", "660e8400-e29b-41d4-a716-446655440001"]
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /organizations/{orgId}:
+    get:
+      tags:
+        - Organizations
+      summary: Get organization details
+      description: Retrieve organization information and stakeholder list
+      operationId: getOrganization
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "ORG-MY-001"
+      responses:
+        '200':
+          description: Organization retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /organizations/{orgId}/endorse:
+    post:
+      tags:
+        - Organizations
+      summary: Endorse membership
+      description: |
+        Stakeholder endorses their membership in proposed organization.
+
+        **Authorization:** Must be a proposed stakeholder
+      operationId: endorseMembership
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /organizations/{orgId}/activate:
+    post:
+      tags:
+        - Organizations
+      summary: Activate organization
+      description: |
+        Activate organization after all stakeholders have endorsed.
+
+        **Prerequisites:** All stakeholders must have endorsed
+      operationId: activateOrganization
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '422':
+          $ref: 'shared-schemas.yaml#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /organizations/{orgId}/rules:
+    post:
+      tags:
+        - Authorization Rules
+      summary: Define authorization rule
+      description: |
+        Configure M-of-N signature requirements for multi-sig transactions.
+
+        **Example:** Require 2-of-3 approvals for transfers
+      operationId: defineAuthRule
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requiredApprovals
+                - approverIds
+              properties:
+                requiredApprovals:
+                  type: integer
+                  minimum: 1
+                  description: Number of approvals required (M)
+                  example: 2
+                approverIds:
+                  type: array
+                  minItems: 2
+                  items:
+                    type: string
+                    format: uuid
+                  description: List of authorized approvers (N)
+                  example: ["550e8400-e29b-41d4-a716-446655440000", "660e8400-e29b-41d4-a716-446655440001", "770e8400-e29b-41d4-a716-446655440002"]
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /organizations/{orgId}/transactions:
+    post:
+      tags:
+        - Multi-Sig Transactions
+      summary: Initiate multi-sig transaction
+      description: |
+        Create a pending multi-signature transaction requiring approvals.
+
+        **Authorization:** Must be a stakeholder
+      operationId: initiateMultiSigTx
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - toUserId
+                - amount
+              properties:
+                toUserId:
+                  type: string
+                  format: uuid
+                  example: "880e8400-e29b-41d4-a716-446655440000"
+                amount:
+                  type: number
+                  minimum: 0.01
+                  example: 5000.00
+                remark:
+                  type: string
+                  maxLength: 200
+                  example: "Infrastructure project payment"
+      responses:
+        '202':
+          description: Multi-sig transaction initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - commandId
+                  - pendingTxId
+                  - message
+                properties:
+                  commandId:
+                    type: string
+                    format: uuid
+                  pendingTxId:
+                    type: string
+                  message:
+                    type: string
+                    example: "Multi-sig transaction initiated - awaiting approvals"
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /organizations/{orgId}/transactions/pending:
+    get:
+      tags:
+        - Multi-Sig Transactions
+      summary: Get pending transactions
+      description: Retrieve all pending multi-sig transactions for an organization
+      operationId: getPendingTransactions
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pending transactions retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - pendingTransactions
+                properties:
+                  pendingTransactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PendingTransaction'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /transactions/{pendingTxId}/approve:
+    post:
+      tags:
+        - Multi-Sig Transactions
+      summary: Approve multi-sig transaction
+      description: |
+        Approve a pending multi-signature transaction.
+        Transaction executes automatically when approval threshold is reached.
+
+        **Authorization:** Must be an authorized approver
+      operationId: approveMultiSigTx
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: pendingTxId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: 'shared-schemas.yaml#/components/securitySchemes/BearerAuth'
+
+  schemas:
+    Organization:
+      type: object
+      required:
+        - orgId
+        - orgName
+        - orgType
+        - status
+        - stakeholderIds
+      properties:
+        orgId:
+          type: string
+          example: "ORG-MY-001"
+        orgName:
+          type: string
+          example: "Malaysian Treasury Board"
+        orgType:
+          type: string
+          enum: [government, business, nonprofit]
+          example: "government"
+        status:
+          type: string
+          enum: [PROPOSED, ACTIVE, SUSPENDED]
+          example: "ACTIVE"
+        stakeholderIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    PendingTransaction:
+      type: object
+      required:
+        - pendingTxId
+        - orgId
+        - initiatorId
+        - toUserId
+        - amount
+        - approvalCount
+        - requiredApprovals
+        - status
+      properties:
+        pendingTxId:
+          type: string
+        orgId:
+          type: string
+        initiatorId:
+          type: string
+          format: uuid
+        toUserId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+        remark:
+          type: string
+          nullable: true
+        approvalCount:
+          type: integer
+          example: 1
+        requiredApprovals:
+          type: integer
+          example: 2
+        status:
+          type: string
+          enum: [PENDING, APPROVED, EXECUTED, REJECTED]
+        createdAt:
+          type: string
+          format: date-time

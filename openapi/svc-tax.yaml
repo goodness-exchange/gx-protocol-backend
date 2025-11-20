@@ -1,0 +1,261 @@
+openapi: 3.0.3
+
+info:
+  title: GX Protocol - Tax & Fee Service
+  version: 1.0.0
+  description: |
+    Tax & Fee service manages fee calculations and velocity tax (hoarding prevention) mechanisms.
+
+    **Key Features:**
+    - Transaction fee calculation
+    - Velocity tax (hoarding prevention)
+    - Fee eligibility checking
+    - Progressive fee structure
+
+    **Fee Mechanism:**
+    - Dynamic fee calculation based on transaction amount
+    - Progressive tiering for fairness
+    - Real-time fee estimates
+
+    **Velocity Tax:**
+    - Discourages hoarding of GX Coins
+    - Applied to dormant accounts
+    - Cyclic enforcement mechanism
+
+servers:
+  - url: http://localhost:3007/api/v1
+    description: Development server (backend-testnet)
+  - url: https://api.gxcoin.money/tax/api/v1
+    description: Production server (backend-mainnet)
+
+tags:
+  - name: Fee Calculation
+    description: Calculate transaction fees
+  - name: Velocity Tax
+    description: Hoarding prevention tax management
+
+paths:
+  /fees/calculate:
+    post:
+      tags:
+        - Fee Calculation
+      summary: Calculate transaction fee
+      description: |
+        Calculate the fee for a proposed transaction.
+
+        **Public Endpoint:** No authentication required (rate limited)
+
+        **Rate Limit:** 60 requests per minute
+
+        **Fee Structure:**
+        - Base percentage: 0.5%
+        - Progressive tiers based on amount
+        - Minimum fee: 0.01 GX
+        - Maximum fee: 100 GX
+
+        **Use Case:** Pre-calculate fees before submitting transfer
+      operationId: calculateFee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amount
+              properties:
+                amount:
+                  type: number
+                  format: double
+                  minimum: 0.01
+                  description: Transaction amount in GX Coins
+                  example: 1000.00
+                transactionType:
+                  type: string
+                  enum: [TRANSFER, MULTISIG, LOAN_REPAYMENT]
+                  default: TRANSFER
+                  description: Type of transaction
+                  example: "TRANSFER"
+      responses:
+        '200':
+          description: Fee calculated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - amount
+                  - fee
+                  - feePercentage
+                  - total
+                properties:
+                  amount:
+                    type: number
+                    format: double
+                    description: Original transaction amount
+                    example: 1000.00
+                  fee:
+                    type: number
+                    format: double
+                    description: Calculated fee
+                    example: 5.00
+                  feePercentage:
+                    type: number
+                    format: double
+                    description: Applied fee percentage
+                    example: 0.5
+                  total:
+                    type: number
+                    format: double
+                    description: Total amount (amount + fee)
+                    example: 1005.00
+                  tier:
+                    type: string
+                    description: Fee tier applied
+                    example: "STANDARD"
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: 'shared-schemas.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /velocity-tax/eligibility/{accountId}:
+    get:
+      tags:
+        - Velocity Tax
+      summary: Check velocity tax eligibility
+      description: |
+        Check if an account is eligible for velocity tax assessment.
+
+        **Public Endpoint:** No authentication required
+
+        **Eligibility Criteria:**
+        - Account has balance > threshold (e.g., 10,000 GX)
+        - No transactions in last 90 days (dormant)
+        - Not exempt (government, treasury, organization accounts)
+
+        **Velocity Tax Rate:** 2% per quarter on dormant balances
+      operationId: checkVelocityTaxEligibility
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          description: Account/Wallet ID to check
+          schema:
+            type: string
+            format: uuid
+            example: "770e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Eligibility check completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - accountId
+                  - isEligible
+                  - balance
+                  - lastTransactionDate
+                properties:
+                  accountId:
+                    type: string
+                    format: uuid
+                    example: "770e8400-e29b-41d4-a716-446655440000"
+                  isEligible:
+                    type: boolean
+                    description: Whether account is eligible for velocity tax
+                    example: true
+                  balance:
+                    type: number
+                    format: double
+                    description: Current account balance
+                    example: 15000.00
+                  lastTransactionDate:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: Last transaction timestamp
+                    example: "2025-07-15T10:00:00.000Z"
+                  dormantDays:
+                    type: integer
+                    description: Number of days since last transaction
+                    example: 127
+                  estimatedTax:
+                    type: number
+                    format: double
+                    nullable: true
+                    description: Estimated velocity tax amount (if eligible)
+                    example: 300.00
+                  taxRate:
+                    type: number
+                    format: double
+                    description: Velocity tax rate percentage
+                    example: 2.0
+                  reason:
+                    type: string
+                    description: Explanation of eligibility status
+                    example: "Account dormant for 127 days with balance above threshold"
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /velocity-tax/apply:
+    post:
+      tags:
+        - Velocity Tax
+      summary: Apply velocity tax
+      description: |
+        Manually trigger velocity tax application for eligible accounts.
+
+        **Authorization:** Authenticated user (typically admin for bulk operations)
+
+        **CQRS Flow:** Command queued → TaxContract:ApplyVelocityTax → Tax deducted
+
+        **Automated Process:**
+        - Typically run quarterly by system cron job
+        - Can be manually triggered for specific accounts
+        - Deducted amount transferred to treasury
+
+        **Note:** This is usually an automated background process
+      operationId: applyVelocityTax
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - accountId
+              properties:
+                accountId:
+                  type: string
+                  format: uuid
+                  description: Account ID to apply velocity tax
+                  example: "770e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '422':
+          description: Account not eligible for velocity tax
+          content:
+            application/json:
+              schema:
+                $ref: 'shared-schemas.yaml#/components/schemas/ErrorResponse'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: 'shared-schemas.yaml#/components/securitySchemes/BearerAuth'

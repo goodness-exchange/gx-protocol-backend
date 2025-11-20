@@ -1,0 +1,381 @@
+openapi: 3.0.3
+
+info:
+  title: GX Protocol - Shared Schemas
+  version: 1.0.0
+  description: |
+    Common schemas, components, and security definitions shared across all GX Protocol microservices.
+    These definitions ensure consistency across the API ecosystem.
+
+components:
+  # ==========================================
+  # Security Schemes
+  # ==========================================
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT Bearer token authentication.
+        Obtain tokens via the `/api/v1/auth/login` endpoint.
+        Token expires after 15 minutes, use refresh token to obtain a new one.
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key authentication for service-to-service communication.
+        Contact admin to obtain an API key.
+
+  # ==========================================
+  # Common Parameters
+  # ==========================================
+  parameters:
+    UserIdParam:
+      name: id
+      in: path
+      required: true
+      description: User profile ID (UUID v4)
+      schema:
+        type: string
+        format: uuid
+        example: "550e8400-e29b-41d4-a716-446655440000"
+
+    PageParam:
+      name: page
+      in: query
+      required: false
+      description: Page number for pagination (1-indexed)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+        example: 1
+
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      description: Number of items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
+
+    SortParam:
+      name: sort
+      in: query
+      required: false
+      description: |
+        Sort field and direction.
+        Prefix with `-` for descending order.
+        Example: `-createdAt` sorts by creation date descending.
+      schema:
+        type: string
+        example: "-createdAt"
+
+    IdempotencyKeyHeader:
+      name: X-Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Idempotency key for write operations (16-128 characters).
+        Use the same key to retry a request safely without duplicate side effects.
+        Recommended: UUID v4
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        example: "550e8400-e29b-41d4-a716-446655440000"
+
+  # ==========================================
+  # Common Response Schemas
+  # ==========================================
+  schemas:
+    # Error Response
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - message
+            - statusCode
+          properties:
+            message:
+              type: string
+              description: Human-readable error message
+              example: "Validation failed"
+            statusCode:
+              type: integer
+              description: HTTP status code
+              example: 400
+            code:
+              type: string
+              description: Machine-readable error code
+              example: "VALIDATION_ERROR"
+            errors:
+              type: array
+              description: Detailed validation errors (if applicable)
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                    description: Field name that failed validation
+                    example: "email"
+                  message:
+                    type: string
+                    description: Field-specific error message
+                    example: "Invalid email format"
+                  code:
+                    type: string
+                    description: Error code for this field
+                    example: "INVALID_FORMAT"
+      example:
+        error:
+          message: "Validation failed"
+          statusCode: 400
+          code: "VALIDATION_ERROR"
+          errors:
+            - field: "email"
+              message: "Invalid email format"
+              code: "INVALID_FORMAT"
+
+    # Pagination Metadata
+    PaginationMeta:
+      type: object
+      required:
+        - page
+        - limit
+        - total
+        - totalPages
+        - hasNext
+        - hasPrev
+      properties:
+        page:
+          type: integer
+          description: Current page number
+          example: 1
+        limit:
+          type: integer
+          description: Items per page
+          example: 20
+        total:
+          type: integer
+          description: Total number of items across all pages
+          example: 150
+        totalPages:
+          type: integer
+          description: Total number of pages
+          example: 8
+        hasNext:
+          type: boolean
+          description: Whether there is a next page
+          example: true
+        hasPrev:
+          type: boolean
+          description: Whether there is a previous page
+          example: false
+
+    # Timestamp
+    Timestamp:
+      type: string
+      format: date-time
+      description: ISO 8601 date-time string
+      example: "2025-11-20T04:00:00.000Z"
+
+    # UUID
+    UUID:
+      type: string
+      format: uuid
+      description: UUID v4 identifier
+      example: "550e8400-e29b-41d4-a716-446655440000"
+
+    # Command Response (CQRS Pattern)
+    CommandAcceptedResponse:
+      type: object
+      required:
+        - commandId
+        - status
+        - message
+      properties:
+        commandId:
+          $ref: '#/components/schemas/UUID'
+        status:
+          type: string
+          enum: [ACCEPTED]
+          example: "ACCEPTED"
+        message:
+          type: string
+          description: Human-readable message
+          example: "Command accepted for processing"
+        aggregateId:
+          $ref: '#/components/schemas/UUID'
+      description: |
+        Response when a command is accepted for async processing (202 Accepted).
+        Poll `/api/v1/commands/{commandId}/status` to check completion status.
+
+    # Command Status
+    CommandStatusResponse:
+      type: object
+      required:
+        - commandId
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        commandId:
+          $ref: '#/components/schemas/UUID'
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, CONFIRMED, FAILED]
+          description: Current status of the command
+          example: "CONFIRMED"
+        result:
+          type: object
+          description: Command execution result (only present when status=CONFIRMED)
+          nullable: true
+        error:
+          type: string
+          description: Error message (only present when status=FAILED)
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+      example:
+        commandId: "550e8400-e29b-41d4-a716-446655440000"
+        status: "CONFIRMED"
+        result:
+          userId: "660e8400-e29b-41d4-a716-446655440000"
+          balance: 1000
+        createdAt: "2025-11-20T04:00:00.000Z"
+        updatedAt: "2025-11-20T04:00:05.000Z"
+
+  # ==========================================
+  # Common Responses
+  # ==========================================
+  responses:
+    BadRequest:
+      description: Bad Request - Invalid input data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Validation failed"
+              statusCode: 400
+              code: "VALIDATION_ERROR"
+
+    Unauthorized:
+      description: Unauthorized - Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Authentication required"
+              statusCode: 401
+              code: "UNAUTHORIZED"
+
+    Forbidden:
+      description: Forbidden - Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Insufficient permissions"
+              statusCode: 403
+              code: "FORBIDDEN"
+
+    NotFound:
+      description: Not Found - Resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Resource not found"
+              statusCode: 404
+              code: "NOT_FOUND"
+
+    Conflict:
+      description: Conflict - Resource already exists or conflicts with current state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Email already registered"
+              statusCode: 409
+              code: "CONFLICT"
+
+    UnprocessableEntity:
+      description: Unprocessable Entity - Request is well-formed but semantically invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Invalid business logic"
+              statusCode: 422
+              code: "UNPROCESSABLE_ENTITY"
+
+    TooManyRequests:
+      description: Too Many Requests - Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Rate limit exceeded. Try again in 60 seconds."
+              statusCode: 429
+              code: "RATE_LIMIT_EXCEEDED"
+
+    InternalServerError:
+      description: Internal Server Error - Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Internal server error"
+              statusCode: 500
+              code: "INTERNAL_ERROR"
+
+    ServiceUnavailable:
+      description: Service Unavailable - Service temporarily unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: "Service temporarily unavailable"
+              statusCode: 503
+              code: "SERVICE_UNAVAILABLE"
+
+    CommandAccepted:
+      description: |
+        Command Accepted (202) - Command has been accepted for asynchronous processing.
+        Poll the command status endpoint to check for completion.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CommandAcceptedResponse'

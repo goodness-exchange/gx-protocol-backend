@@ -1,0 +1,581 @@
+openapi: 3.0.3
+
+info:
+  title: GX Protocol - Tokenomics Service
+  version: 1.0.0
+  description: |
+    Tokenomics service manages GX Coin token operations including transfers, balances, treasury management, and wallet controls.
+
+    **Key Features:**
+    - Token transfers between users
+    - Genesis token distribution (tiered allocation)
+    - Wallet balance queries
+    - Transaction history
+    - Treasury balance tracking (per country)
+    - Wallet freeze/unfreeze controls (admin only)
+    - CQRS pattern with outbox for write operations
+
+    **Token Economics:**
+    - Genesis allocation tiers based on user type and country
+    - Fee calculation based on transaction amount
+    - Treasury management for each country
+    - Hoarding tax prevention mechanism
+
+servers:
+  - url: http://localhost:3003/api/v1
+    description: Development server (backend-testnet)
+  - url: https://api.gxcoin.money/tokenomics/api/v1
+    description: Production server (backend-mainnet)
+
+tags:
+  - name: Transfers
+    description: Token transfer operations
+  - name: Balances
+    description: Wallet and treasury balance queries
+  - name: Transactions
+    description: Transaction history
+  - name: Genesis
+    description: Genesis token distribution (admin only)
+  - name: Wallet Controls
+    description: Wallet freeze/unfreeze operations (admin only)
+
+paths:
+  # ==========================================
+  # Transfer Endpoints
+  # ==========================================
+  /transfers:
+    post:
+      tags:
+        - Transfers
+      summary: Transfer tokens between users
+      description: |
+        Initiate a token transfer from one user to another.
+        Uses CQRS pattern - command is queued for async processing.
+
+        **CQRS Flow:**
+        1. Request validated and written to outbox table
+        2. Returns 202 Accepted with commandId
+        3. Outbox-submitter invokes TokenomicsContract:Transfer
+        4. Chaincode validates and executes transfer
+        5. Event emitted and projected to read model
+        6. Poll `/api/v1/commands/{commandId}/status` to check completion
+
+        **Authorization:**
+        - Users can only transfer from their own wallet
+        - Wallet must not be frozen
+        - Sufficient balance required
+
+        **Fees:**
+        - Transaction fee calculated by chaincode
+        - Fee deducted from sender's balance
+      operationId: transferTokens
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fromUserId
+                - toUserId
+                - amount
+              properties:
+                fromUserId:
+                  type: string
+                  format: uuid
+                  description: Sender user ID (must match authenticated user)
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+                toUserId:
+                  type: string
+                  format: uuid
+                  description: Recipient user ID
+                  example: "660e8400-e29b-41d4-a716-446655440000"
+                amount:
+                  type: number
+                  minimum: 0.01
+                  maximum: 1000000000
+                  description: Amount to transfer (must be positive)
+                  example: 100.50
+                remark:
+                  type: string
+                  maxLength: 200
+                  description: Optional transfer note/memo
+                  example: "Payment for services"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '422':
+          $ref: 'shared-schemas.yaml#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # Genesis Distribution Endpoints
+  # ==========================================
+  /genesis:
+    post:
+      tags:
+        - Genesis
+      summary: Distribute genesis allocation
+      description: |
+        Distribute initial token allocation to a user based on their type and country.
+
+        **Authorization:** SUPER_ADMIN role required
+
+        **Genesis Tiers:**
+        - Individual: Base allocation
+        - Business: 10x individual
+        - Government: 100x individual
+        - Organization: 5x individual
+
+        **Idempotent:** Cannot distribute genesis twice to the same user
+      operationId: distributeGenesis
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+                - userType
+                - countryCode
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                  description: User profile ID
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+                userType:
+                  type: string
+                  enum:
+                    - individual
+                    - business
+                    - government
+                    - organization
+                  description: User type (determines allocation tier)
+                  example: "individual"
+                countryCode:
+                  type: string
+                  pattern: '^[A-Z]{2}$'
+                  description: ISO 3166-1 alpha-2 country code
+                  example: "MY"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: 'shared-schemas.yaml#/components/responses/Conflict'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # Balance Endpoints
+  # ==========================================
+  /wallets/{profileId}/balance:
+    get:
+      tags:
+        - Balances
+      summary: Get wallet balance
+      description: |
+        Retrieve current balance for a user's wallet.
+
+        **Authorization:**
+        - Users can only view their own balance
+        - Admins can view any user's balance
+
+        **Read Model:** Queries projected read model (PostgreSQL)
+      operationId: getWalletBalance
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          description: User profile ID (UUID v4)
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Balance retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletBalance'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /treasury/{countryCode}/balance:
+    get:
+      tags:
+        - Balances
+      summary: Get treasury balance
+      description: |
+        Retrieve current balance for a country's treasury.
+
+        **Public Endpoint:** No authentication required
+
+        **Read Model:** Queries projected read model (PostgreSQL)
+      operationId: getTreasuryBalance
+      parameters:
+        - name: countryCode
+          in: path
+          required: true
+          description: ISO 3166-1 alpha-2 country code
+          schema:
+            type: string
+            pattern: '^[A-Z]{2}$'
+            example: "MY"
+      responses:
+        '200':
+          description: Treasury balance retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TreasuryBalance'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # Transaction History Endpoints
+  # ==========================================
+  /wallets/{profileId}/transactions:
+    get:
+      tags:
+        - Transactions
+      summary: Get transaction history
+      description: |
+        Retrieve transaction history for a user's wallet.
+
+        **Authorization:**
+        - Users can only view their own transactions
+        - Admins can view any user's transactions
+
+        **Pagination:** Use limit and offset parameters
+
+        **Transaction Types:**
+        - SEND: Outgoing transfer
+        - RECEIVE: Incoming transfer
+        - GENESIS: Initial allocation
+        - FEE: Transaction fee deduction
+        - TAX: Hoarding tax deduction
+      operationId: getTransactionHistory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          description: User profile ID (UUID v4)
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: limit
+          in: query
+          required: false
+          description: Number of transactions to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+            example: 50
+        - name: offset
+          in: query
+          required: false
+          description: Pagination offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+      responses:
+        '200':
+          description: Transaction history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - transactions
+                  - total
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  total:
+                    type: integer
+                    description: Total number of transactions
+                    example: 150
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # Wallet Control Endpoints
+  # ==========================================
+  /wallets/{walletId}/freeze:
+    post:
+      tags:
+        - Wallet Controls
+      summary: Freeze wallet
+      description: |
+        Freeze a user's wallet to prevent all transactions.
+
+        **Authorization:** ADMIN or SUPER_ADMIN role required
+
+        **Effect:**
+        - User cannot send or receive tokens
+        - Balance queries still work
+        - Requires unfreeze action to restore functionality
+
+        **Use Cases:**
+        - Suspicious activity
+        - Regulatory compliance
+        - Account investigation
+      operationId: freezeWallet
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: walletId
+          in: path
+          required: true
+          description: Wallet ID (UUID v4)
+          schema:
+            type: string
+            format: uuid
+            example: "770e8400-e29b-41d4-a716-446655440000"
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 500
+                  description: Reason for freezing the wallet
+                  example: "Suspicious activity detected - pending investigation"
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /wallets/{walletId}/unfreeze:
+    post:
+      tags:
+        - Wallet Controls
+      summary: Unfreeze wallet
+      description: |
+        Unfreeze a previously frozen wallet to restore normal functionality.
+
+        **Authorization:** ADMIN or SUPER_ADMIN role required
+
+        **Effect:**
+        - User can send and receive tokens again
+        - All wallet functionality restored
+      operationId: unfreezeWallet
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: walletId
+          in: path
+          required: true
+          description: Wallet ID (UUID v4)
+          schema:
+            type: string
+            format: uuid
+            example: "770e8400-e29b-41d4-a716-446655440000"
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+# ==========================================
+# Components
+# ==========================================
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: 'shared-schemas.yaml#/components/securitySchemes/BearerAuth'
+
+  schemas:
+    # Wallet Balance Schema
+    WalletBalance:
+      type: object
+      required:
+        - walletId
+        - profileId
+        - balance
+        - updatedAt
+      properties:
+        walletId:
+          type: string
+          format: uuid
+          description: Unique wallet identifier
+          example: "770e8400-e29b-41d4-a716-446655440000"
+        profileId:
+          type: string
+          format: uuid
+          description: User profile ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        balance:
+          type: number
+          format: double
+          description: Current wallet balance in GX Coins
+          example: 1000.50
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last balance update timestamp
+          example: "2025-11-20T04:00:00.000Z"
+
+    # Treasury Balance Schema
+    TreasuryBalance:
+      type: object
+      required:
+        - countryCode
+        - balance
+        - updatedAt
+      properties:
+        countryCode:
+          type: string
+          pattern: '^[A-Z]{2}$'
+          description: ISO 3166-1 alpha-2 country code
+          example: "MY"
+        balance:
+          type: number
+          format: double
+          description: Current treasury balance in GX Coins
+          example: 10000000.00
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last balance update timestamp
+          example: "2025-11-20T04:00:00.000Z"
+
+    # Transaction Schema
+    Transaction:
+      type: object
+      required:
+        - offTxId
+        - walletId
+        - type
+        - counterparty
+        - amount
+        - fee
+        - timestamp
+      properties:
+        offTxId:
+          type: string
+          format: uuid
+          description: Off-chain transaction identifier (database primary key)
+          example: "880e8400-e29b-41d4-a716-446655440000"
+        onChainTxId:
+          type: string
+          nullable: true
+          description: On-chain transaction ID (Fabric transaction hash)
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        walletId:
+          type: string
+          format: uuid
+          description: Wallet ID
+          example: "770e8400-e29b-41d4-a716-446655440000"
+        type:
+          type: string
+          enum:
+            - SEND
+            - RECEIVE
+            - GENESIS
+            - FEE
+            - TAX
+          description: Transaction type
+          example: "SEND"
+        counterparty:
+          type: string
+          description: Other party in the transaction (user ID or 'TREASURY')
+          example: "660e8400-e29b-41d4-a716-446655440000"
+        amount:
+          type: number
+          format: double
+          description: Transaction amount (positive for RECEIVE/GENESIS, negative for SEND/FEE/TAX)
+          example: -100.50
+        fee:
+          type: number
+          format: double
+          description: Transaction fee charged (0 for RECEIVE/GENESIS)
+          example: 0.50
+        remark:
+          type: string
+          nullable: true
+          description: Optional transaction note/memo
+          example: "Payment for services"
+        timestamp:
+          type: string
+          format: date-time
+          description: Transaction timestamp
+          example: "2025-11-20T04:00:00.000Z"
+        blockNumber:
+          type: integer
+          format: int64
+          nullable: true
+          description: Blockchain block number
+          example: 12345

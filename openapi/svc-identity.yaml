@@ -1,0 +1,606 @@
+openapi: 3.0.3
+
+info:
+  title: GX Protocol - Identity Service
+  version: 1.0.0
+  description: |
+    Identity service manages user authentication, profile management, and KYC verification workflows.
+
+    **Key Features:**
+    - JWT-based authentication (Bearer token)
+    - User registration and profile management
+    - KYC (Know Your Customer) verification
+    - Rate limiting for security (5 req/min for sensitive ops, 60 req/min for KYC)
+    - CQRS pattern with outbox for write operations
+
+    **Authentication Flow:**
+    1. Register: `POST /api/v1/users`
+    2. Login: `POST /api/v1/auth/login` (get access + refresh tokens)
+    3. Use access token in `Authorization: Bearer {token}` header
+    4. Refresh token when expired: `POST /api/v1/auth/refresh`
+    5. Logout: `POST /api/v1/auth/logout`
+
+servers:
+  - url: http://localhost:3001/api/v1
+    description: Development server (backend-testnet)
+  - url: https://api.gxcoin.money/identity/api/v1
+    description: Production server (backend-mainnet)
+
+tags:
+  - name: Authentication
+    description: Login, logout, and token management
+  - name: Users
+    description: User registration and profile management
+  - name: KYC
+    description: Know Your Customer verification workflow
+
+paths:
+  # ==========================================
+  # Authentication Endpoints
+  # ==========================================
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: |
+        Authenticate user with email and password.
+        Returns JWT access token (15min expiry) and refresh token (7 days expiry).
+
+        **Rate Limit:** 5 requests per minute per IP (brute force protection)
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+                  example: "john.doe@example.com"
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  description: User password (min 8 characters)
+                  example: "SecurePass123!"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - accessToken
+                  - refreshToken
+                  - user
+                properties:
+                  accessToken:
+                    type: string
+                    description: JWT access token (expires in 15 minutes)
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  refreshToken:
+                    type: string
+                    description: JWT refresh token (expires in 7 days)
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  user:
+                    $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: 'shared-schemas.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: |
+        Generate a new access token using a valid refresh token.
+        Use this when the access token expires (after 15 minutes).
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+                  description: Valid refresh token from login
+                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - accessToken
+                properties:
+                  accessToken:
+                    type: string
+                    description: New JWT access token (expires in 15 minutes)
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: User logout
+      description: |
+        Invalidate the refresh token to prevent further token refreshes.
+        Access tokens remain valid until they expire (cannot be revoked in stateless JWT).
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+                  description: Refresh token to invalidate
+                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - message
+                properties:
+                  message:
+                    type: string
+                    example: "Logout successful"
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # User Management Endpoints
+  # ==========================================
+  /users:
+    post:
+      tags:
+        - Users
+      summary: Register new user
+      description: |
+        Create a new user account with email and password.
+        This triggers the CQRS outbox pattern:
+        1. Command written to outbox table
+        2. Outbox-submitter worker invokes chaincode
+        3. IdentityContract:CreateUser creates on-chain identity
+        4. Event emitted and projected to read model
+
+        **Rate Limit:** 5 requests per minute per IP (prevent spam registration)
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - firstName
+                - lastName
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address (unique)
+                  example: "john.doe@example.com"
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  description: User password (min 8 characters, must include uppercase, lowercase, number)
+                  example: "SecurePass123!"
+                firstName:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  description: User first name
+                  example: "John"
+                lastName:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  description: User last name
+                  example: "Doe"
+                phoneNum:
+                  type: string
+                  pattern: '^\+?[1-9]\d{1,14}$'
+                  description: User phone number (E.164 format)
+                  example: "+60123456789"
+                identityNum:
+                  type: string
+                  description: National identity number (e.g., IC, passport)
+                  example: "890101-14-5678"
+                nationalityCountryCode:
+                  type: string
+                  pattern: '^[A-Z]{2}$'
+                  description: ISO 3166-1 alpha-2 country code
+                  example: "MY"
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '409':
+          $ref: 'shared-schemas.yaml#/components/responses/Conflict'
+        '429':
+          $ref: 'shared-schemas.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /users/{id}:
+    get:
+      tags:
+        - Users
+      summary: Get user profile
+      description: |
+        Retrieve user profile by ID.
+        Requires authentication - users can only access their own profile unless they have admin role.
+      operationId: getUserProfile
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+    patch:
+      tags:
+        - Users
+      summary: Update user profile
+      description: |
+        Update user profile information.
+        Requires authentication - users can only update their own profile.
+        Uses CQRS outbox pattern for eventual consistency.
+      operationId: updateUserProfile
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/UserIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  example: "John"
+                lastName:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  example: "Doe"
+                phoneNum:
+                  type: string
+                  pattern: '^\+?[1-9]\d{1,14}$'
+                  example: "+60123456789"
+                identityNum:
+                  type: string
+                  example: "890101-14-5678"
+                nationalityCountryCode:
+                  type: string
+                  pattern: '^[A-Z]{2}$'
+                  example: "MY"
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  # ==========================================
+  # KYC Endpoints
+  # ==========================================
+  /users/{id}/kyc:
+    post:
+      tags:
+        - KYC
+      summary: Submit KYC verification
+      description: |
+        Submit KYC (Know Your Customer) verification request.
+        Upload identity document evidence (hash, size, MIME type).
+        Requires authentication.
+
+        **Rate Limit:** 60 requests per minute per IP
+
+        **Flow:**
+        1. Upload document to secure storage (off-chain)
+        2. Submit evidence metadata via this endpoint
+        3. Backend triggers KYC review workflow
+        4. Admin reviews and approves/rejects
+        5. User receives notification of status change
+      operationId: submitKYC
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/UserIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - evidenceHash
+                - evidenceSize
+                - evidenceMime
+              properties:
+                evidenceHash:
+                  type: string
+                  description: SHA-256 hash of the uploaded document
+                  pattern: '^[a-f0-9]{64}$'
+                  example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                evidenceSize:
+                  type: integer
+                  minimum: 1
+                  maximum: 10485760
+                  description: Document file size in bytes (max 10MB)
+                  example: 2048576
+                evidenceMime:
+                  type: string
+                  enum:
+                    - image/jpeg
+                    - image/png
+                    - application/pdf
+                  description: MIME type of the document
+                  example: "application/pdf"
+      responses:
+        '202':
+          description: KYC submission accepted for review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KYCStatus'
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '409':
+          description: KYC already submitted
+          content:
+            application/json:
+              schema:
+                $ref: 'shared-schemas.yaml#/components/schemas/ErrorResponse'
+        '429':
+          $ref: 'shared-schemas.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+    get:
+      tags:
+        - KYC
+      summary: Get KYC verification status
+      description: |
+        Retrieve current KYC verification status for a user.
+        Requires authentication - users can only access their own KYC status.
+      operationId: getKYCStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/UserIdParam'
+      responses:
+        '200':
+          description: KYC status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KYCStatus'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          description: No KYC submission found
+          content:
+            application/json:
+              schema:
+                $ref: 'shared-schemas.yaml#/components/schemas/ErrorResponse'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+# ==========================================
+# Components
+# ==========================================
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: 'shared-schemas.yaml#/components/securitySchemes/BearerAuth'
+
+  schemas:
+    # User Profile Schema
+    UserProfile:
+      type: object
+      required:
+        - profileId
+        - firstName
+        - lastName
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        profileId:
+          type: string
+          format: uuid
+          description: Unique user identifier (UUID v4)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: User email address (nullable for privacy)
+          example: "john.doe@example.com"
+        firstName:
+          type: string
+          description: User first name
+          example: "John"
+        lastName:
+          type: string
+          description: User last name
+          example: "Doe"
+        phoneNum:
+          type: string
+          nullable: true
+          description: User phone number (E.164 format)
+          example: "+60123456789"
+        identityNum:
+          type: string
+          nullable: true
+          description: National identity number
+          example: "890101-14-5678"
+        status:
+          type: string
+          enum:
+            - PENDING_VERIFICATION
+            - VERIFIED
+            - REJECTED
+            - SUSPENDED
+            - CLOSED
+          description: User account status
+          example: "VERIFIED"
+        nationalityCountryCode:
+          type: string
+          nullable: true
+          pattern: '^[A-Z]{2}$'
+          description: ISO 3166-1 alpha-2 country code
+          example: "MY"
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+          example: "2025-11-20T04:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-11-20T04:00:00.000Z"
+
+    # KYC Status Schema
+    KYCStatus:
+      type: object
+      required:
+        - kycId
+        - profileId
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        kycId:
+          type: string
+          format: uuid
+          description: Unique KYC submission identifier
+          example: "660e8400-e29b-41d4-a716-446655440000"
+        profileId:
+          type: string
+          format: uuid
+          description: User profile ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+            - REJECTED
+            - EXPIRED
+          description: KYC verification status
+          example: "APPROVED"
+        evidenceHash:
+          type: string
+          nullable: true
+          description: SHA-256 hash of verification document
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        evidenceSize:
+          type: integer
+          nullable: true
+          description: Document size in bytes
+          example: 2048576
+        evidenceMime:
+          type: string
+          nullable: true
+          description: Document MIME type
+          example: "application/pdf"
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when KYC was approved/rejected
+          example: "2025-11-21T10:30:00.000Z"
+        verifierDetails:
+          type: string
+          nullable: true
+          description: Information about the verifier (admin who approved/rejected)
+          example: "Admin: admin@gxcoin.money"
+        createdAt:
+          type: string
+          format: date-time
+          description: KYC submission timestamp
+          example: "2025-11-20T04:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-11-21T10:30:00.000Z"

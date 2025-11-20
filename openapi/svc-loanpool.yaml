@@ -1,0 +1,315 @@
+openapi: 3.0.3
+
+info:
+  title: GX Protocol - Loan Pool Service
+  version: 1.0.0
+  description: |
+    Loan Pool service manages interest-free lending operations including loan applications, approvals, and loan queries.
+
+    **Key Features:**
+    - Interest-free loan applications
+    - Collateral-based lending
+    - Admin approval workflow
+    - Loan status tracking
+    - User loan history
+
+    **Loan Workflow:**
+    1. User applies for loan with collateral hash
+    2. Admin reviews collateral and approves/rejects
+    3. Upon approval, funds disbursed from treasury
+    4. User repays loan (interest-free)
+
+servers:
+  - url: http://localhost:3005/api/v1
+    description: Development server (backend-testnet)
+  - url: https://api.gxcoin.money/loanpool/api/v1
+    description: Production server (backend-mainnet)
+
+tags:
+  - name: Loan Applications
+    description: Apply for and manage loan applications
+  - name: Loan Management
+    description: Admin approval and loan queries
+
+paths:
+  /loans:
+    post:
+      tags:
+        - Loan Applications
+      summary: Apply for loan
+      description: |
+        Submit an interest-free loan application with collateral.
+
+        **Authorization:** Authenticated user (can only apply for themselves)
+
+        **CQRS Flow:** Command queued → LoanPoolContract:ApplyForLoan → Event emitted
+
+        **Requirements:**
+        - User must have verified KYC
+        - User must not have active outstanding loans
+        - Collateral documentation required
+      operationId: applyForLoan
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - borrowerId
+                - amount
+                - collateralHash
+              properties:
+                borrowerId:
+                  type: string
+                  format: uuid
+                  description: Borrower user ID (must match authenticated user)
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+                amount:
+                  type: number
+                  format: double
+                  minimum: 100
+                  maximum: 1000000
+                  description: Loan amount requested
+                  example: 10000.00
+                collateralHash:
+                  type: string
+                  pattern: '^[a-f0-9]{64}$'
+                  description: SHA-256 hash of collateral documentation
+                  example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      responses:
+        '202':
+          description: Loan application submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - commandId
+                  - loanId
+                  - message
+                properties:
+                  commandId:
+                    type: string
+                    format: uuid
+                  loanId:
+                    type: string
+                    description: Unique loan identifier
+                    example: "LOAN-550e8400-001"
+                  message:
+                    type: string
+                    example: "Loan application submitted for review"
+        '400':
+          $ref: 'shared-schemas.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '422':
+          $ref: 'shared-schemas.yaml#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /loans/{loanId}:
+    get:
+      tags:
+        - Loan Management
+      summary: Get loan details
+      description: |
+        Retrieve specific loan information.
+
+        **Authorization:**
+        - Borrower can view their own loans
+        - Admins can view any loan
+      operationId: getLoan
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          description: Loan identifier
+          schema:
+            type: string
+            example: "LOAN-550e8400-001"
+      responses:
+        '200':
+          description: Loan details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Loan'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /loans/{loanId}/approve:
+    post:
+      tags:
+        - Loan Management
+      summary: Approve loan
+      description: |
+        Approve a pending loan application.
+
+        **Authorization:** ADMIN or SUPER_ADMIN role required
+
+        **Effect:**
+        - Funds disbursed from treasury to borrower
+        - Loan status changes to ACTIVE
+        - Borrower can begin using funds
+      operationId: approveLoan
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: 'shared-schemas.yaml#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '202':
+          $ref: 'shared-schemas.yaml#/components/responses/CommandAccepted'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+  /users/{borrowerId}/loans:
+    get:
+      tags:
+        - Loan Management
+      summary: Get user's loans
+      description: |
+        Retrieve all loans for a specific user.
+
+        **Authorization:**
+        - Users can only view their own loans
+        - Admins can view any user's loans
+      operationId: getUserLoans
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: borrowerId
+          in: path
+          required: true
+          description: Borrower user ID
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: User loans retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - loans
+                properties:
+                  loans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Loan'
+        '401':
+          $ref: 'shared-schemas.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'shared-schemas.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'shared-schemas.yaml#/components/responses/NotFound'
+        '500':
+          $ref: 'shared-schemas.yaml#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: 'shared-schemas.yaml#/components/securitySchemes/BearerAuth'
+
+  schemas:
+    Loan:
+      type: object
+      required:
+        - loanId
+        - borrowerId
+        - amount
+        - status
+        - collateralHash
+        - createdAt
+      properties:
+        loanId:
+          type: string
+          description: Unique loan identifier
+          example: "LOAN-550e8400-001"
+        borrowerId:
+          type: string
+          format: uuid
+          description: Borrower user ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        amount:
+          type: number
+          format: double
+          description: Loan amount
+          example: 10000.00
+        status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+            - ACTIVE
+            - REPAID
+            - DEFAULTED
+            - REJECTED
+          description: Current loan status
+          example: "ACTIVE"
+        collateralHash:
+          type: string
+          description: SHA-256 hash of collateral documentation
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        approvedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: Admin who approved the loan
+          example: "660e8400-e29b-41d4-a716-446655440000"
+        approvedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Approval timestamp
+          example: "2025-11-20T10:00:00.000Z"
+        disbursedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Funds disbursement timestamp
+          example: "2025-11-20T10:05:00.000Z"
+        repaidAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Full repayment timestamp
+          example: "2026-01-15T14:30:00.000Z"
+        createdAt:
+          type: string
+          format: date-time
+          description: Application submission timestamp
+          example: "2025-11-20T04:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-11-20T10:05:00.000Z"
