@@ -272,20 +272,20 @@ class OutboxSubmitter {
       {
         name: 'org1-super-admin',
         role: 'super_admin',
-        certPath: `${walletPath}/org1-super-admin/cert.pem`,
-        keyPath: `${walletPath}/org1-super-admin/key.pem`,
+        certPath: `${walletPath}/org1-super-admin-cert`,
+        keyPath: `${walletPath}/org1-super-admin-key`,
       },
       {
         name: 'org1-admin',
         role: 'admin',
-        certPath: `${walletPath}/org1-admin/cert.pem`,
-        keyPath: `${walletPath}/org1-admin/key.pem`,
+        certPath: `${walletPath}/org1-admin-cert`,
+        keyPath: `${walletPath}/org1-admin-key`,
       },
       {
         name: 'org1-partner-api',
         role: 'partner_api',
-        certPath: `${walletPath}/org1-partner-api/cert.pem`,
-        keyPath: `${walletPath}/org1-partner-api/key.pem`,
+        certPath: `${walletPath}/org1-partner-api-cert`,
+        keyPath: `${walletPath}/org1-partner-api-key`,
       },
     ];
 
@@ -341,7 +341,7 @@ class OutboxSubmitter {
    */
   private async loadTLSCACert(): Promise<string> {
     const fs = require('fs').promises;
-    const caPath = `${process.env.FABRIC_WALLET_PATH || './fabric-wallet'}/ca-cert/ca-org1.pem`;
+    const caPath = `${process.env.FABRIC_WALLET_PATH || './fabric-wallet'}/ca-cert`;
     return await fs.readFile(caPath, 'utf-8');
   }
 
