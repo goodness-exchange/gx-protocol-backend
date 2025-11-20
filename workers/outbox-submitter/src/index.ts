@@ -341,7 +341,7 @@ class OutboxSubmitter {
    */
   private async loadTLSCACert(): Promise<string> {
     const fs = require('fs').promises;
-    const caPath = `${process.env.FABRIC_WALLET_PATH || './fabric-wallet'}/ca-cert`;
+    const caPath = `${process.env.FABRIC_WALLET_PATH || './fabric-wallet'}/tlsca-cert`;
     return await fs.readFile(caPath, 'utf-8');
   }
 
