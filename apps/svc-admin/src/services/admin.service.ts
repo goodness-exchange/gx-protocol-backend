@@ -29,7 +29,7 @@ class AdminService {
         tenantId: 'default',
         service: 'svc-admin',
         requestId: `init-countries-${Date.now()}`,
-        commandType: 'INITIALIZE_COUNTRY',
+        commandType: 'INITIALIZE_COUNTRY_DATA',
         payload: { countriesData: data.countriesData },
         status: 'PENDING',
         attempts: 0,
