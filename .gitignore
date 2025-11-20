@@ -57,3 +57,6 @@ prisma/migrations/**/*.sql.tmp
 # Ignore specific markdown files in the docs directory
 docs/work-logs/
 docs/PRODUCTION_SECRETS.md
+# Fabric wallet with private keys
+fabric-wallet/
+
