@@ -56,7 +56,7 @@ spec:
 
       containers:
       - name: projector
-        image: gx-protocol/projector:2.0.6  # TODO: Replace with actual registry
+        image: gx-protocol/projector:2.0.20  # Built with fabric-wallet volume support
         imagePullPolicy: IfNotPresent
 
         # Environment variables from ConfigMap
@@ -88,9 +88,14 @@ spec:
               fieldPath: metadata.name  # Use pod name as worker ID
         - name: METRICS_PORT
           value: "9091"
+        - name: FABRIC_WALLET_PATH
+          value: "/fabric-wallet"
 
         # Volume mounts for Fabric credentials
         volumeMounts:
+        - name: fabric-wallet
+          mountPath: /fabric-wallet
+          readOnly: true
         - name: fabric-credentials
           mountPath: /etc/fabric
           readOnly: true
@@ -137,6 +142,10 @@ spec:
 
       # Volumes
       volumes:
+      - name: fabric-wallet
+        configMap:
+          name: fabric-wallet
+          defaultMode: 0400  # Read-only for owner
       - name: fabric-credentials
         secret:
           secretName: fabric-credentials
