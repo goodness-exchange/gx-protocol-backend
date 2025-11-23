@@ -27,14 +27,15 @@ WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies /app/package.json ./
 
-# Copy source code
-COPY . .
+# Copy Prisma schema
+COPY db/prisma ./db/prisma
 
 # Generate Prisma client
 RUN npx prisma generate --schema=./db/prisma/schema.prisma
 
-# Build all packages and the worker
-RUN npm run build --filter=@gx/projector
+# Copy pre-built packages and worker (must be built locally first)
+COPY packages/ ./packages/
+COPY workers/projector/dist ./workers/projector/dist
 
 # ============================================
 # Stage 3: Production
