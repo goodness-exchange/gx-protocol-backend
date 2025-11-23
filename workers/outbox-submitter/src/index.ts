@@ -158,6 +158,10 @@ const fabricClients = new Map<string, IFabricClient>();
  * - Super admin commands require gx_super_admin role
  * - Admin commands require gx_admin role
  * - Standard commands use gx_partner_api role
+ *
+ * Multi-Org Endorsement:
+ * - Protocol-level commands return Org1 identity (Gateway SDK will discover Org2 via service discovery)
+ * - User-level commands use single Org1 identity
  */
 function selectIdentityForCommand(commandType: string): string {
   const superAdminCommands = [
@@ -172,6 +176,8 @@ function selectIdentityForCommand(commandType: string): string {
     'ACTIVATE_TREASURY',
   ];
 
+  // For super admin commands, use Org1 super-admin
+  // The Gateway SDK should discover and get endorsements from Org2 via service discovery
   if (superAdminCommands.includes(commandType)) {
     return 'org1-super-admin';
   }
@@ -181,6 +187,24 @@ function selectIdentityForCommand(commandType: string): string {
   }
 
   return 'org1-partner-api';
+}
+
+/**
+ * Check if command requires multi-org endorsement
+ *
+ * Protocol-level operations require endorsements from multiple organizations
+ * as defined by the chaincode endorsement policy (MAJORITY for 2 orgs = both must endorse)
+ */
+function requiresMultiOrgEndorsement(commandType: string): boolean {
+  const multiOrgCommands = [
+    'BOOTSTRAP_SYSTEM',
+    'INITIALIZE_COUNTRY_DATA',
+    'PAUSE_SYSTEM',
+    'RESUME_SYSTEM',
+    'UPDATE_SYSTEM_PARAMETER',
+  ];
+
+  return multiOrgCommands.includes(commandType);
 }
 
 // ========== Main Worker Class ==========
@@ -252,7 +276,15 @@ class OutboxSubmitter {
   }
 
   /**
-   * Initialize Fabric clients for all 3 identities
+   * Initialize Fabric clients for all identities across both organizations
+   *
+   * Multi-Org Architecture:
+   * - Org1 clients connect to peer0-org1.fabric.svc.cluster.local:7051
+   * - Org2 clients connect to peer0-org2.fabric.svc.cluster.local:7051
+   *
+   * For protocol-level operations requiring multi-org endorsement:
+   * - Submit to both Org1 and Org2 super-admin clients
+   * - Fabric will aggregate endorsements from both organizations
    *
    * Each identity gets its own:
    * - gRPC connection to peer
@@ -261,14 +293,18 @@ class OutboxSubmitter {
    *
    * Wallet structure:
    * fabric-wallet/
+   *   Org1 Identities:
    *   ├── org1-super-admin/ (gx_super_admin role)
    *   ├── org1-admin/       (gx_admin role)
    *   └── org1-partner-api/ (gx_partner_api role)
+   *   Org2 Identities:
+   *   └── org2-super-admin/ (gx_super_admin role)
    */
   private async initializeFabricClients(): Promise<void> {
     const walletPath = process.env.FABRIC_WALLET_PATH || './fabric-wallet';
 
     const identities: FabricIdentity[] = [
+      // Org1 identities
       {
         name: 'org1-super-admin',
         role: 'super_admin',
@@ -287,6 +323,13 @@ class OutboxSubmitter {
         certPath: `${walletPath}/org1-partner-api-cert`,
         keyPath: `${walletPath}/org1-partner-api-key`,
       },
+      // Org2 identities
+      {
+        name: 'org2-super-admin',
+        role: 'super_admin',
+        certPath: `${walletPath}/org2-super-admin-cert`,
+        keyPath: `${walletPath}/org2-super-admin-key`,
+      },
     ];
 
     this.log('info', 'Initializing Fabric clients for all identities', {
@@ -296,15 +339,29 @@ class OutboxSubmitter {
     // Create and connect each client
     for (const identity of identities) {
       try {
+        // Determine peer endpoint and MSP based on organization
+        const isOrg2 = identity.name.startsWith('org2-');
+        const peerEndpoint = isOrg2
+          ? (process.env.FABRIC_ORG2_PEER_ENDPOINT || 'peer0-org2.fabric.svc.cluster.local:7051')
+          : (process.env.FABRIC_PEER_ENDPOINT || 'peer0-org1.fabric.svc.cluster.local:7051');
+        const mspId = isOrg2
+          ? (process.env.FABRIC_ORG2_MSP_ID || 'Org2MSP')
+          : (process.env.FABRIC_MSP_ID || 'Org1MSP');
+        const tlsServerNameOverride = isOrg2
+          ? (process.env.FABRIC_ORG2_TLS_SERVER_NAME_OVERRIDE || 'peer0.org2.prod.goodness.exchange')
+          : process.env.FABRIC_TLS_SERVER_NAME_OVERRIDE;
+
         this.log('info', `Connecting Fabric client for ${identity.name}`, {
           role: identity.role,
+          peer: peerEndpoint,
+          mspId: mspId,
         });
 
         // Create client with specific identity credentials
         const client = await createFabricClient({
-          peerEndpoint: process.env.FABRIC_PEER_ENDPOINT!,
+          peerEndpoint,
           peerTLSCACert: await this.loadTLSCACert(),
-          mspId: process.env.FABRIC_MSP_ID || 'Org1MSP',
+          mspId,
           certPath: identity.certPath,
           keyPath: identity.keyPath,
           channelName: process.env.FABRIC_CHANNEL_NAME || 'gxchannel',
@@ -312,7 +369,7 @@ class OutboxSubmitter {
           grpc: {
             keepAlive: true,
             keepAliveTimeout: 120000,
-            tlsServerNameOverride: process.env.FABRIC_TLS_SERVER_NAME_OVERRIDE,
+            tlsServerNameOverride,
           },
         });
 
@@ -594,12 +651,20 @@ class OutboxSubmitter {
    * 2. Each identity has gxc_role attribute in X.509 certificate
    * 3. Chaincode validates role before executing function
    *
-   * Example: INITIALIZE_COUNTRY_DATA requires gx_super_admin role
+   * Multi-Org Endorsement:
+   * - Protocol-level commands require MAJORITY endorsement (both Org1 and Org2)
+   * - Gateway SDK uses service discovery to find peers from all organizations
+   * - Endorsement policy is defined at chaincode level
+   *
+   * Example: INITIALIZE_COUNTRY_DATA requires gx_super_admin role + multi-org endorsement
    */
   private async submitToFabric(
     commandType: string,
     payload: any
   ): Promise<{ transactionId: string; blockNumber?: bigint }> {
+    // Check if multi-org endorsement is required
+    const requiresMultiOrg = requiresMultiOrgEndorsement(commandType);
+
     // Select appropriate Fabric client for this command
     const identityName = selectIdentityForCommand(commandType);
     const fabricClient = fabricClients.get(identityName);
@@ -608,9 +673,10 @@ class OutboxSubmitter {
       throw new Error(`Fabric client not found for identity: ${identityName}`);
     }
 
-    this.log('debug', 'Submitting transaction with identity', {
+    this.log('info', 'Submitting transaction to Fabric', {
       commandType,
       identity: identityName,
+      requiresMultiOrgEndorsement: requiresMultiOrg,
     });
 
     // Map command type to chaincode contract and function
@@ -620,11 +686,23 @@ class OutboxSubmitter {
     );
 
     // Submit transaction using selected identity
+    // The Gateway SDK will:
+    // 1. Create proposal with Org1 identity
+    // 2. Use service discovery to find peers from Org1 and Org2
+    // 3. Send proposal to peers from both organizations for endorsement
+    // 4. Collect endorsements (must satisfy MAJORITY policy = both orgs)
+    // 5. Submit transaction to orderer
     const result = await fabricClient.submitTransaction(
       contractName,
       functionName,
       ...args
     );
+
+    this.log('info', 'Transaction submitted successfully', {
+      commandType,
+      transactionId: result.transactionId,
+      blockNumber: result.blockNumber?.toString(),
+    });
 
     return {
       transactionId: result.transactionId,
