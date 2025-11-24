@@ -1,4 +1,4 @@
-import { prisma } from '@gx/core-db';
+import { db as prisma } from '@gx/core-db';
 import { generateFabricUserId } from '@gx/core-fabric';
 import { logger } from '@gx/core-logger';
 
@@ -112,7 +112,7 @@ class UserManagementService {
   /**
    * Approve user KYC and generate Fabric User ID
    */
-  async approveUser(userId: string, adminId: string, notes?: string) {
+  async approveUser(userId: string, adminId: string, _notes?: string) {
     // Get user
     const user = await prisma.userProfile.findUnique({
       where: { profileId: userId, deletedAt: null },
@@ -263,7 +263,7 @@ class UserManagementService {
 
     // Create OutboxCommands for batch registration
     const commands = await Promise.all(
-      users.map(async (user) => {
+      users.map(async (user: typeof users[0]) => {
         // Calculate age from date of birth
         const age = user.dateOfBirth
           ? Math.floor(
@@ -291,7 +291,7 @@ class UserManagementService {
     logger.info({ count: commands.length }, 'Batch registration commands created');
 
     return {
-      commands: commands.map((cmd) => ({
+      commands: commands.map((cmd: typeof commands[0]) => ({
         userId: cmd.aggregateId,
         commandId: cmd.commandId,
         status: cmd.status,
@@ -357,7 +357,7 @@ class UserManagementService {
   /**
    * Unfreeze user account
    */
-  async unfreezeUser(userId: string, adminId: string) {
+  async unfreezeUser(userId: string, _adminId: string) {
     const user = await prisma.userProfile.findUnique({
       where: { profileId: userId, deletedAt: null },
     });

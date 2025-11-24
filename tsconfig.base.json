@@ -26,7 +26,6 @@
     "allowSyntheticDefaultImports": true,
     "moduleDetection": "force",
     "incremental": true,
-    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@gx/*": ["packages/*/dist"]
