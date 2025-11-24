@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { adminController } from '../controllers/admin.controller';
+import { userManagementController } from '../controllers/user-management.controller';
 import { authenticateJWT } from '../middlewares/auth.middleware';
-import { requireSuperAdmin } from '@gx/core-http';
+import { requireAdmin, requireSuperAdmin } from '@gx/core-http';
 
 const router = Router();
 
@@ -19,5 +20,16 @@ router.get('/parameters/:paramId', adminController.getSystemParameter);
 router.get('/countries/:countryCode/stats', adminController.getCountryStats);
 router.get('/countries', adminController.listAllCountries);
 router.get('/counters', adminController.getGlobalCounters);
+
+// User Management Routes
+router.get('/users', authenticateJWT, requireAdmin, userManagementController.listUsers);
+router.get('/users/pending-onchain', authenticateJWT, requireSuperAdmin, userManagementController.getPendingOnchainUsers);
+router.get('/users/frozen', authenticateJWT, requireAdmin, userManagementController.listFrozenUsers);
+router.get('/users/:userId', authenticateJWT, requireAdmin, userManagementController.getUserDetails);
+router.post('/users/:userId/approve', authenticateJWT, requireAdmin, userManagementController.approveUser);
+router.post('/users/:userId/deny', authenticateJWT, requireAdmin, userManagementController.denyUser);
+router.post('/users/batch-register-onchain', authenticateJWT, requireSuperAdmin, userManagementController.batchRegisterOnchain);
+router.post('/users/:userId/freeze', authenticateJWT, requireSuperAdmin, userManagementController.freezeUser);
+router.post('/users/:userId/unfreeze', authenticateJWT, requireSuperAdmin, userManagementController.unfreezeUser);
 
 export default router;
