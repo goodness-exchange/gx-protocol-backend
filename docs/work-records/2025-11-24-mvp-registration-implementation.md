@@ -585,34 +585,182 @@ b306233 docs(architecture): add comprehensive user registration architecture
 
 ---
 
+## Session 2: Backend Integration Completion (2025-11-24 Afternoon)
+
+### Work Completed
+
+#### 1. Projector Event Handlers Updated
+**File:** `workers/projector/src/index.ts`
+
+**Changes:**
+
+1. **handleUserCreated** (lines 608-660):
+   - Changed to find existing user by `fabricUserId` instead of creating new user
+   - Updates status from `APPROVED_PENDING_ONCHAIN` → `ACTIVE`
+   - Sets `onchainStatus` to `ACTIVE` and `onchainRegisteredAt` timestamp
+   - Added fallback case for users not found in database
+   - Proper logging for user activation
+
+2. **handleWalletFrozen** (lines 873-901):
+   - Added UserProfile status update to `FROZEN`
+   - Sets `onchainStatus` to `FROZEN` for consistency
+   - Updates `isLocked` to `true`
+   - Uses `fabricUserId` to find user (matches blockchain ID)
+   - Includes reason in log message
+
+3. **handleWalletUnfrozen** (lines 918-945):
+   - Added UserProfile status update to `ACTIVE`
+   - Restores `onchainStatus` to `ACTIVE`
+   - Updates `isLocked` to `false`
+   - Proper logging for account restoration
+
+**Commit:** `feat(projector): update event handlers for MVP user registration flow` (aa2e822)
+
+---
+
+#### 2. Outbox-Submitter Command Handlers Fixed
+**File:** `workers/outbox-submitter/src/index.ts`
+
+**Changes:**
+
+1. **FREEZE_WALLET handler** (lines 760-768):
+   - Replaced error throw with proper command mapping
+   - Maps to `TokenomicsContract.FreezeWallet` function
+   - Passes `userID` (Fabric User ID) and `reason` parameters
+   - Defaults reason to `ADMIN_ACTION` if not provided
+
+2. **UNFREEZE_WALLET handler** (lines 770-775):
+   - Fixed payload field from `userId` to `userID`
+   - Aligns with freeze_user service payload format
+
+**Commit:** `feat(outbox-submitter): implement FREEZE_WALLET command handler` (ae0b22f)
+
+---
+
+#### 3. Chaincode Freeze/Unfreeze Functions Added
+**File:** `gx-coin-fabric/chaincode/tokenomics_contract.go`
+
+**Added Functions (171 lines total):**
+
+1. **FreezeWallet(ctx, userID, reason)**:
+   - Requires SUPER_ADMIN role (`gx_super_admin` attribute)
+   - Validates `userID` and `reason` are not empty
+   - Checks if user already frozen (prevents duplicate action)
+   - Updates `User.Status` to "Frozen"
+   - Emits `WalletFrozen` event with `userId`, `reason`, `frozenAt` timestamp
+   - Comprehensive error handling with context
+   - Use cases: suspicious activity, compliance review, court order, user request
+
+2. **UnfreezeWallet(ctx, userID)**:
+   - Requires SUPER_ADMIN role (`gx_super_admin` attribute)
+   - Validates `userID` is not empty
+   - Checks if user actually frozen before unfreezing
+   - Updates `User.Status` to "Active"
+   - Emits `WalletUnfrozen` event with `userId`, `unfrozenAt` timestamp
+   - Returns error if user not frozen (prevents invalid state transitions)
+
+**Event Flow:**
+1. Super Admin calls freeze/unfreeze API
+2. Outbox-submitter invokes FreezeWallet/UnfreezeWallet
+3. Chaincode updates User.Status and emits event
+4. Projector receives event and updates UserProfile.status
+
+**Commit:** `feat(chaincode): add FreezeWallet and UnfreezeWallet functions to TokenomicsContract` (e2b0827)
+
+---
+
+#### 4. Chaincode User Status and Transfer Validation Updates
+**Files:**
+- `gx-coin-fabric/chaincode/identity_contract.go`
+- `gx-coin-fabric/chaincode/tokenomics_contract.go`
+
+**Changes:**
+
+1. **CreateUser Initial Status Fix** (identity_contract.go line 110):
+   - Changed initial status from `"locked"` to `"Active"`
+   - Reason: Users are created on-chain AFTER admin approval in MVP flow
+   - Registration flow: REGISTERED → PENDING_ADMIN_APPROVAL → APPROVED_PENDING_ONCHAIN → batch CreateUser → ACTIVE
+   - Updated comment to reflect MVP registration workflow
+
+2. **Transfer Function Freeze Validation** (tokenomics_contract.go lines 721-748):
+   - Added sender frozen status check (rejects if User.Status == "Frozen")
+   - Added receiver frozen status check (rejects if User.Status == "Frozen")
+   - Error messages: "cannot transfer: sender/receiver wallet is frozen"
+   - Prevents frozen accounts from sending or receiving GX tokens
+   - Enforces freeze at blockchain transaction level (not just API level)
+
+**Integration:**
+- Works with FreezeWallet/UnfreezeWallet functions (commit e2b0827)
+- Completes end-to-end freeze/unfreeze security implementation
+- Frozen users cannot:
+  - Send tokens (Transfer validates sender status)
+  - Receive tokens (Transfer validates receiver status)
+  - Participate in any token transactions
+
+**Commit:** `fix(chaincode): align user status with MVP flow and add freeze validation to transfers` (4a78b78)
+
+---
+
+### Status Update
+
+#### Completed Tasks (100% MVP Implementation):
+
+1. ✅ **Verify CommandType enum has required values**
+   - Checked `db/prisma/schema.prisma`
+   - All required values exist: `CREATE_USER`, `FREEZE_WALLET`, `UNFREEZE_WALLET`
+
+2. ✅ **Implement projector event handlers**
+   - Updated `handleUserCreated` for status sync
+   - Updated `handleWalletFrozen` to set FROZEN status
+   - Updated `handleWalletUnfrozen` to restore ACTIVE status
+
+3. ✅ **Implement outbox-submitter command handlers**
+   - Fixed `FREEZE_WALLET` handler (replaced error with mapping)
+   - Fixed `UNFREEZE_WALLET` handler (corrected payload field)
+
+4. ✅ **Add chaincode freeze/unfreeze functions**
+   - Added `FreezeWallet` to tokenomics_contract.go
+   - Added `UnfreezeWallet` to tokenomics_contract.go
+   - Fixed `CreateUser` initial status (locked → Active)
+   - Added frozen user validation to `Transfer` function
+   - All functions include ABAC checks, validation, event emission
+
+#### Remaining Tasks:
+
+5. ⏳ **Write unit tests for ID generator**
+   - Test `generateFabricUserId()` with various inputs
+   - Test `decodeFabricUserId()` accuracy
+   - Test `validateFabricUserId()` checksum verification
+   - Test collision detection scenarios
+
+---
+
 ## Next Steps
 
 ### Immediate (High Priority):
 
-1. **Add CommandType Enum Value**
-   - File: `db/prisma/schema.prisma`
-   - Add `CREATE_USER` to `CommandType` enum if not exists
-   - Run migration if needed
+1. **Deploy Chaincode Updates**
+   - Build and package chaincode with FreezeWallet/UnfreezeWallet functions
+   - Deploy to Fabric network (Org1 and Org2)
+   - Approve and commit chaincode updates
+   - Test chaincode functions on Kubernetes
 
-2. **Implement Projector Handlers**
-   - File: `workers/projector/src/handlers/*`
-   - Add `UserCreated` event handler
-   - Add `UserFrozen` event handler
-   - Add `UserUnfrozen` event handler
-   - Update UserProfile status to `ACTIVE` after blockchain registration
+2. **End-to-End Testing**
+   - Create user and approve (generate Fabric User ID)
+   - Batch register on blockchain (verify UserCreated event)
+   - Freeze user (verify WalletFrozen event, status update to FROZEN)
+   - Unfreeze user (verify WalletUnfrozen event, status restoration to ACTIVE)
+   - Verify admin dashboard shows correct status in tabs
 
-3. **Implement Outbox-Submitter Handlers**
-   - File: `workers/outbox-submitter/src/handlers/*`
-   - Add `CREATE_USER` command handler
-   - Add `FREEZE_WALLET` command handler (if not exists)
-   - Add `UNFREEZE_WALLET` command handler (if not exists)
+3. **Unit Tests for ID Generator**
+   - Test `generateFabricUserId()` with various inputs
+   - Test `decodeFabricUserId()` accuracy
+   - Test `validateFabricUserId()` checksum verification
+   - Test collision detection scenarios
 
-4. **Chaincode Functions**
-   - File: `gx-coin-fabric/chaincode/identity_contract.go`
-   - Verify `CreateUser` function accepts age parameter
-   - Add `FreezeUser(userId, reason)` function
-   - Add `UnfreezeUser(userId)` function
-   - Add `ValidateUserCanTransact(userId)` helper
+4. **Update Transfer Function**
+   - Add validation in chaincode `Transfer` function to reject transfers from/to frozen users
+   - Test transfer rejection for frozen accounts
 
 ### Medium Priority:
 
