@@ -79,7 +79,7 @@ export class FabricClient implements IFabricClient {
      * Circuit Breaker Configuration
      *
      * Why these values?
-     * - timeout: 30s (Fabric transactions can be slow)
+     * - timeout: 120s (Fabric transactions can be slow, especially with large payloads like 234 countries)
      * - errorThresholdPercentage: 50% (if half fail, something's wrong)
      * - resetTimeout: 30s (wait 30s before trying again)
      * - volumeThreshold: 5 (need at least 5 requests to judge)
@@ -91,7 +91,7 @@ export class FabricClient implements IFabricClient {
      * HALF_OPEN → (1 failure) → OPEN
      */
     this.circuitBreaker = new CircuitBreaker(this.submitTxInternal.bind(this), {
-      timeout: 30000, // 30 seconds
+      timeout: 120000, // 120 seconds (2 minutes) - increased for large payload operations
       errorThresholdPercentage: 50, // Trip after 50% failures
       resetTimeout: 30000, // Attempt to close after 30 seconds
       volumeThreshold: 5, // Minimum 5 requests before judging
