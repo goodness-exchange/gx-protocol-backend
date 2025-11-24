@@ -1260,32 +1260,68 @@ class Projector {
 
   /**
    * Handle CountryDataInitialized event
+   *
+   * This event is emitted when country data is bulk-initialized in the blockchain.
+   * The payload contains an array of countries to insert into the read model.
    */
   private async handleCountryDataInitialized(
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
-    await this.prisma.systemParameter.upsert({
-      where: {
-        tenantId_paramKey: {
-          tenantId: this.config.tenantId,
-          paramKey: `COUNTRY_${payload.countryCode}_INITIALIZED`,
-        },
-      },
-      create: {
-        tenantId: this.config.tenantId,
-        paramKey: `COUNTRY_${payload.countryCode}_INITIALIZED`,
-        paramValue: 'true',
-        updatedAt: event.timestamp,
-      },
-      update: {
-        paramValue: 'true',
-        updatedAt: event.timestamp,
-      },
+    // Payload structure: { countries: [{ code, name, percentage }] } or { countriesData: [...] }
+    const countries = payload.countries || payload.countriesData || [];
+
+    if (countries.length === 0) {
+      this.log('warn', 'CountryDataInitialized event has no countries', { payload });
+      return;
+    }
+
+    this.log('info', 'Processing country data initialization', {
+      countryCount: countries.length
     });
 
-    this.log('debug', 'Country data initialized', {
-      countryCode: payload.countryCode,
+    // Bulk insert/update countries using transaction for atomicity
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      for (const country of countries) {
+        await tx.country.upsert({
+          where: {
+            countryCode: country.code || country.countryCode
+          },
+          create: {
+            countryCode: country.code || country.countryCode,
+            countryName: country.name || country.countryName,
+            region: country.region || 'Unknown',
+          },
+          update: {
+            countryName: country.name || country.countryName,
+            region: country.region || 'Unknown',
+          },
+        });
+      }
+
+      // Mark country initialization as complete
+      await tx.systemParameter.upsert({
+        where: {
+          tenantId_paramKey: {
+            tenantId: this.config.tenantId,
+            paramKey: 'COUNTRIES_INITIALIZED',
+          },
+        },
+        create: {
+          tenantId: this.config.tenantId,
+          paramKey: 'COUNTRIES_INITIALIZED',
+          paramValue: countries.length.toString(),
+          updatedAt: event.timestamp,
+        },
+        update: {
+          paramValue: countries.length.toString(),
+          updatedAt: event.timestamp,
+        },
+      });
+    });
+
+    this.log('info', 'Country data initialized successfully', {
+      countryCount: countries.length,
     });
   }
 
