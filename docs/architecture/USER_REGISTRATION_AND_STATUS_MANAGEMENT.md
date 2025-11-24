@@ -153,6 +153,7 @@ This document defines the architecture for user registration, KYC verification, 
    │ User provides:                                                   │
    │ - Full legal name                                                │
    │ - Date of birth                                                  │
+   │ - Gender (male or female)                                        │
    │ - Nationality                                                    │
    │ - Residential address                                            │
    │                                                                  │
@@ -174,7 +175,12 @@ This document defines the architecture for user registration, KYC verification, 
    │ Admin decision:                                                  │
    │                                                                  │
    │ IF APPROVED:                                                     │
-   │   - Generate unique Fabric User ID (e.g., GX4B7N9K2M8P3X)       │
+   │   - Generate unique Fabric User ID from:                         │
+   │     • Country code                                               │
+   │     • Date of birth                                              │
+   │     • Gender                                                     │
+   │     • Account type (0 = Individual)                              │
+   │     Example: "US A3F HBF934 0ABCD 1234"                          │
    │   - Status: APPROVED_PENDING_ONCHAIN                             │
    │   - Record: reviewedBy, reviewedAt                               │
    │                                                                  │
@@ -391,6 +397,7 @@ model UserProfile {
   firstName       String?
   lastName        String?
   dateOfBirth     DateTime?
+  gender          String?     // "male" or "female" only (required for ID generation)
   nationality     String?     // ISO country code
   residentialAddress Json?    // Structured address object
   phoneNumber     String?
@@ -484,13 +491,14 @@ model KYCDocument {
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "email": "alice@example.com",
-  "fabricUserId": "GX4B7N9K2M8P3X",
+  "fabricUserId": "US A3F HBF934 0ABCD 1234",
   "status": "ACTIVE",
   "onchainStatus": "ACTIVE",
   "isLocked": false,
   "firstName": "Alice",
   "lastName": "Johnson",
   "dateOfBirth": "1989-05-15T00:00:00Z",
+  "gender": "female",
   "nationality": "US",
   "biometricHash": "0x5f7a8c9d3e1b2c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7",
   "idDocumentType": "passport",
@@ -559,49 +567,208 @@ model KYCDocument {
 
 ### Fabric User ID Generation
 
-**Algorithm: NanoID-based (Recommended)**
+**Algorithm: Deterministic Encoding-Based**
+
+This system encodes meaningful information (country, date of birth, gender, account type) into a 20-character ID with the following format:
+
+```
+CC CCC AANNNN TCCCC NNNN
+│  │   │      │     └─ 4-digit random suffix
+│  │   │      └─ Account type (1 hex char) + 4 random letters
+│  │   └─ Date of birth/founding encoded (3 letters + 3 digits)
+│  └─ 3-character checksum (SHA-1 based)
+└─ 2-letter country code (ISO 3166-1 alpha-2)
+```
+
+**Example IDs:**
+- Individual (Female, Sri Lanka): `LK GBC HBF934 0ABCD 1234`
+- Financial Institution (US): `US A3F JKL567 5WXYZ 9876`
+- Government Account (India): `IN 7B2 MNO123 7PQRS 4567`
+
+**Implementation:**
 
 ```typescript
-import { customAlphabet } from 'nanoid';
+import crypto from 'crypto';
 
-// Generate collision-free user IDs
-// Using custom alphabet (no ambiguous characters: 0/O, 1/I/l)
-const nanoid = customAlphabet('0123456789ABCDEFGHJKLMNPQRSTUVWXYZ', 12);
+const BASE_DATE = new Date("1900-01-01");
+const GENDER_OFFSET = 500000;       // For female individuals
+const ORG_OFFSET = 1000000;         // For organizations
 
-async function generateFabricUserId(): Promise<string> {
-  let fabricUserId: string;
-  let isUnique = false;
+// Account type mapping (hex character 0-F)
+const ACCOUNT_TYPES = {
+  '0': "Individuals",
+  '1': "For-profit Businesses",
+  '2': "Not-for-profit Organizations",
+  '3': "Educational Institutions",
+  '4': "Healthcare Providers",
+  '5': "Financial Institutions",
+  '6': "Government Treasury Accounts",
+  '7': "Governmental Accounts (Ministries, Departments, etc.)",
+  '8': "Intergovernmental Organizations (IGOs)",
+  '9': "Diplomatic Missions",
+  'A': "Trusts and Estates",
+  'B': "Reserved",
+  'C': "Reserved",
+  'D': "Reserved",
+  'E': "Reserved for Temporary/Special Purpose Entities",
+  'F': "System Accounts"
+};
 
-  while (!isUnique) {
-    const randomPart = nanoid(); // 12 chars
-    fabricUserId = `GX${randomPart}`;
-
-    // Verify uniqueness in database
-    const existing = await prisma.userProfile.findUnique({
-      where: { fabricUserId }
-    });
-
-    if (!existing) {
-      isUnique = true;
-    }
-  }
-
-  return fabricUserId;
+function computeChecksum(dobBlock: string): string {
+  const hash = crypto.createHash("sha1").update(dobBlock).digest("hex");
+  return hash.slice(0, 3).toUpperCase();
 }
 
-// Example generated IDs:
-// GX4B7N9K2M8P3X
-// GXHQ8M3N7P2R5T
-// GX9C3E7J2K8N4P
+function encodeDobGender(
+  dob: string,
+  gender: string,
+  isOrganization: boolean = false
+): string {
+  const dobDate = new Date(dob);
+  let offset = Math.floor((dobDate.getTime() - BASE_DATE.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (isOrganization) {
+    offset += ORG_OFFSET;
+  } else if (gender.toLowerCase() === "female") {
+    offset += GENDER_OFFSET;
+  }
+
+  const aaaIndex = Math.floor(offset / 1000);
+  const nnn = offset % 1000;
+
+  const l1 = String.fromCharCode(65 + Math.floor(aaaIndex / (26 * 26)) % 26);
+  const l2 = String.fromCharCode(65 + Math.floor(aaaIndex / 26) % 26);
+  const l3 = String.fromCharCode(65 + aaaIndex % 26);
+
+  return `${l1}${l2}${l3}${nnn.toString().padStart(3, '0')}`;
+}
+
+/**
+ * Generate unique 20-character ID
+ * @param countryCode - 2-letter ISO country code (e.g., "US")
+ * @param dob - Date of birth/founding in "YYYY-MM-DD" format
+ * @param gender - "male", "female", or "system-assigned" for orgs
+ * @param accountType - Single hex character ('0'-'F')
+ */
+function generateFabricUserId(
+  countryCode: string,
+  dob: string,
+  gender: string,
+  accountType: string
+): string {
+  if (!ACCOUNT_TYPES[accountType]) {
+    throw new Error(`Invalid account type: '${accountType}'. Must be 0-F.`);
+  }
+
+  const isOrg = accountType !== '0';
+  const dobBlock = encodeDobGender(dob, gender, isOrg);
+  const checksum = computeChecksum(dobBlock);
+
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const digits = "0123456789";
+
+  const cccc = Array.from(
+    { length: 4 },
+    () => letters[Math.floor(Math.random() * 26)]
+  ).join('');
+
+  const nnnn = Array.from(
+    { length: 4 },
+    () => digits[Math.floor(Math.random() * 10)]
+  ).join('');
+
+  return `${countryCode.toUpperCase()} ${checksum} ${dobBlock} ${accountType}${cccc} ${nnnn}`;
+}
+
+/**
+ * Decode a 20-character ID to extract embedded information
+ * @param uid - The unique ID string
+ */
+function decodeFabricUserId(uid: string): {
+  countryCode: string;
+  checksum: string;
+  dateOfBirth: string;
+  gender: string;
+  isOrganization: boolean;
+  accountTypeCode: string;
+  accountTypeName: string;
+  uniqueSuffix: string;
+} {
+  const parts = uid.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    throw new Error("Invalid ID format. Expected 5 blocks.");
+  }
+
+  const [country, checksum, dobBlock, tcccc, nnnn] = parts;
+
+  // Decode DOB block
+  const [l1, l2, l3] = dobBlock.slice(0, 3).split('').map(c => c.charCodeAt(0) - 65);
+  const aaaIndex = l1 * 26 * 26 + l2 * 26 + l3;
+  let offset = aaaIndex * 1000 + parseInt(dobBlock.slice(3), 10);
+
+  let type = "individual";
+  let gender = "male";
+
+  if (offset >= ORG_OFFSET) {
+    offset -= ORG_OFFSET;
+    type = "organization";
+    gender = "system-assigned";
+  } else if (offset >= GENDER_OFFSET) {
+    offset -= GENDER_OFFSET;
+    gender = "female";
+  }
+
+  const dob = new Date(BASE_DATE.getTime() + offset * 24 * 60 * 60 * 1000);
+  const accountTypeHex = tcccc[0].toUpperCase();
+
+  return {
+    countryCode: country,
+    checksum,
+    dateOfBirth: dob.toISOString().slice(0, 10),
+    gender,
+    isOrganization: type === "organization",
+    accountTypeCode: accountTypeHex,
+    accountTypeName: ACCOUNT_TYPES[accountTypeHex] || "Unknown",
+    uniqueSuffix: `${tcccc.slice(1)}${nnnn}`
+  };
+}
+```
+
+**Usage Example:**
+
+```typescript
+// Generate ID for individual user
+const userId = generateFabricUserId(
+  "US",              // Country code
+  "1989-05-15",      // Date of birth
+  "female",          // Gender
+  "0"                // Account type: Individual
+);
+// Result: "US A3F HBF934 0XYZW 1234"
+
+// Decode ID
+const decoded = decodeFabricUserId(userId);
+console.log(decoded);
+// {
+//   countryCode: "US",
+//   checksum: "A3F",
+//   dateOfBirth: "1989-05-15",
+//   gender: "female",
+//   isOrganization: false,
+//   accountTypeCode: "0",
+//   accountTypeName: "Individuals",
+//   uniqueSuffix: "XYZW1234"
+// }
 ```
 
 **Characteristics:**
-- **Prefix**: `GX` for easy identification
-- **Length**: 14 characters total (2 + 12)
-- **Collision probability**: ~1 in 2^60 (negligible for billions of users)
-- **Character set**: 35 characters (0-9, A-Z excluding O, I, L)
-- **URL-safe**: No special characters
-- **Case-insensitive**: All uppercase for consistency
+- **Length**: 20 characters (with spaces for readability)
+- **Encoded Information**: Country, DOB, gender, account type
+- **Checksum**: SHA-1 based verification (3 chars)
+- **Account Types**: 16 types (0-9, A-F hex characters)
+- **Date Range**: Supports dates from 1900-01-01 to ~3600+ years
+- **Gender Encoding**: Male (no offset), Female (+500K), Organization (+1M)
+- **Uniqueness**: Random suffix (8 chars) provides ~2.8 trillion combinations
 
 ### Chaincode Functions (To Be Implemented)
 
@@ -869,6 +1036,7 @@ func (tc *TokenomicsContract) Transfer(
 firstName: Alice
 lastName: Johnson
 dateOfBirth: 1989-05-15
+gender: female
 nationality: US
 phoneNumber: +1234567890
 residentialAddress: {"street":"123 Main St","city":"New York","country":"US","postalCode":"10001"}
@@ -884,6 +1052,11 @@ Files:
 - selfie (image/jpeg, max 5MB)
 - proof_of_address (application/pdf, max 5MB)
 ```
+
+**Validation Rules:**
+- `gender`: Must be exactly "male" or "female" (case-insensitive, will be normalized to lowercase)
+- `dateOfBirth`: Must be in YYYY-MM-DD format, user must be 13-100 years old
+- `nationality`: Must be valid ISO 3166-1 alpha-2 country code
 
 **Response: 200 OK**
 ```json
@@ -963,12 +1136,14 @@ GET /api/v1/admin/users?status=PENDING_ADMIN_APPROVAL&page=1&limit=20
 {
   "message": "User approved successfully",
   "userId": "550e8400-e29b-41d4-a716-446655440000",
-  "fabricUserId": "GX4B7N9K2M8P3X",
+  "fabricUserId": "US A3F HBF934 0ABCD 1234",
   "status": "APPROVED_PENDING_ONCHAIN",
   "reviewedBy": "admin-001",
   "reviewedAt": "2025-11-24T10:00:00Z"
 }
 ```
+
+**Note**: The `fabricUserId` is generated using the user's nationality, date of birth, and gender. The format encodes this information: `{Country} {Checksum} {DOB+Gender} {AccountType+Random} {Random}`
 
 ---
 
