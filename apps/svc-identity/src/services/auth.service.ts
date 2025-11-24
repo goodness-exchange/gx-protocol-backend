@@ -75,6 +75,19 @@ class AuthService {
       throw error;
     }
 
+    // Validate country code if provided
+    if (country) {
+      const countryExists = await db.country.findUnique({
+        where: { countryCode: country.toUpperCase() },
+      });
+
+      if (!countryExists) {
+        const error: any = new Error(`Invalid country code: ${country}. Country must be initialized in the system first.`);
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
     // Create user profile with REGISTERED status
     const user = await db.userProfile.create({
       data: {
