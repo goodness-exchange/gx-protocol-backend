@@ -601,37 +601,62 @@ class Projector {
    * ```
    *
    * Read Model Update:
-   * - Create or update UserProfile table
-   * - Set initial status to ACTIVE
+   * - Update UserProfile status to ACTIVE (user registered on blockchain)
+   * - Set onchainRegisteredAt timestamp
+   * - This event is emitted after admin approval when batch registration completes
    */
   private async handleUserCreated(
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
-    await this.prisma.userProfile.upsert({
-      where: { profileId: payload.userId },
-      create: {
-        profileId: payload.userId,
-        tenantId: this.config.tenantId,
-        firstName: payload.firstName || '',
-        lastName: payload.lastName || '',
-        email: payload.email,
-        phoneNum: payload.phoneNum,
-        identityNum: payload.identityNum,
-        biometricHash: payload.biometricHash,
-        passwordHash: payload.passwordHash || '',
-        nationalityCountryCode: payload.countryCode,
-        status: 'ACTIVE',
-        createdAt: event.timestamp,
-        updatedAt: event.timestamp,
-      },
-      update: {
-        nationalityCountryCode: payload.countryCode,
-        updatedAt: event.timestamp,
-      },
+    // Find user by fabricUserId (userId in event is the Fabric User ID)
+    const existingUser = await this.prisma.userProfile.findFirst({
+      where: { fabricUserId: payload.userId },
     });
 
-    this.log('debug', 'UserProfile updated', { userId: payload.userId });
+    if (existingUser) {
+      // Update existing user who was approved and registered on chain
+      await this.prisma.userProfile.update({
+        where: { profileId: existingUser.profileId },
+        data: {
+          status: 'ACTIVE',
+          onchainStatus: 'ACTIVE',
+          onchainRegisteredAt: event.timestamp,
+          updatedAt: event.timestamp,
+        },
+      });
+
+      this.log('info', 'User activated on blockchain', {
+        profileId: existingUser.profileId,
+        fabricUserId: payload.userId,
+      });
+    } else {
+      // Fallback: Create new user profile if not found (shouldn't happen in MVP)
+      await this.prisma.userProfile.create({
+        data: {
+          profileId: payload.userId,
+          tenantId: this.config.tenantId,
+          firstName: payload.firstName || '',
+          lastName: payload.lastName || '',
+          email: payload.email || '',
+          phoneNum: payload.phoneNum || '',
+          identityNum: payload.identityNum || '',
+          biometricHash: payload.biometricHash || '',
+          passwordHash: payload.passwordHash || '',
+          nationalityCountryCode: payload.countryCode || payload.nationality,
+          fabricUserId: payload.userId,
+          status: 'ACTIVE',
+          onchainStatus: 'ACTIVE',
+          onchainRegisteredAt: event.timestamp,
+          createdAt: event.timestamp,
+          updatedAt: event.timestamp,
+        },
+      });
+
+      this.log('warn', 'Created new UserProfile from UserCreated event (unexpected)', {
+        fabricUserId: payload.userId,
+      });
+    }
   }
 
   /**
@@ -831,11 +856,25 @@ class Projector {
 
   /**
    * Handle WalletFrozen event
+   *
+   * Event Structure:
+   * ```json
+   * {
+   *   "userId": "US 234 A12345 0ABCD 5678",
+   *   "reason": "SUSPICIOUS_ACTIVITY: Multiple large transactions detected",
+   *   "frozenAt": "2025-11-24T10:30:00Z"
+   * }
+   * ```
+   *
+   * Read Model Updates:
+   * - Update Wallet.isFrozen to true
+   * - Update UserProfile status to FROZEN and isLocked to true
    */
   private async handleWalletFrozen(
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
+    // Update wallet frozen status
     await this.prisma.wallet.updateMany({
       where: { profileId: payload.userId },
       data: {
@@ -844,16 +883,43 @@ class Projector {
       },
     });
 
-    this.log('debug', 'Wallet frozen', { userId: payload.userId });
+    // Update user profile status (find by fabricUserId)
+    await this.prisma.userProfile.updateMany({
+      where: { fabricUserId: payload.userId },
+      data: {
+        status: 'FROZEN',
+        onchainStatus: 'FROZEN',
+        isLocked: true,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('info', 'User and wallet frozen', {
+      fabricUserId: payload.userId,
+      reason: payload.reason,
+    });
   }
 
   /**
    * Handle WalletUnfrozen event
+   *
+   * Event Structure:
+   * ```json
+   * {
+   *   "userId": "US 234 A12345 0ABCD 5678",
+   *   "unfrozenAt": "2025-11-24T11:00:00Z"
+   * }
+   * ```
+   *
+   * Read Model Updates:
+   * - Update Wallet.isFrozen to false
+   * - Update UserProfile status to ACTIVE and isLocked to false
    */
   private async handleWalletUnfrozen(
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
+    // Update wallet frozen status
     await this.prisma.wallet.updateMany({
       where: { profileId: payload.userId },
       data: {
@@ -862,7 +928,20 @@ class Projector {
       },
     });
 
-    this.log('debug', 'Wallet unfrozen', { userId: payload.userId });
+    // Update user profile status (find by fabricUserId)
+    await this.prisma.userProfile.updateMany({
+      where: { fabricUserId: payload.userId },
+      data: {
+        status: 'ACTIVE',
+        onchainStatus: 'ACTIVE',
+        isLocked: false,
+        updatedAt: event.timestamp,
+      },
+    });
+
+    this.log('info', 'User and wallet unfrozen', {
+      fabricUserId: payload.userId,
+    });
   }
 
   /**
