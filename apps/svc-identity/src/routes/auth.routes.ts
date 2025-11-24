@@ -12,6 +12,16 @@ import { strictRateLimiter } from '@gx/core-http';
 const router = Router();
 
 /**
+ * POST /api/v1/auth/register
+ * User registration endpoint
+ * Rate limited: 5 requests per minute per IP (abuse protection)
+ *
+ * @body {fname: string, lname: string, email: string, password: string, dateOfBirth: string, gender: string, phone?: string, country?: string}
+ * @returns {user: UserProfile, accessToken: string, refreshToken: string}
+ */
+router.post('/register', strictRateLimiter, authController.register);
+
+/**
  * POST /api/v1/auth/login
  * User login endpoint
  * Rate limited: 5 requests per minute per IP (brute force protection)
