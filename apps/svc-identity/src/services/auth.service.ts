@@ -17,11 +17,116 @@ import type { LoginRequestDTO, LoginResponseDTO, JWTPayload, UserProfileDTO } fr
 
 class AuthService {
   /**
+   * Register new user
+   *
+   * Creates new user profile with REGISTERED status.
+   * Password is hashed using bcrypt.
+   * User must complete KYC and admin approval before becoming active.
+   *
+   * @param data - User registration data
+   * @returns User profile, access token, and refresh token
+   * @throws Error if email already exists or validation fails
+   */
+  async register(data: {
+    fname: string;
+    lname: string;
+    email: string;
+    password: string;
+    dateOfBirth: string;
+    gender: string;
+    phone?: string;
+    country?: string;
+  }): Promise<LoginResponseDTO> {
+    const { fname, lname, email, password, dateOfBirth, gender, phone, country } = data;
+
+    logger.info({ email }, 'Attempting user registration');
+
+    // Check if user already exists
+    const existingUser = await db.userProfile.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (existingUser) {
+      logger.warn({ email }, 'Registration failed: Email already exists');
+      const error: any = new Error('Email already registered');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Generate placeholder biometric hash (will be updated during KYC)
+    // Using email + timestamp to ensure uniqueness
+    const biometricPlaceholder = await bcrypt.hash(`${email}:${Date.now()}`, 10);
+
+    // Parse date of birth
+    const dob = new Date(dateOfBirth);
+    if (isNaN(dob.getTime())) {
+      const error: any = new Error('Invalid date of birth format. Expected YYYY-MM-DD');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Validate gender
+    if (!['male', 'female'].includes(gender.toLowerCase())) {
+      const error: any = new Error('Gender must be "male" or "female"');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Create user profile with REGISTERED status
+    const user = await db.userProfile.create({
+      data: {
+        tenantId: 'default',
+        email: email.toLowerCase(),
+        passwordHash,
+        biometricHash: biometricPlaceholder,
+        firstName: fname,
+        lastName: lname,
+        dateOfBirth: dob,
+        gender: gender.toLowerCase(),
+        phoneNum: phone || null,
+        nationalityCountryCode: country || null,
+        status: 'REGISTERED', // Initial status - requires admin approval
+        onchainStatus: 'NOT_REGISTERED',
+        isLocked: false,
+      },
+    });
+
+    logger.info({ profileId: user.profileId, email }, 'User registration successful');
+
+    // Generate tokens
+    const accessToken = this.generateAccessToken(user);
+    const refreshToken = this.generateRefreshToken(user);
+
+    // Convert Prisma model to DTO
+    const userDTO: UserProfileDTO = {
+      profileId: user.profileId,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phoneNum: user.phoneNum,
+      identityNum: user.identityNum,
+      status: user.status,
+      nationalityCountryCode: user.nationalityCountryCode,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+
+    return {
+      accessToken,
+      refreshToken,
+      user: userDTO,
+    };
+  }
+
+  /**
    * Authenticate user with email and password
-   * 
+   *
    * This is a READ operation - queries the UserProfile table (read model).
    * Password is hashed using bcrypt.
-   * 
+   *
    * @param credentials - User login credentials
    * @returns Access token, refresh token, and user profile
    * @throws Error if credentials are invalid
