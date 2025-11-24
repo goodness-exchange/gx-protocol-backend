@@ -83,9 +83,12 @@ enum CommandType {
 }
 
 enum UserProfileStatus {
-  PENDING_VERIFICATION
-  VERIFIED
-  REJECTED
+  REGISTERED
+  PENDING_ADMIN_APPROVAL
+  APPROVED_PENDING_ONCHAIN
+  DENIED
+  ACTIVE
+  FROZEN
   SUSPENDED
   CLOSED
 }
@@ -305,8 +308,28 @@ model UserProfile {
   identityNum     String?
   biometricHash   String            @unique
   passwordHash    String
+  dateOfBirth     DateTime?         @db.Date
+  gender          String?           // "male" or "female" - required for Fabric User ID generation
   nationalityCountryCode String?    @db.Char(2)  // For genesis coin distribution to national treasury
-  status          UserProfileStatus @default(PENDING_VERIFICATION)
+  fabricUserId    String?           @unique      // Generated deterministic ID (format: CC CCC AANNNN TCCCC NNNN)
+  status          UserProfileStatus @default(REGISTERED)
+  onchainStatus   String?           // Mirror of blockchain User.Status
+
+  // Account lock/freeze management
+  isLocked        Boolean           @default(false)
+  lockReason      String?
+  lockedBy        String?           // Admin profileId
+  lockedAt        DateTime?         @db.Timestamptz(3)
+  lockNotes       String?
+
+  // Admin review tracking
+  reviewedBy      String?           // Admin profileId
+  reviewedAt      DateTime?         @db.Timestamptz(3)
+  denialReason    String?
+
+  // Blockchain synchronization
+  onchainRegisteredAt DateTime?     @db.Timestamptz(3)
+  lastSyncedAt        DateTime?     @db.Timestamptz(3)
   
   // Soft delete support
   deletedAt       DateTime?         @db.Timestamptz(3)
@@ -351,6 +374,9 @@ model UserProfile {
   @@index([tenantId, phoneNum])
   @@index([tenantId, deletedAt])
   @@index([tenantId, nationalityCountryCode])
+  @@index([fabricUserId])
+  @@index([isLocked])
+  @@index([reviewedBy])
 }
 
 model KYCVerification {

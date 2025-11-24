@@ -58,3 +58,12 @@ export { createFabricClient } from './factory';
 
 // Export errors
 export { FabricError, FabricConnectionError, FabricTimeoutError } from './errors';
+
+// Export ID generator
+export {
+  generateFabricUserId,
+  decodeFabricUserId,
+  validateFabricUserId,
+  ACCOUNT_TYPES,
+  type DecodedFabricUserId,
+} from './id-generator';
