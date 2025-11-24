@@ -2,9 +2,9 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "target": "ES2022",
-  "module": "Node16",
+    "module": "Node16",
     "lib": ["ES2022"],
-  "moduleResolution": "node16",
+    "moduleResolution": "node16",
     "resolveJsonModule": true,
     "allowJs": true,
     "outDir": "./dist",
@@ -24,8 +24,9 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true,
-  "moduleDetection": "force",
-  "incremental": true,
+    "moduleDetection": "force",
+    "incremental": true,
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@gx/*": ["packages/*/dist"]
