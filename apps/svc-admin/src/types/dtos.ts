@@ -50,10 +50,19 @@ export interface GlobalCountersDTO {
   totalOrganizations: number;
 }
 
+export enum UserRole {
+  USER = 'USER',
+  ADMIN = 'ADMIN',
+  SUPER_ADMIN = 'SUPER_ADMIN',
+  PARTNER_API = 'PARTNER_API',
+}
+
 export interface JWTPayload {
   profileId: string;
   email: string | null;
   status: string;
+  role: UserRole;
+  tenantId: string;
   iat?: number;
   exp?: number;
 }
