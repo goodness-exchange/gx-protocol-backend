@@ -1,3 +1,4 @@
+
 # User Registration and Account Status Management Architecture
 
 **Version:** 1.0
