@@ -758,13 +758,20 @@ class OutboxSubmitter {
         };
 
       case 'FREEZE_WALLET':
-        throw new Error('FREEZE_WALLET command not implemented in chaincode - use Admin:LockUser instead');
+        return {
+          contractName: 'TokenomicsContract',
+          functionName: 'FreezeWallet',
+          args: [
+            payload.userID as string,
+            payload.reason as string || 'ADMIN_ACTION',
+          ],
+        };
 
       case 'UNFREEZE_WALLET':
         return {
           contractName: 'TokenomicsContract',
           functionName: 'UnfreezeWallet',
-          args: [payload.userId as string],
+          args: [payload.userID as string],
         };
 
       // ========== OrganizationContract ==========
