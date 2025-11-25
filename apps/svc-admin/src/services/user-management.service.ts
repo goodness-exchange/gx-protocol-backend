@@ -65,7 +65,7 @@ class UserManagementService {
                 select: {
                   documentId: true,
                   documentType: true,
-                  s3Key: true,
+                  storageUrl: true,
                 },
               },
             },
