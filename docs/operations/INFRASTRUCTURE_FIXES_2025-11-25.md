@@ -279,7 +279,7 @@ kubectl logs -n backend-mainnet deployment/svc-identity --tail=100 | grep "regis
 
 ## References
 
-- Detailed work record: `/tmp/work_record_2025-11-25.md`
+- Detailed work record: `docs/work-records/work_record_2025-11-25.md`
 - Projector logs: `kubectl logs -n backend-mainnet deployment/projector`
 - Health check controller: `apps/svc-identity/src/controllers/health.controller.ts:40-99`
 - Config schema: `apps/svc-identity/src/config.ts:36`
