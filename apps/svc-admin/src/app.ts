@@ -16,7 +16,7 @@ export function createApp(): Application {
   app.use(requestLogger);
   app.use(metricsMiddleware);
   app.use('/', healthRoutes);
-  app.use('/api/v1', adminRoutes);
+  app.use('/api/v1/admin', adminRoutes);
   app.use((req, res) => {
     res.status(404).json({ error: 'Not Found', message: `Route ${req.method} ${req.path} not found`, path: req.path });
   });
