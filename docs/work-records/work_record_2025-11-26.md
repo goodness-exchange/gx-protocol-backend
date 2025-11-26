@@ -150,6 +150,54 @@ Comprehensive design document covering:
 16. `40bc84f` - feat(api): add BFF route for phone OTP resend
 17. `e63cc4f` - feat(api): add BFF route for registration status retrieval
 18. `e05fab0` - refactor(register): replace AuthForm with progressive RegistrationWizard
+19. `beb82e8` - refactor(kyr): rebuild KYR wizard with 7-step design per architecture spec
+20. `a8b6d72` - feat(admin): extend User interface with enhanced KYR fields
+21. `f80c162` - feat(admin): enhance UserDetailModal with comprehensive KYR data display
+
+### 5. KYR Wizard Rebuild
+
+**File Modified:** `components/kyr/KYRWizard.tsx`
+
+Completely rebuilt the KYR wizard from 5 steps to 7 steps per architecture design:
+
+| Step | Title | Description |
+|------|-------|-------------|
+| 1 | Personal Details | Middle name, place of birth verification |
+| 2 | National ID | Front/back upload (MANDATORY) |
+| 3 | Passport | Optional with skip functionality |
+| 4 | Work Details | Employment status, company info |
+| 5 | Address | Current address verification |
+| 6 | Biometric | Selfie placeholder |
+| 7 | Review | PEP declaration, final submission |
+
+**Key Features:**
+- SHA-256 file hash computation for document uploads
+- PEP (Politically Exposed Person) declaration checkbox
+- Skip button for optional Passport step
+- Framer Motion step transitions
+- Gradient color scheme (#470A60 to #17A210)
+
+### 6. Admin Dashboard Enhancement
+
+**Files Modified:**
+- `app/(root)/admin/dashboard/page.tsx` - Extended User interface
+- `components/admin/UserDetailModal.tsx` - Enhanced modal with new tabs
+
+**New Tabs in UserDetailModal:**
+1. **Personal** - Basic info with PEP declaration
+2. **Identity Docs** - National ID (mandatory) + Passport (optional) with expiry warnings
+3. **Employment** - Job title, company, industry, work contact
+4. **Addresses** - Address history with verification status
+5. **KYR Evidence** - Uploaded documents
+6. **History** - Status timeline
+
+**New Interface Fields:**
+- `middleName`, `placeOfBirth`
+- `nationalIdNumber`, `nationalIdIssuedAt`, `nationalIdExpiresAt`
+- `passportNumber`, `passportIssuingCountry`, `passportIssuedAt`, `passportExpiresAt`
+- `employmentStatus`, `jobTitle`, `companyName`, `industry`, `workEmail`, `workPhoneNum`
+- `isPEP`, `pepDetails`
+- `addresses[]` (UserAddress interface with history tracking)
 
 ## Challenges & Solutions
 
@@ -168,8 +216,8 @@ Comprehensive design document covering:
 ## Pending Tasks
 
 1. ~~**Build Registration Frontend Wizard** - Next.js pages for 7-step registration flow~~ ✅ COMPLETED
-2. **Rebuild KYR Wizard** - Update existing KYR wizard with 7 new steps
-3. **Update Admin Dashboard** - Add new fields to admin user review interface
+2. ~~**Rebuild KYR Wizard** - Update existing KYR wizard with 7 new steps~~ ✅ COMPLETED
+3. ~~**Update Admin Dashboard** - Add new fields to admin user review interface~~ ✅ COMPLETED
 4. **Generate Prisma Client** - Run `npx prisma generate` to get new types
 5. **Database Migration** - Run `npx prisma migrate dev` to apply schema changes
 6. **Integration Testing** - Test full registration flow end-to-end
