@@ -13,6 +13,7 @@ import { identityConfig } from './config';
 import authRoutes from './routes/auth.routes';
 import usersRoutes from './routes/users.routes';
 import healthRoutes from './routes/health.routes';
+import registrationRoutes from './routes/registration.routes';
 
 /**
  * Creates and configures the Express application
@@ -90,9 +91,10 @@ export function createApp(): Application {
   // ============================================
   // API Routes
   // ============================================
-  
+
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/users', usersRoutes);
+  app.use('/api/v1/registration', registrationRoutes);
 
   // ============================================
   // 404 Handler
