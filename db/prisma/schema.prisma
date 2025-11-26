@@ -144,6 +144,44 @@ enum CollateralStatus {
   RELEASED
 }
 
+// Registration Step Tracking (Progressive Registration Flow)
+enum RegistrationStep {
+  EMAIL_PENDING // Initial state
+  EMAIL_SENT // OTP sent to email
+  EMAIL_VERIFIED // Email OTP verified
+  NAME_COUNTRY_SET // First name, last name, country collected
+  DOB_GENDER_SET // Date of birth and gender collected
+  PASSWORD_SET // Password created
+  PHONE_SENT // OTP sent to phone
+  PHONE_VERIFIED // Phone OTP verified - registration complete
+  COMPLETED // Migrated to UserProfile
+}
+
+// Employment Status for KYR Work/Company Details
+enum EmploymentStatus {
+  EMPLOYED
+  SELF_EMPLOYED
+  FREELANCER
+  STUDENT
+  RETIRED
+  UNEMPLOYED
+  OTHER
+}
+
+// Gender enum for user registration
+enum Gender {
+  MALE
+  FEMALE
+}
+
+// Address Type for KYR address history
+enum AddressType {
+  CURRENT // Current residential address
+  PREVIOUS // Previous address (kept for history)
+  MAILING // Mailing address if different
+  WORK // Work address
+}
+
 // NEW ENUMs for Enhanced Features
 enum RelationType {
   FATHER
@@ -158,12 +196,12 @@ enum RelationType {
 }
 
 enum RelationshipStatus {
-  PENDING          // Invitation sent, awaiting confirmation
-  CONFIRMED        // Both parties confirmed
-  REJECTED         // Rejected by invitee
-  DECEASED         // Marked deceased with documentation
-  DIVORCED         // Marked divorced with documentation
-  NOT_APPLICABLE   // User indicated N/A (triggers re-weighting)
+  PENDING // Invitation sent, awaiting confirmation
+  CONFIRMED // Both parties confirmed
+  REJECTED // Rejected by invitee
+  DECEASED // Marked deceased with documentation
+  DIVORCED // Marked divorced with documentation
+  NOT_APPLICABLE // User indicated N/A (triggers re-weighting)
 }
 
 enum SignatoryRole {
@@ -273,18 +311,84 @@ enum ContactStatus {
 }
 
 // =============================================================================
-// SECTION 2: CORE IDENTITY & GOVERNANCE MODELS
+// SECTION 2: PROGRESSIVE REGISTRATION (Pre-UserProfile)
+// =============================================================================
+
+/// PendingRegistration: Stores progressive registration data before migration to UserProfile.
+/// This implements a Wise.com-style registration flow where each step saves to the database.
+/// Upon completing phone verification, the data is migrated to UserProfile and this record is
+/// marked as COMPLETED (or optionally deleted after a retention period).
+///
+/// Test OTP: During development/testing, use "111111" as the OTP code for both email and phone.
+/// This allows testing the full registration flow without a real SMS/email provider.
+model PendingRegistration {
+  id       String @id @default(uuid())
+  tenantId String @default("default")
+
+  // Step 1 & 2: Email verification
+  email             String    @unique
+  emailOtpHash      String? // bcrypt hash of OTP
+  emailOtpExpiresAt DateTime? @db.Timestamptz(3)
+  emailOtpAttempts  Int       @default(0) // Rate limiting: max 5 attempts
+  emailVerified     Boolean   @default(false)
+  emailVerifiedAt   DateTime? @db.Timestamptz(3)
+
+  // Step 3: Name & Country
+  firstName   String?
+  lastName    String?
+  countryCode String? @db.Char(2) // ISO 3166-1 alpha-2
+
+  // Step 4: DOB & Gender (required for Fabric User ID generation and genesis eligibility)
+  dateOfBirth DateTime? @db.Date
+  gender      Gender?
+
+  // Step 5: Password
+  passwordHash String?
+
+  // Step 6 & 7: Phone verification
+  phoneNum          String?   @unique
+  phoneOtpHash      String? // bcrypt hash of OTP
+  phoneOtpExpiresAt DateTime? @db.Timestamptz(3)
+  phoneOtpAttempts  Int       @default(0) // Rate limiting: max 5 attempts
+  phoneVerified     Boolean   @default(false)
+  phoneVerifiedAt   DateTime? @db.Timestamptz(3)
+
+  // Progress tracking
+  currentStep RegistrationStep @default(EMAIL_PENDING)
+
+  // Security & Audit
+  ipAddress String? // For fraud detection
+  userAgent String? // Browser/device info
+
+  // Timestamps & Expiry
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3) // Auto-cleanup incomplete registrations (24h)
+
+  // Migration tracking (after successful registration)
+  migratedToProfileId String?   @unique // UserProfile.profileId after completion
+  migratedAt          DateTime? @db.Timestamptz(3)
+
+  @@index([tenantId, currentStep])
+  @@index([tenantId, email])
+  @@index([tenantId, phoneNum])
+  @@index([expiresAt]) // For cleanup job
+  @@index([createdAt])
+}
+
+// =============================================================================
+// SECTION 3: CORE IDENTITY & GOVERNANCE MODELS
 // =============================================================================
 
 model Country {
-  countryCode           String                @id @db.Char(2)
-  countryName           String
-  region                String?
-  legalTenderStatuses   LegalTenderStatus[]
-  organizationProfiles  OrganizationProfile[]
-  licensedPartners      LicensedPartner[]
-  kycDocuments          KYCDocument[]
-  userProfiles          UserProfile[]          // Users with this nationality
+  countryCode          String                @id @db.Char(2)
+  countryName          String
+  region               String?
+  legalTenderStatuses  LegalTenderStatus[]
+  organizationProfiles OrganizationProfile[]
+  licensedPartners     LicensedPartner[]
+  kycDocuments         KYCDocument[]
+  userProfiles         UserProfile[] // Users with this nationality
 }
 
 model LegalTenderStatus {
@@ -294,81 +398,110 @@ model LegalTenderStatus {
   effectiveDate DateTime              @db.Timestamptz(3)
   createdAt     DateTime              @default(now()) @db.Timestamptz(3)
   country       Country               @relation(fields: [countryCode], references: [countryCode])
-  
+
   @@index([countryCode, effectiveDate])
 }
 
 model UserProfile {
-  profileId       String            @id @default(uuid())
-  tenantId        String
-  firstName       String
-  lastName        String
-  email           String?           @unique  // Case-insensitive unique index added via migration
-  phoneNum        String?           @unique
-  identityNum     String?
-  biometricHash   String            @unique
-  passwordHash    String
-  dateOfBirth     DateTime?         @db.Date
-  gender          String?           // "male" or "female" - required for Fabric User ID generation
-  nationalityCountryCode String?    @db.Char(2)  // For genesis coin distribution to national treasury
-  fabricUserId    String?           @unique      // Generated deterministic ID (format: CC CCC AANNNN TCCCC NNNN)
-  status          UserProfileStatus @default(REGISTERED)
-  onchainStatus   String?           // Mirror of blockchain User.Status
+  profileId String @id @default(uuid())
+  tenantId  String
+
+  // Basic identity (from registration)
+  firstName              String
+  middleName             String? // NEW: Middle name for KYR
+  lastName               String
+  email                  String?           @unique // Case-insensitive unique index added via migration
+  phoneNum               String?           @unique
+  biometricHash          String            @unique
+  passwordHash           String
+  dateOfBirth            DateTime?         @db.Date
+  gender                 String? // "male" or "female" - required for Fabric User ID generation
+  placeOfBirth           String? // NEW: City/Country of birth for KYR
+  nationalityCountryCode String?           @db.Char(2) // For genesis coin distribution to national treasury
+  fabricUserId           String?           @unique // Generated deterministic ID (format: CC CCC AANNNN TCCCC NNNN)
+  status                 UserProfileStatus @default(REGISTERED)
+  onchainStatus          String? // Mirror of blockchain User.Status
+
+  // National ID (MANDATORY during KYR)
+  nationalIdNumber    String? // National ID card number
+  nationalIdIssuedAt  DateTime? @db.Date
+  nationalIdExpiresAt DateTime? @db.Date
+
+  // Passport (OPTIONAL during KYR)
+  passportNumber         String?
+  passportIssuingCountry String?   @db.Char(2)
+  passportIssuedAt       DateTime? @db.Date
+  passportExpiresAt      DateTime? @db.Date
+
+  // Employment / Work Details (for future organization sync)
+  employmentStatus EmploymentStatus?
+  jobTitle         String?
+  companyName      String?
+  industry         String? // Dropdown from predefined list
+  workEmail        String? // For organization verification
+  workPhoneNum     String?
+
+  // Compliance flags
+  isPEP      Boolean @default(false) // Politically Exposed Person
+  pepDetails String? // If isPEP=true, describe position
 
   // Account lock/freeze management
-  isLocked        Boolean           @default(false)
-  lockReason      String?
-  lockedBy        String?           // Admin profileId
-  lockedAt        DateTime?         @db.Timestamptz(3)
-  lockNotes       String?
+  isLocked   Boolean   @default(false)
+  lockReason String?
+  lockedBy   String? // Admin profileId
+  lockedAt   DateTime? @db.Timestamptz(3)
+  lockNotes  String?
 
   // Admin review tracking
-  reviewedBy      String?           // Admin profileId
-  reviewedAt      DateTime?         @db.Timestamptz(3)
-  denialReason    String?
+  reviewedBy   String? // Admin profileId
+  reviewedAt   DateTime? @db.Timestamptz(3)
+  denialReason String?
 
   // Blockchain synchronization
-  onchainRegisteredAt DateTime?     @db.Timestamptz(3)
-  lastSyncedAt        DateTime?     @db.Timestamptz(3)
-  
+  onchainRegisteredAt DateTime? @db.Timestamptz(3)
+  lastSyncedAt        DateTime? @db.Timestamptz(3)
+
   // Soft delete support
-  deletedAt       DateTime?         @db.Timestamptz(3)
-  
-  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
-  
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
   // Existing relations
-  kycVerifications      KYCVerification[]
-  wallets               Wallet[]
-  beneficiaries         Beneficiary[]
-  organizationLinks     UserOrganizationLink[]
-  
+  kycVerifications  KYCVerification[]
+  wallets           Wallet[]
+  beneficiaries     Beneficiary[]
+  organizationLinks UserOrganizationLink[]
+
+  // NEW: Address history
+  addresses Address[]
+
   // NEW: Trust Score & Relationships
-  trustScore            TrustScore?
+  trustScore             TrustScore?
   initiatedRelationships FamilyRelationship[] @relation("InitiatedRelationships")
-  receivedRelationships FamilyRelationship[] @relation("ReceivedRelationships")
-  
+  receivedRelationships  FamilyRelationship[] @relation("ReceivedRelationships")
+
   // NEW: Security & Sessions
-  sessions              UserSession[]
-  trustedDevices        TrustedDevice[]
-  
+  sessions       UserSession[]
+  trustedDevices TrustedDevice[]
+
   // NEW: Notifications
-  notifications         Notification[]
-  pushTokens            PushToken[]
-  
+  notifications Notification[]
+  pushTokens    PushToken[]
+
   // NEW: Business Governance
-  businessSignatories   BusinessSignatory[]
-  
+  businessSignatories BusinessSignatory[]
+
   // NEW: Contact Management
-  ownedContacts         Contact[]         @relation("OwnedContacts")
-  contactedBy           Contact[]         @relation("ContactedBy")
-  
+  ownedContacts Contact[] @relation("OwnedContacts")
+  contactedBy   Contact[] @relation("ContactedBy")
+
   // NEW: Transaction Limits
-  transactionLimits     TransactionLimit[]
-  
+  transactionLimits TransactionLimit[]
+
   // Relations to Country
-  nationalityCountry    Country?          @relation(fields: [nationalityCountryCode], references: [countryCode])
-  
+  nationalityCountry Country? @relation(fields: [nationalityCountryCode], references: [countryCode])
+
   @@index([tenantId, status])
   @@index([tenantId, email])
   @@index([tenantId, phoneNum])
@@ -379,26 +512,71 @@ model UserProfile {
   @@index([reviewedBy])
 }
 
+/// Address: Stores user address history for KYR verification.
+/// Maintains history of addresses with proof documents for compliance.
+model Address {
+  addressId String @id @default(uuid())
+  tenantId  String
+  profileId String
+
+  // Address type
+  addressType AddressType @default(CURRENT)
+  isCurrent   Boolean     @default(true) // Only one CURRENT per user
+
+  // Address fields
+  addressLine1  String
+  addressLine2  String?
+  city          String
+  stateProvince String?
+  postalCode    String?
+  countryCode   String  @db.Char(2) // ISO 3166-1 alpha-2
+
+  // Proof of address document (for KYR)
+  proofDocumentUrl  String? // S3/storage URL
+  proofDocumentHash String? // SHA-256 for integrity
+  proofDocumentType String? // "utility_bill", "bank_statement", etc.
+  proofUploadedAt   DateTime? @db.Timestamptz(3)
+
+  // Verification
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime? @db.Timestamptz(3)
+  verifiedBy String? // Admin profileId
+
+  // History tracking
+  validFrom DateTime  @default(now()) @db.Timestamptz(3)
+  validTo   DateTime? @db.Timestamptz(3) // null = current address
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  userProfile UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+
+  @@index([tenantId, profileId])
+  @@index([tenantId, profileId, addressType])
+  @@index([tenantId, profileId, isCurrent])
+  @@index([countryCode])
+}
+
 model KYCVerification {
-  kycId           String      @id @default(uuid())
+  kycId           String    @id @default(uuid())
   profileId       String
   status          KycStatus
-  verifiedAt      DateTime?   @db.Timestamptz(3)
+  verifiedAt      DateTime? @db.Timestamptz(3)
   verifierDetails String?
-  
+
   // Legacy fields (kept for backward compatibility)
-  evidenceHash    String?     // sha256 of doc bundle
-  evidenceSize    Int?        // bytes
-  evidenceMime    String?
-  
-  createdAt       DateTime    @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime    @updatedAt @db.Timestamptz(3)
-  
-  userProfile     UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  
+  evidenceHash String? // sha256 of doc bundle
+  evidenceSize Int? // bytes
+  evidenceMime String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  userProfile UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+
   // NEW: Document management
-  documents       KYCDocument[]
-  
+  documents KYCDocument[]
+
   @@index([profileId])
   @@index([status])
 }
@@ -411,19 +589,19 @@ model OrganizationProfile {
   jurisdictionCountryCode String           @db.Char(2)
   address                 String?
   status                  OrgProfileStatus @default(PENDING_VERIFICATION)
-  
+
   // Soft delete support
-  deletedAt               DateTime?        @db.Timestamptz(3)
-  
-  createdAt               DateTime         @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime         @updatedAt @db.Timestamptz(3)
-  
-  country                 Country          @relation(fields: [jurisdictionCountryCode], references: [countryCode])
-  userLinks               UserOrganizationLink[]
-  
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  country   Country                @relation(fields: [jurisdictionCountryCode], references: [countryCode])
+  userLinks UserOrganizationLink[]
+
   // NEW: Business Account Support
-  businessAccounts        BusinessAccount[]
-  
+  businessAccounts BusinessAccount[]
+
   @@index([tenantId, status])
   @@index([tenantId, deletedAt])
 }
@@ -433,33 +611,33 @@ model OrganizationProfile {
 // =============================================================================
 
 model FamilyRelationship {
-  relationshipId      String             @id @default(uuid())
-  tenantId            String
-  initiatorProfileId  String             // User who sent the invite
-  relatedProfileId    String?            // Target user (null if not on platform yet)
-  relatedEmail        String?            // For off-platform invitations
-  relationType        RelationType
-  status              RelationshipStatus @default(PENDING)
-  
+  relationshipId     String             @id @default(uuid())
+  tenantId           String
+  initiatorProfileId String // User who sent the invite
+  relatedProfileId   String? // Target user (null if not on platform yet)
+  relatedEmail       String? // For off-platform invitations
+  relationType       RelationType
+  status             RelationshipStatus @default(PENDING)
+
   // Status documentation
-  statusDocumentUrl   String?            // Death cert, divorce cert, etc.
-  statusDocumentHash  String?
-  statusRemarks       String?
-  
+  statusDocumentUrl  String? // Death cert, divorce cert, etc.
+  statusDocumentHash String?
+  statusRemarks      String?
+
   // Confirmation workflow
-  confirmedAt         DateTime?          @db.Timestamptz(3)
-  rejectedAt          DateTime?          @db.Timestamptz(3)
-  
+  confirmedAt DateTime? @db.Timestamptz(3)
+  rejectedAt  DateTime? @db.Timestamptz(3)
+
   // Trust score contribution
-  pointsAwarded       Int                @default(0)
-  isApplicable        Boolean            @default(true)
-  
-  createdAt           DateTime           @default(now()) @db.Timestamptz(3)
-  updatedAt           DateTime           @updatedAt @db.Timestamptz(3)
-  
-  initiator           UserProfile        @relation("InitiatedRelationships", fields: [initiatorProfileId], references: [profileId], onDelete: Cascade)
-  related             UserProfile?       @relation("ReceivedRelationships", fields: [relatedProfileId], references: [profileId], onDelete: Cascade)
-  
+  pointsAwarded Int     @default(0)
+  isApplicable  Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  initiator UserProfile  @relation("InitiatedRelationships", fields: [initiatorProfileId], references: [profileId], onDelete: Cascade)
+  related   UserProfile? @relation("ReceivedRelationships", fields: [relatedProfileId], references: [profileId], onDelete: Cascade)
+
   @@unique([tenantId, initiatorProfileId, relatedProfileId, relationType])
   @@index([tenantId, initiatorProfileId])
   @@index([tenantId, relatedProfileId])
@@ -468,26 +646,26 @@ model FamilyRelationship {
 }
 
 model TrustScore {
-  profileId         String      @id
-  tenantId          String
-  
+  profileId String @id
+  tenantId  String
+
   // Score breakdown (max 100 points)
-  familyScore       Int         @default(0)   // Max 80
-  businessScore     Int         @default(0)   // Max 10
-  friendsScore      Int         @default(0)   // Max 10
-  totalScore        Int         @default(0)   // Max 100
-  
+  familyScore   Int @default(0) // Max 80
+  businessScore Int @default(0) // Max 10
+  friendsScore  Int @default(0) // Max 10
+  totalScore    Int @default(0) // Max 100
+
   // Weighting factors (for dynamic re-weighting when categories N/A)
-  familyWeight      Decimal     @default(0.80) @db.Decimal(5,2)
-  businessWeight    Decimal     @default(0.10) @db.Decimal(5,2)
-  friendsWeight     Decimal     @default(0.10) @db.Decimal(5,2)
-  
+  familyWeight   Decimal @default(0.80) @db.Decimal(5, 2)
+  businessWeight Decimal @default(0.10) @db.Decimal(5, 2)
+  friendsWeight  Decimal @default(0.10) @db.Decimal(5, 2)
+
   // Meta
-  lastCalculatedAt  DateTime    @db.Timestamptz(3)
-  calculationVersion String     @default("1.0")
-  
-  userProfile       UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  
+  lastCalculatedAt   DateTime @db.Timestamptz(3)
+  calculationVersion String   @default("1.0")
+
+  userProfile UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+
   @@index([tenantId, totalScore])
 }
 
@@ -496,28 +674,28 @@ model TrustScore {
 // =============================================================================
 
 model Wallet {
-  walletId         String      @id @default(uuid())
+  walletId         String  @id @default(uuid())
   tenantId         String
   profileId        String
   primaryAccountId String
   walletName       String
-  cachedBalance    Decimal     @default(0) @db.Decimal(36, 9)
-  
+  cachedBalance    Decimal @default(0) @db.Decimal(36, 9)
+
   // Soft delete support
-  deletedAt        DateTime?   @db.Timestamptz(3)
-  
-  createdAt        DateTime    @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime    @updatedAt @db.Timestamptz(3)
-  
-  userProfile      UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  transactions     Transaction[]
-  
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  userProfile  UserProfile   @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  transactions Transaction[]
+
   // NEW: Business Account Support
-  businessAccount  BusinessAccount?
-  
+  businessAccount BusinessAccount?
+
   // NEW: Hoarding Tax
   hoardingTaxSnapshots HoardingTaxSnapshot[]
-  
+
   @@unique([tenantId, primaryAccountId])
   @@index([tenantId, profileId])
   @@index([tenantId, deletedAt])
@@ -535,12 +713,12 @@ model Transaction {
   remark       String?
   timestamp    DateTime       @db.Timestamptz(3)
   blockNumber  BigInt?
-  
-  wallet       Wallet         @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
-  
+
+  wallet Wallet @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
+
   // NEW: Risk Scoring
-  riskScore    TransactionRiskScore?
-  
+  riskScore TransactionRiskScore?
+
   @@unique([tenantId, onChainTxId])
   @@index([tenantId, walletId, timestamp])
   @@index([tenantId, counterparty, timestamp])
@@ -548,44 +726,44 @@ model Transaction {
 }
 
 model Beneficiary {
-  beneficiaryId         String      @id @default(uuid())
+  beneficiaryId         String @id @default(uuid())
   tenantId              String
   ownerProfileId        String
   beneficiaryIdentityId String
   nickname              String
-  
-  createdAt             DateTime    @default(now()) @db.Timestamptz(3)
-  
-  userProfile           UserProfile @relation(fields: [ownerProfileId], references: [profileId], onDelete: Cascade)
-  
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  userProfile UserProfile @relation(fields: [ownerProfileId], references: [profileId], onDelete: Cascade)
+
   @@unique([tenantId, ownerProfileId, beneficiaryIdentityId])
   @@index([ownerProfileId])
 }
 
 model Contact {
-  contactId         String        @id @default(uuid())
-  tenantId          String
-  ownerProfileId    String
-  
+  contactId      String @id @default(uuid())
+  tenantId       String
+  ownerProfileId String
+
   // Contact details
-  contactProfileId  String?       // If registered on GX
-  displayName       String
-  phoneNumber       String?
-  email             String?
-  notes             String?
-  
+  contactProfileId String? // If registered on GX
+  displayName      String
+  phoneNumber      String?
+  email            String?
+  notes            String?
+
   // Metadata
-  isFavorite        Boolean       @default(false)
-  transactionCount  Int           @default(0)
-  lastTransactionAt DateTime?     @db.Timestamptz(3)
-  
-  status            ContactStatus @default(ACTIVE)
-  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
-  
-  owner             UserProfile   @relation("OwnedContacts", fields: [ownerProfileId], references: [profileId], onDelete: Cascade)
-  contactProfile    UserProfile?  @relation("ContactedBy", fields: [contactProfileId], references: [profileId], onDelete: SetNull)
-  
+  isFavorite        Boolean   @default(false)
+  transactionCount  Int       @default(0)
+  lastTransactionAt DateTime? @db.Timestamptz(3)
+
+  status    ContactStatus @default(ACTIVE)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @db.Timestamptz(3)
+
+  owner          UserProfile  @relation("OwnedContacts", fields: [ownerProfileId], references: [profileId], onDelete: Cascade)
+  contactProfile UserProfile? @relation("ContactedBy", fields: [contactProfileId], references: [profileId], onDelete: SetNull)
+
   @@unique([tenantId, ownerProfileId, contactProfileId])
   @@index([tenantId, ownerProfileId])
   @@index([tenantId, status])
@@ -596,115 +774,115 @@ model Contact {
 // =============================================================================
 
 model BusinessAccount {
-  businessAccountId     String              @id @default(uuid())
-  tenantId              String
-  orgProfileId          String              // Links to OrganizationProfile
-  walletId              String              @unique
-  
+  businessAccountId String @id @default(uuid())
+  tenantId          String
+  orgProfileId      String // Links to OrganizationProfile
+  walletId          String @unique
+
   // Multi-sig configuration
-  defaultRequiredApprovals Int              @default(1)
-  
-  createdAt             DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime            @updatedAt @db.Timestamptz(3)
-  
-  organization          OrganizationProfile @relation(fields: [orgProfileId], references: [orgProfileId], onDelete: Cascade)
-  wallet                Wallet              @relation(fields: [walletId], references: [walletId])
-  signatories           BusinessSignatory[]
-  signatoryRules        SignatoryRule[]
-  pendingApprovals      TransactionApproval[]
-  
+  defaultRequiredApprovals Int @default(1)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization     OrganizationProfile   @relation(fields: [orgProfileId], references: [orgProfileId], onDelete: Cascade)
+  wallet           Wallet                @relation(fields: [walletId], references: [walletId])
+  signatories      BusinessSignatory[]
+  signatoryRules   SignatoryRule[]
+  pendingApprovals TransactionApproval[]
+
   @@unique([tenantId, orgProfileId])
   @@index([tenantId])
 }
 
 model BusinessSignatory {
-  signatoryId         String          @id @default(uuid())
-  tenantId            String
-  businessAccountId   String
-  profileId           String          // UserProfile
-  role                SignatoryRole
-  
+  signatoryId       String        @id @default(uuid())
+  tenantId          String
+  businessAccountId String
+  profileId         String // UserProfile
+  role              SignatoryRole
+
   // Permissions
-  canInitiateTransactions Boolean     @default(false)
-  canApproveTransactions  Boolean     @default(false)
-  maxTransactionLimit     Decimal?    @db.Decimal(36, 9)
-  
+  canInitiateTransactions Boolean  @default(false)
+  canApproveTransactions  Boolean  @default(false)
+  maxTransactionLimit     Decimal? @db.Decimal(36, 9)
+
   // Status
-  invitedAt           DateTime        @default(now()) @db.Timestamptz(3)
-  confirmedAt         DateTime?       @db.Timestamptz(3)
-  revokedAt           DateTime?       @db.Timestamptz(3)
-  
-  businessAccount     BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
-  userProfile         UserProfile     @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  approvalVotes       ApprovalVote[]
-  
+  invitedAt   DateTime  @default(now()) @db.Timestamptz(3)
+  confirmedAt DateTime? @db.Timestamptz(3)
+  revokedAt   DateTime? @db.Timestamptz(3)
+
+  businessAccount BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+  userProfile     UserProfile     @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  approvalVotes   ApprovalVote[]
+
   @@unique([tenantId, businessAccountId, profileId])
   @@index([tenantId, profileId])
   @@index([tenantId, businessAccountId])
 }
 
 model SignatoryRule {
-  ruleId            String          @id @default(uuid())
+  ruleId            String @id @default(uuid())
   tenantId          String
   businessAccountId String
-  
+
   // Rule definition
-  minAmount         Decimal?        @db.Decimal(36, 9)  // null = applies to all
-  maxAmount         Decimal?        @db.Decimal(36, 9)  // null = no upper limit
-  requiredApprovals Int             // e.g., 2 of 3
-  
+  minAmount         Decimal? @db.Decimal(36, 9) // null = applies to all
+  maxAmount         Decimal? @db.Decimal(36, 9) // null = no upper limit
+  requiredApprovals Int // e.g., 2 of 3
+
   // Optional constraints
-  transactionType   OffChainTxType?
-  dailyLimit        Decimal?        @db.Decimal(36, 9)
-  
-  isActive          Boolean         @default(true)
-  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
-  
-  businessAccount   BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
-  
+  transactionType OffChainTxType?
+  dailyLimit      Decimal?        @db.Decimal(36, 9)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  businessAccount BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+
   @@index([tenantId, businessAccountId])
   @@index([tenantId, isActive])
 }
 
 model TransactionApproval {
-  approvalId        String              @id @default(uuid())
+  approvalId        String @id @default(uuid())
   tenantId          String
   businessAccountId String
-  outboxCommandId   String              // Links to OutboxCommand
-  
+  outboxCommandId   String // Links to OutboxCommand
+
   // Approval tracking
   requiredApprovals Int
-  receivedApprovals Int                 @default(0)
-  
-  status            ApprovalStatus      @default(PENDING)
-  expiresAt         DateTime            @db.Timestamptz(3)
-  
-  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
-  
-  businessAccount   BusinessAccount     @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
-  outboxCommand     OutboxCommand       @relation(fields: [outboxCommandId], references: [id], onDelete: Cascade)
-  approvers         ApprovalVote[]
-  
+  receivedApprovals Int @default(0)
+
+  status    ApprovalStatus @default(PENDING)
+  expiresAt DateTime       @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  businessAccount BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+  outboxCommand   OutboxCommand   @relation(fields: [outboxCommandId], references: [id], onDelete: Cascade)
+  approvers       ApprovalVote[]
+
   @@unique([tenantId, outboxCommandId])
   @@index([tenantId, businessAccountId, status])
   @@index([status, expiresAt])
 }
 
 model ApprovalVote {
-  voteId          String              @id @default(uuid())
-  tenantId        String
-  approvalId      String
-  signatoryId     String              // BusinessSignatory
-  
-  approved        Boolean
-  remarks         String?
-  votedAt         DateTime            @default(now()) @db.Timestamptz(3)
-  
-  approval        TransactionApproval @relation(fields: [approvalId], references: [approvalId], onDelete: Cascade)
-  signatory       BusinessSignatory   @relation(fields: [signatoryId], references: [signatoryId], onDelete: Cascade)
-  
+  voteId      String @id @default(uuid())
+  tenantId    String
+  approvalId  String
+  signatoryId String // BusinessSignatory
+
+  approved Boolean
+  remarks  String?
+  votedAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  approval  TransactionApproval @relation(fields: [approvalId], references: [approvalId], onDelete: Cascade)
+  signatory BusinessSignatory   @relation(fields: [signatoryId], references: [signatoryId], onDelete: Cascade)
+
   @@unique([tenantId, approvalId, signatoryId])
   @@index([tenantId, signatoryId])
 }
@@ -714,39 +892,39 @@ model ApprovalVote {
 // =============================================================================
 
 model KYCDocument {
-  documentId      String       @id @default(uuid())
-  tenantId        String
-  kycId           String
-  
+  documentId String @id @default(uuid())
+  tenantId   String
+  kycId      String
+
   // Document metadata
-  documentType    DocumentType
-  documentNumber  String?
-  issuingCountry  String?      @db.Char(2)
-  issuedDate      DateTime?    @db.Date
-  expiryDate      DateTime?    @db.Date
-  
+  documentType   DocumentType
+  documentNumber String?
+  issuingCountry String?      @db.Char(2)
+  issuedDate     DateTime?    @db.Date
+  expiryDate     DateTime?    @db.Date
+
   // File storage
-  storageUrl      String       // S3/Azure Blob URL
-  fileHash        String       // SHA-256
-  fileSize        Int          // Bytes
-  mimeType        String
-  
+  storageUrl String // S3/Azure Blob URL
+  fileHash   String // SHA-256
+  fileSize   Int // Bytes
+  mimeType   String
+
   // Security
-  encryptionKey   String?      // If end-to-end encrypted
-  virusScanStatus String?      // "clean", "infected", "pending"
-  virusScanDate   DateTime?    @db.Timestamptz(3)
-  
+  encryptionKey   String? // If end-to-end encrypted
+  virusScanStatus String? // "clean", "infected", "pending"
+  virusScanDate   DateTime? @db.Timestamptz(3)
+
   // Versioning
-  version         Int          @default(1)
-  replacesDocumentId String?   // Previous version
-  
-  uploadedAt      DateTime     @default(now()) @db.Timestamptz(3)
-  verifiedAt      DateTime?    @db.Timestamptz(3)
-  verifiedBy      String?      // Admin profileId
-  
+  version            Int     @default(1)
+  replacesDocumentId String? // Previous version
+
+  uploadedAt DateTime  @default(now()) @db.Timestamptz(3)
+  verifiedAt DateTime? @db.Timestamptz(3)
+  verifiedBy String? // Admin profileId
+
   kycVerification KYCVerification @relation(fields: [kycId], references: [kycId], onDelete: Cascade)
   country         Country?        @relation(fields: [issuingCountry], references: [countryCode])
-  
+
   @@index([tenantId, kycId])
   @@index([documentType])
   @@index([fileHash])
@@ -757,46 +935,46 @@ model KYCDocument {
 // =============================================================================
 
 model TransactionLimit {
-  limitId           String       @id @default(uuid())
-  tenantId          String
-  profileId         String?      // null = global default
-  walletId          String?      // null = applies to all wallets
-  
-  limitType         LimitType
-  limitAmount       Decimal      @db.Decimal(36, 9)
-  
+  limitId   String  @id @default(uuid())
+  tenantId  String
+  profileId String? // null = global default
+  walletId  String? // null = applies to all wallets
+
+  limitType   LimitType
+  limitAmount Decimal   @db.Decimal(36, 9)
+
   // Velocity limits
-  maxCount          Int?         // Max N transactions
-  timeWindowMinutes Int?         // Per time window
-  
-  isActive          Boolean      @default(true)
-  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
-  
-  userProfile       UserProfile? @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  
+  maxCount          Int? // Max N transactions
+  timeWindowMinutes Int? // Per time window
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  userProfile UserProfile? @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+
   @@index([tenantId, profileId])
   @@index([tenantId, walletId])
   @@index([tenantId, isActive])
 }
 
 model TransactionRiskScore {
-  riskId          String      @id @default(uuid())
-  tenantId        String
-  offTxId         String      @unique  // Transaction.offTxId
-  
-  riskScore       Int         // 0-100
-  riskFactors     Json        // { "unusual_time": true, "new_counterparty": true }
-  
-  requiresReview  Boolean     @default(false)
-  reviewedAt      DateTime?   @db.Timestamptz(3)
-  reviewedBy      String?     // Admin profileId
-  reviewNotes     String?
-  
-  calculatedAt    DateTime    @default(now()) @db.Timestamptz(3)
-  
-  transaction     Transaction @relation(fields: [offTxId], references: [offTxId], onDelete: Cascade)
-  
+  riskId   String @id @default(uuid())
+  tenantId String
+  offTxId  String @unique // Transaction.offTxId
+
+  riskScore   Int // 0-100
+  riskFactors Json // { "unusual_time": true, "new_counterparty": true }
+
+  requiresReview Boolean   @default(false)
+  reviewedAt     DateTime? @db.Timestamptz(3)
+  reviewedBy     String? // Admin profileId
+  reviewNotes    String?
+
+  calculatedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  transaction Transaction @relation(fields: [offTxId], references: [offTxId], onDelete: Cascade)
+
   @@index([tenantId, requiresReview])
   @@index([tenantId, riskScore])
 }
@@ -806,29 +984,29 @@ model TransactionRiskScore {
 // =============================================================================
 
 model HoardingTaxSnapshot {
-  snapshotId    String   @id @default(uuid())
-  tenantId      String
-  walletId      String
-  
+  snapshotId String @id @default(uuid())
+  tenantId   String
+  walletId   String
+
   // Snapshot data
-  snapshotDate  DateTime @db.Date
-  balance       Decimal  @db.Decimal(36, 9)
-  daysHeld      Int      // Days since last >100 GX threshold crossing
-  
+  snapshotDate DateTime @db.Date
+  balance      Decimal  @db.Decimal(36, 9)
+  daysHeld     Int // Days since last >100 GX threshold crossing
+
   // Tax calculation
-  taxableAmount Decimal  @db.Decimal(36, 9)
-  taxRate       Decimal  @db.Decimal(5,4)  // 0.0300 = 3%, 0.0600 = 6%
-  taxOwed       Decimal  @db.Decimal(36, 9)
-  
+  taxableAmount Decimal @db.Decimal(36, 9)
+  taxRate       Decimal @db.Decimal(5, 4) // 0.0300 = 3%, 0.0600 = 6%
+  taxOwed       Decimal @db.Decimal(36, 9)
+
   // Status
-  taxPaid       Boolean  @default(false)
-  paidAt        DateTime? @db.Timestamptz(3)
-  fabricTxId    String?
-  
-  createdAt     DateTime @default(now()) @db.Timestamptz(3)
-  
-  wallet        Wallet   @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
-  
+  taxPaid    Boolean   @default(false)
+  paidAt     DateTime? @db.Timestamptz(3)
+  fabricTxId String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  wallet Wallet @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
+
   @@unique([tenantId, walletId, snapshotDate])
   @@index([tenantId, snapshotDate, taxPaid])
   @@index([tenantId, taxPaid])
@@ -839,31 +1017,31 @@ model HoardingTaxSnapshot {
 // =============================================================================
 
 model UserSession {
-  sessionId       String        @id @default(uuid())
-  tenantId        String
-  profileId       String
-  
+  sessionId String @id @default(uuid())
+  tenantId  String
+  profileId String
+
   // Device info
-  deviceId        String        // UUID or fingerprint
-  deviceName      String?       // "iPhone 14 Pro"
-  deviceOs        String?       // "iOS 17.1"
-  ipAddress       String
-  userAgent       String
-  
+  deviceId   String // UUID or fingerprint
+  deviceName String? // "iPhone 14 Pro"
+  deviceOs   String? // "iOS 17.1"
+  ipAddress  String
+  userAgent  String
+
   // Session lifecycle
-  status          SessionStatus @default(ACTIVE)
-  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
-  lastActivityAt  DateTime      @default(now()) @db.Timestamptz(3)
-  expiresAt       DateTime      @db.Timestamptz(3)
-  revokedAt       DateTime?     @db.Timestamptz(3)
-  revokedReason   String?
-  
+  status         SessionStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  lastActivityAt DateTime      @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime      @db.Timestamptz(3)
+  revokedAt      DateTime?     @db.Timestamptz(3)
+  revokedReason  String?
+
   // Security
-  refreshToken    String        @unique
-  refreshTokenHash String       // Hashed version for lookup
-  
-  userProfile     UserProfile   @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  
+  refreshToken     String @unique
+  refreshTokenHash String // Hashed version for lookup
+
+  userProfile UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+
   @@unique([tenantId, sessionId])
   @@index([tenantId, profileId, status])
   @@index([refreshTokenHash])
@@ -872,21 +1050,21 @@ model UserSession {
 }
 
 model TrustedDevice {
-  deviceId          String      @id @default(uuid())
-  tenantId          String
-  profileId         String
-  
+  deviceId  String @id @default(uuid())
+  tenantId  String
+  profileId String
+
   deviceName        String
-  deviceFingerprint String      @unique
+  deviceFingerprint String  @unique
   deviceOs          String?
-  
-  firstSeenAt       DateTime    @default(now()) @db.Timestamptz(3)
-  lastSeenAt        DateTime    @default(now()) @db.Timestamptz(3)
-  isTrusted         Boolean     @default(false)
-  trustVerifiedAt   DateTime?   @db.Timestamptz(3)
-  
-  userProfile       UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  
+
+  firstSeenAt     DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt      DateTime  @default(now()) @db.Timestamptz(3)
+  isTrusted       Boolean   @default(false)
+  trustVerifiedAt DateTime? @db.Timestamptz(3)
+
+  userProfile UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+
   @@unique([tenantId, profileId, deviceFingerprint])
   @@index([tenantId, profileId])
   @@index([tenantId, isTrusted])
@@ -897,37 +1075,37 @@ model TrustedDevice {
 // =============================================================================
 
 model Notification {
-  notificationId    String             @id @default(uuid())
-  tenantId          String
-  recipientId       String             // UserProfile
-  
+  notificationId String @id @default(uuid())
+  tenantId       String
+  recipientId    String // UserProfile
+
   // Content
-  type              NotificationType
-  title             String
-  message           String
-  
+  type    NotificationType
+  title   String
+  message String
+
   // Action metadata
-  actionUrl         String?            // Deep link to app screen
-  actionRequired    Boolean            @default(false)
-  actionResourceType String?           // "FamilyRelationship", "TransactionApproval"
-  actionResourceId  String?
-  
+  actionUrl          String? // Deep link to app screen
+  actionRequired     Boolean @default(false)
+  actionResourceType String? // "FamilyRelationship", "TransactionApproval"
+  actionResourceId   String?
+
   // Status
-  status            NotificationStatus @default(UNREAD)
-  readAt            DateTime?          @db.Timestamptz(3)
-  actionedAt        DateTime?          @db.Timestamptz(3)
-  
+  status     NotificationStatus @default(UNREAD)
+  readAt     DateTime?          @db.Timestamptz(3)
+  actionedAt DateTime?          @db.Timestamptz(3)
+
   // Delivery
-  sentViaEmail      Boolean            @default(false)
-  sentViaPush       Boolean            @default(false)
-  emailSentAt       DateTime?          @db.Timestamptz(3)
-  pushSentAt        DateTime?          @db.Timestamptz(3)
-  
-  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
-  expiresAt         DateTime?          @db.Timestamptz(3)
-  
-  recipient         UserProfile        @relation(fields: [recipientId], references: [profileId], onDelete: Cascade)
-  
+  sentViaEmail Boolean   @default(false)
+  sentViaPush  Boolean   @default(false)
+  emailSentAt  DateTime? @db.Timestamptz(3)
+  pushSentAt   DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime? @db.Timestamptz(3)
+
+  recipient UserProfile @relation(fields: [recipientId], references: [profileId], onDelete: Cascade)
+
   @@index([tenantId, recipientId, status])
   @@index([tenantId, recipientId, createdAt])
   @@index([expiresAt])
@@ -935,20 +1113,20 @@ model Notification {
 }
 
 model PushToken {
-  tokenId       String      @id @default(uuid())
-  tenantId      String
-  profileId     String
-  
-  token         String      @unique
-  deviceId      String?
-  platform      String      // "ios", "android", "web"
-  
-  isActive      Boolean     @default(true)
-  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
-  lastUsedAt    DateTime    @default(now()) @db.Timestamptz(3)
-  
-  userProfile   UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  
+  tokenId   String @id @default(uuid())
+  tenantId  String
+  profileId String
+
+  token    String  @unique
+  deviceId String?
+  platform String // "ios", "android", "web"
+
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  lastUsedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  userProfile UserProfile @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+
   @@unique([tenantId, profileId, token])
   @@index([tenantId, profileId])
   @@index([tenantId, isActive])
@@ -959,31 +1137,31 @@ model PushToken {
 // =============================================================================
 
 model AuditLog {
-  auditId         String         @id @default(uuid())
-  tenantId        String
-  
+  auditId  String @id @default(uuid())
+  tenantId String
+
   // Event details
   eventType       AuditEventType
-  actorProfileId  String?        // Who performed the action (null for system)
-  targetProfileId String?        // Who was affected
-  resourceType    String?        // e.g., "Transaction", "KYCVerification"
-  resourceId      String?        // UUID of the affected resource
-  
+  actorProfileId  String? // Who performed the action (null for system)
+  targetProfileId String? // Who was affected
+  resourceType    String? // e.g., "Transaction", "KYCVerification"
+  resourceId      String? // UUID of the affected resource
+
   // Context
-  ipAddress       String?
-  userAgent       String?
-  deviceId        String?
-  sessionId       String?
-  
+  ipAddress String?
+  userAgent String?
+  deviceId  String?
+  sessionId String?
+
   // Data
-  previousValue   Json?          // Before state (for updates)
-  newValue        Json?          // After state
-  metadata        Json?          // Additional context
-  
+  previousValue Json? // Before state (for updates)
+  newValue      Json? // After state
+  metadata      Json? // Additional context
+
   // Integrity
-  eventHash       String         // SHA-256 of event data for tamper detection
-  timestamp       DateTime       @default(now()) @db.Timestamptz(3)
-  
+  eventHash String // SHA-256 of event data for tamper detection
+  timestamp DateTime @default(now()) @db.Timestamptz(3)
+
   @@index([tenantId, eventType, timestamp])
   @@index([tenantId, actorProfileId, timestamp])
   @@index([tenantId, targetProfileId, timestamp])
@@ -996,16 +1174,16 @@ model AuditLog {
 // =============================================================================
 
 model UserOrganizationLink {
-  id                  String              @id @default(cuid())
-  tenantId            String
-  userProfileId       String
-  orgProfileId        String
-  role                String
-  addedAt             DateTime            @default(now()) @db.Timestamptz(3)
-  
+  id            String   @id @default(cuid())
+  tenantId      String
+  userProfileId String
+  orgProfileId  String
+  role          String
+  addedAt       DateTime @default(now()) @db.Timestamptz(3)
+
   userProfile         UserProfile         @relation(fields: [userProfileId], references: [profileId], onDelete: Cascade)
   organizationProfile OrganizationProfile @relation(fields: [orgProfileId], references: [orgProfileId], onDelete: Cascade)
-  
+
   @@unique([tenantId, userProfileId, orgProfileId])
   @@index([userProfileId])
   @@index([orgProfileId])
@@ -1023,25 +1201,25 @@ model LicensedPartner {
   jurisdictionCountryCode String        @db.Char(2)
   status                  PartnerStatus @default(PENDING)
   createdAt               DateTime      @default(now()) @db.Timestamptz(3)
-  
-  country                 Country       @relation(fields: [jurisdictionCountryCode], references: [countryCode])
-  applications            Application[]
-  partnerGrants           PartnerGrant[]
-  
+
+  country       Country        @relation(fields: [jurisdictionCountryCode], references: [countryCode])
+  applications  Application[]
+  partnerGrants PartnerGrant[]
+
   @@unique([tenantId, companyName])
   @@index([tenantId, status])
 }
 
 model Application {
-  appId     String          @id @default(uuid())
+  appId     String   @id @default(uuid())
   tenantId  String
   partnerId String
   appName   String
-  createdAt DateTime        @default(now()) @db.Timestamptz(3)
-  
-  partner   LicensedPartner @relation(fields: [partnerId], references: [partnerId], onDelete: Cascade)
-  licenses  License[]
-  
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  partner  LicensedPartner @relation(fields: [partnerId], references: [partnerId], onDelete: Cascade)
+  licenses License[]
+
   @@unique([tenantId, appName])
   @@index([tenantId, partnerId])
 }
@@ -1054,10 +1232,10 @@ model License {
   status      LicenseStatus @default(ACTIVE)
   expiryDate  DateTime?     @db.Timestamptz(3)
   createdAt   DateTime      @default(now()) @db.Timestamptz(3)
-  
-  application Application   @relation(fields: [appId], references: [appId], onDelete: Cascade)
+
+  application Application  @relation(fields: [appId], references: [appId], onDelete: Cascade)
   credentials Credential[]
-  
+
   @@index([tenantId, appId])
   @@index([tenantId, status])
 }
@@ -1070,24 +1248,24 @@ model Credential {
   clientSecretHash String
   status           CredentialStatus @default(ACTIVE)
   createdAt        DateTime         @default(now()) @db.Timestamptz(3)
-  
-  license          License          @relation(fields: [licenseId], references: [licenseId], onDelete: Cascade)
-  
+
+  license License @relation(fields: [licenseId], references: [licenseId], onDelete: Cascade)
+
   @@unique([tenantId, clientId])
   @@index([tenantId, licenseId])
 }
 
 model PartnerGrant {
-  grantId           String          @id @default(uuid())
+  grantId           String    @id @default(uuid())
   tenantId          String
   partnerId         String
-  amount            Decimal         @db.Decimal(36, 9)
+  amount            Decimal   @db.Decimal(36, 9)
   purpose           String?
-  issuanceTimestamp DateTime?       @db.Timestamptz(3)
+  issuanceTimestamp DateTime? @db.Timestamptz(3)
   onChainTxId       String?
-  
-  partner           LicensedPartner @relation(fields: [partnerId], references: [partnerId], onDelete: Cascade)
-  
+
+  partner LicensedPartner @relation(fields: [partnerId], references: [partnerId], onDelete: Cascade)
+
   @@index([tenantId, partnerId])
 }
 
@@ -1100,7 +1278,7 @@ model Collateral {
   documentMime      String?
   status            CollateralStatus @default(PLEDGED)
   createdAt         DateTime         @default(now()) @db.Timestamptz(3)
-  
+
   @@index([onChainLoanId])
   @@index([status])
 }
@@ -1127,10 +1305,10 @@ model OutboxCommand {
   error       String?
   createdAt   DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
-  
+
   // NEW: Transaction Approval Support
   transactionApprovals TransactionApproval[]
-  
+
   @@unique([tenantId, requestId])
   @@index([status, createdAt])
   @@index([tenantId, status])
@@ -1144,7 +1322,7 @@ model ProjectorState {
   lastBlock      BigInt
   lastEventIndex Int
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
-  
+
   @@id([tenantId, projectorName, channel])
 }
 
@@ -1158,7 +1336,7 @@ model HttpIdempotency {
   statusCode      Int
   createdAt       DateTime  @default(now()) @db.Timestamptz(3)
   ttlExpiresAt    DateTime? @db.Timestamptz(3)
-  
+
   @@id([tenantId, method, path, bodyHash])
   @@index([ttlExpiresAt])
 }
@@ -1175,7 +1353,7 @@ model EventLog {
   payload      Json
   txTimestamp  DateTime @db.Timestamptz(3)
   ingestedAt   DateTime @default(now()) @db.Timestamptz(3)
-  
+
   @@index([tenantId, blockNumber])
   @@index([fabricTxId])
   @@index([tenantId, eventName])
@@ -1198,36 +1376,36 @@ model EventDLQ {
 // ========== Phase 3 Models (Microservices) ==========
 
 model Organization {
-  orgId         String    @id
-  tenantId      String
-  orgName       String
-  orgType       String
-  status        String    // PROPOSED, ACTIVE, SUSPENDED
-  stakeholders  Json      // Array of stakeholder IDs
-  endorsers     Json?     // Array of endorser IDs
-  authRules     Json?     // Authorization rules
-  activatedAt   DateTime? @db.Timestamptz(3)
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  orgId        String    @id
+  tenantId     String
+  orgName      String
+  orgType      String
+  status       String // PROPOSED, ACTIVE, SUSPENDED
+  stakeholders Json // Array of stakeholder IDs
+  endorsers    Json? // Array of endorser IDs
+  authRules    Json? // Authorization rules
+  activatedAt  DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([tenantId])
   @@index([status])
 }
 
 model MultiSigTransaction {
-  txId                 String    @id
-  tenantId             String
-  orgId                String
-  proposerId           String
-  operation            String
-  params               Json
-  status               String    // PENDING, EXECUTED, REJECTED
-  requiredSignatures   Int
-  currentSignatures    Int       @default(0)
-  approvers            Json?     // Array of approver IDs
-  executedAt           DateTime? @db.Timestamptz(3)
-  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+  txId               String    @id
+  tenantId           String
+  orgId              String
+  proposerId         String
+  operation          String
+  params             Json
+  status             String // PENDING, EXECUTED, REJECTED
+  requiredSignatures Int
+  currentSignatures  Int       @default(0)
+  approvers          Json? // Array of approver IDs
+  executedAt         DateTime? @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([tenantId, orgId])
   @@index([status])
@@ -1241,7 +1419,7 @@ model Loan {
   collateralHash String?
   appliedAt      DateTime  @default(now()) @db.Timestamptz(3)
   purpose        String
-  status         String    // PENDING_APPROVAL, ACTIVE, REPAID, DEFAULTED
+  status         String // PENDING_APPROVAL, ACTIVE, REPAID, DEFAULTED
   approvedBy     String?
   approvedAt     DateTime? @db.Timestamptz(3)
   createdAt      DateTime  @default(now()) @db.Timestamptz(3)
@@ -1253,19 +1431,19 @@ model Loan {
 }
 
 model Proposal {
-  proposalId    String    @id
-  tenantId      String
-  title         String
-  description   String
-  proposerId    String
-  proposalType  String
-  status        String    // ACTIVE, EXECUTED, REJECTED
-  votesFor      Int       @default(0)
-  votesAgainst  Int       @default(0)
-  voters        Json?     // Array of voter IDs
-  executedAt    DateTime? @db.Timestamptz(3)
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  proposalId   String    @id
+  tenantId     String
+  title        String
+  description  String
+  proposerId   String
+  proposalType String
+  status       String // ACTIVE, EXECUTED, REJECTED
+  votesFor     Int       @default(0)
+  votesAgainst Int       @default(0)
+  voters       Json? // Array of voter IDs
+  executedAt   DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([tenantId])
   @@index([status])
