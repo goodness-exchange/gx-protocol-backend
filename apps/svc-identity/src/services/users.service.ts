@@ -1,13 +1,16 @@
 import bcrypt from 'bcryptjs';
 import { logger } from '@gx/core-logger';
-import { db } from '@gx/core-db';
-import type { 
-  RegisterUserRequestDTO, 
-  UserProfileDTO, 
+import { db, PrismaClient } from '@gx/core-db';
+import type {
+  RegisterUserRequestDTO,
+  UserProfileDTO,
   UpdateProfileRequestDTO,
   SubmitKYCRequestDTO,
-  KYCStatusDTO 
+  KYCStatusDTO
 } from '../types/dtos';
+
+// Prisma transaction client type - omits interactive transaction methods
+type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
 /**
  * Users Service
@@ -210,18 +213,29 @@ class UsersService {
       throw new Error('KYC already approved');
     }
 
-    // Create KYC verification record
-    const kycRecord = await db.kYCVerification.create({
-      data: {
-        profileId,
-        status: 'PENDING',
-        evidenceHash: data.evidenceHash,
-        evidenceSize: data.evidenceSize,
-        evidenceMime: data.evidenceMime,
-      },
+    // Create KYC verification record and update user status in a transaction
+    const kycRecord = await db.$transaction(async (tx: TransactionClient) => {
+      // Create KYC verification record
+      const kyc = await tx.kYCVerification.create({
+        data: {
+          profileId,
+          status: 'PENDING',
+          evidenceHash: data.evidenceHash,
+          evidenceSize: data.evidenceSize,
+          evidenceMime: data.evidenceMime,
+        },
+      });
+
+      // Update user status to PENDING_ADMIN_APPROVAL
+      await tx.userProfile.update({
+        where: { profileId },
+        data: { status: 'PENDING_ADMIN_APPROVAL' },
+      });
+
+      return kyc;
     });
 
-    logger.info({ kycId: kycRecord.kycId, profileId }, 'KYC verification record created');
+    logger.info({ kycId: kycRecord.kycId, profileId }, 'KYC verification record created, user status updated to PENDING_ADMIN_APPROVAL');
 
     return {
       kycRecord: {
