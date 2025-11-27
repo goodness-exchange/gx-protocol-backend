@@ -99,6 +99,9 @@ class UserManagementService {
           },
           orderBy: { createdAt: 'desc' },
         },
+        addresses: {
+          orderBy: { isCurrent: 'desc' },
+        },
       },
     });
 
