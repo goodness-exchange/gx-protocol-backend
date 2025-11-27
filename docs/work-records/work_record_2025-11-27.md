@@ -150,10 +150,85 @@ curl -s https://api.gxcoin.money/api/v1/admin/users/1a9bcb45-596e-4873-b70f-d83c
 
 **Result:** Full user data returned with all KYR fields (nationalIdNumber, employmentStatus, isPEP, kycVerifications, addresses).
 
+### 5. Admin Dashboard User Detail Modal UI Improvements
+
+**File Modified:** `gx-wallet-frontend/components/admin/UserDetailModal.tsx`
+
+**Changes:**
+- Added icon to Full Name field (`User` icon) for consistent alignment with other fields
+- Added icon to Gender field (`Users` icon) for consistent alignment
+- Removed PEP (Politically Exposed Person) Declaration section - not required for this use case
+- Removed unused `Flag` icon import and `isPEP`/`pepDetails` from interface
+
+### 6. Backend - Address Query Fix
+
+**File Modified:** `apps/svc-admin/src/services/user-management.service.ts`
+
+**Problem:** Admin API's `getUserDetails` endpoint was not returning address data.
+
+**Solution:** Added `addresses` relation to the Prisma `include` clause with `isCurrent` ordering.
+
+```typescript
+include: {
+  kycVerifications: { ... },
+  addresses: {
+    orderBy: { isCurrent: 'desc' },
+  },
+},
+```
+
+**Docker Image Deployed:** `svc-admin:2.0.11`
+
+### 7. Test User Address Data Added
+
+Inserted test address data for user `1a9bcb45-596e-4873-b70f-d83ce5bd72e1` via direct SQL:
+```sql
+INSERT INTO "Address" (
+  "addressId", "tenantId", "profileId", "addressType", "isCurrent",
+  "addressLine1", "addressLine2", "city", "stateProvince", "postalCode",
+  "countryCode", "isVerified", "createdAt", "updatedAt"
+) VALUES (
+  gen_random_uuid(), 'default', '1a9bcb45-596e-4873-b70f-d83ce5bd72e1',
+  'CURRENT', true, '123 Test Street', 'Suite 456', 'Kuala Lumpur',
+  'Federal Territory', '50000', 'MY', false, NOW(), NOW()
+);
+```
+
+## Commits Made
+
+### Backend (gx-protocol-backend)
+1. `[previous session]` - fix(svc-identity): correct identityNum field mapping in auth service
+2. `502df40` - feat(svc-admin): include user addresses in getUserDetails query
+
+### Frontend (gx-wallet-frontend)
+3. `59c432c` - fix(admin): correct user details parsing from BFF response
+4. `b78b8d4` - feat(api): update KYC submit route for enhanced KYR wizard data
+5. `bbbb45f` - refactor(admin): improve user detail modal UI consistency
+
+## Docker Images Deployed
+
+| Service | Version | Deployed To |
+|---------|---------|-------------|
+| svc-identity | 2.0.24 | All 3 nodes |
+| svc-admin | 2.0.10 | All 3 nodes |
+| svc-admin | 2.0.11 | All 3 nodes |
+
+## KYR Evidence Display Notes
+
+The KYR Evidence tab in admin dashboard currently displays:
+- Document metadata (type, number, issuing country, dates) when KYRDocument records exist
+- "View" button links to `storageUrl` when documents are uploaded to storage
+- Falls back to showing KYR verification hash/size/mime when no documents exist
+
+**Future Enhancement:** To enable full document viewing, the system needs:
+1. File upload service integration (S3/MinIO)
+2. KYRDocument record creation with `storageUrl` during KYR submission
+3. Secure document download endpoint for admin access
+
 ## Pending Tasks
 
-1. **Frontend Testing** - Manually test admin dashboard KYR tabs display after frontend fix
-2. **KYR Wizard Integration Testing** - Test full KYR submission flow with new data structure
+1. **KYR Wizard Integration Testing** - Test full KYR submission flow with new data structure
+2. **File Storage Implementation** - For KYR document upload and admin viewing
 
 ## Related Files
 
