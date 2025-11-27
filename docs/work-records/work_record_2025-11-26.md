@@ -266,6 +266,84 @@ Users must be between 13-73 years old to be eligible for genesis token allocatio
 ### Fabric User ID Generation
 The DOB and Gender fields collected during registration are required for deterministic Fabric User ID generation (format: CC CCC AANNNN TCCCC NNNN).
 
+### 9. Registration and KYR Flow Testing & Fixes (Session Continuation)
+
+**Deployment Status:**
+- svc-identity v2.0.20 deployed to production with registration endpoints
+- Ingress patched to route `/api/v1/registration` paths to svc-identity
+
+**Issues Fixed:**
+
+#### Issue 1: 404 on Registration API Endpoints
+**Problem:** Frontend registration flow returned 404 errors because Kubernetes ingress was missing route for `/api/v1/registration`.
+**Solution:** Patched ingress to add registration path routing to svc-identity service.
+
+```bash
+kubectl patch ingress gx-backend-ingress -n backend-mainnet --type='json' -p='[
+  {
+    "op": "add",
+    "path": "/spec/rules/0/http/paths/-",
+    "value": {
+      "backend": { "service": { "name": "svc-identity", "port": { "number": 3001 } } },
+      "path": "/api/v1/registration",
+      "pathType": "Prefix"
+    }
+  }
+]'
+```
+
+#### Issue 2: crypto.subtle.digest Not Available
+**Problem:** KYR wizard file hash computation failed with `TypeError: Cannot read properties of undefined (reading 'digest')` because `crypto.subtle` is only available in HTTPS contexts.
+**Solution:** Added fallback hash function in `KYRWizard.tsx` that uses a simple hash algorithm when `crypto.subtle` is unavailable.
+
+#### Issue 3: KYR Submission Validation Errors
+**Problem:** BFF route `/api/users/[id]/kyc/submit/route.ts` returned generic "Missing required KYC data" error without specifying which fields.
+**Solution:** Updated validation to list specific missing fields in error response for debugging.
+
+#### Issue 4: User Status Not Updated After KYR Submission (ROOT CAUSE)
+**Problem:** Admin dashboard not showing users after KYR submission because `submitKYC` method in backend did NOT update user status from `REGISTERED` to `PENDING_ADMIN_APPROVAL`.
+**Solution:** Modified `users.service.ts` to use a database transaction that:
+1. Creates KYCVerification record with status `PENDING`
+2. Updates UserProfile status to `PENDING_ADMIN_APPROVAL`
+
+**File Modified:** `apps/svc-identity/src/services/users.service.ts`
+
+```typescript
+// Create KYC verification record and update user status in a transaction
+const kycRecord = await db.$transaction(async (tx: TransactionClient) => {
+  // Create KYC verification record
+  const kyc = await tx.kYCVerification.create({
+    data: {
+      profileId,
+      status: 'PENDING',
+      evidenceHash: data.evidenceHash,
+      evidenceSize: data.evidenceSize,
+      evidenceMime: data.evidenceMime,
+    },
+  });
+
+  // Update user status to PENDING_ADMIN_APPROVAL
+  await tx.userProfile.update({
+    where: { profileId },
+    data: { status: 'PENDING_ADMIN_APPROVAL' },
+  });
+
+  return kyc;
+});
+```
+
+**Database Fix Applied:**
+- Updated 2 existing users with pending KYC from `REGISTERED` to `PENDING_ADMIN_APPROVAL`
+
+**Deployment:**
+- Built svc-identity:2.0.20
+- Deployed to all 3 control-plane nodes
+- Rollout completed successfully
+
+### Commits Made (Session Continuation)
+
+25. `b158029` - feat(svc-identity): update user status to PENDING_ADMIN_APPROVAL on KYC submission
+
 ## Related Documents
 - `/home/sugxcoin/prod-blockchain/gx-protocol-backend/docs/architecture/REGISTRATION_AND_KYR_FLOW_DESIGN.md`
 - `/root/.claude/plans/dynamic-crafting-rainbow.md` (plan mode file)
