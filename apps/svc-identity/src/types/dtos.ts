@@ -60,11 +60,49 @@ export interface UserProfileDTO {
 // ============================================
 
 export interface UpdateProfileRequestDTO {
+  // Basic identity
   firstName?: string;
+  middleName?: string | null;
   lastName?: string;
   phoneNum?: string;
-  identityNum?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  placeOfBirth?: string | null;
   nationalityCountryCode?: string;
+
+  // National ID (KYR)
+  nationalIdNumber?: string | null;
+  nationalIdIssuedAt?: string | null;
+  nationalIdExpiresAt?: string | null;
+
+  // Passport (KYR - optional)
+  passportNumber?: string | null;
+  passportIssuingCountry?: string | null;
+  passportIssuedAt?: string | null;
+  passportExpiresAt?: string | null;
+
+  // Employment (KYR)
+  employmentStatus?: string | null;
+  jobTitle?: string | null;
+  companyName?: string | null;
+  industry?: string | null;
+  workEmail?: string | null;
+  workPhoneNum?: string | null;
+
+  // PEP (KYR)
+  isPEP?: boolean;
+  pepDetails?: string | null;
+
+  // Address (will be stored separately)
+  addressLine1?: string;
+  addressLine2?: string | null;
+  city?: string;
+  stateProvince?: string | null;
+  postalCode?: string | null;
+  addressCountry?: string;
+
+  // Legacy field
+  identityNum?: string;
 }
 
 // ============================================
