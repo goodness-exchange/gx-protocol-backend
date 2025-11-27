@@ -225,10 +225,72 @@ The KYR Evidence tab in admin dashboard currently displays:
 2. KYRDocument record creation with `storageUrl` during KYR submission
 3. Secure document download endpoint for admin access
 
+### 8. Backend - KYCDocument Record Creation on KYR Submission
+
+**Files Modified:**
+- `apps/svc-identity/src/types/dtos.ts` - Added KYCDocumentDTO interface
+- `apps/svc-identity/src/services/users.service.ts` - Create KYCDocument records in submitKYC
+
+**Problem:** KYR Evidence tab in admin dashboard showed empty documents because `KYCDocument` table was never populated during KYR submission.
+
+**Solution:**
+1. Added `KYCDocumentDTO` interface with comprehensive document metadata fields
+2. Updated `SubmitKYCRequestDTO` to include optional `documents` array
+3. Modified `submitKYC` method to create `KYCDocument` records within the same transaction
+4. Use `pending://` URL scheme as placeholder until file storage is implemented
+
+**Test Data Inserted:**
+```sql
+-- Added 3 test documents for user 1a9bcb45-596e-4873-b70f-d83ce5bd72e1
+INSERT INTO "KYCDocument" (documentType, documentNumber, storageUrl, ...) VALUES
+('NATIONAL_ID', '920101-10-1234', 'pending://national-id-front.png', ...),
+('NATIONAL_ID', '920101-10-1234', 'pending://national-id-back.png', ...),
+('PASSPORT', 'A12345678', 'pending://passport.png', ...);
+```
+
+### 9. Frontend - KYR Evidence Tab UI Enhancement
+
+**File Modified:** `gx-wallet-frontend/components/admin/UserDetailModal.tsx`
+
+**Changes:**
+- Added file type badge (PNG, JPEG, PDF) next to document type
+- Show file name for pending uploads
+- Display file size in human-readable format (KB/MB)
+- Show truncated file hash for verification
+- Added "Pending Upload" badge for documents with pending:// URLs
+- Show "View" button only for documents with valid storage URLs
+- Improved layout with flex containers for date fields
+
+## Commits Made (Session 2)
+
+### Backend (gx-protocol-backend)
+6. `c0749fe` - feat(svc-identity): add KYCDocumentDTO type for enhanced KYR document support
+7. `08ba71d` - feat(svc-identity): create KYCDocument records during KYR submission
+
+### Frontend (gx-wallet-frontend)
+8. `ac5733a` - feat(admin): enhance KYR Evidence tab with improved document display
+
+## Current Status
+
+**KYR Evidence Tab Now Shows:**
+- Document type (NATIONAL_ID, PASSPORT, etc.)
+- File type badge (PNG, JPEG, PDF)
+- File name from pending:// URL
+- Document number, issuing country, dates
+- File size in KB/MB
+- Truncated file hash
+- "Pending Upload" status badge (since no file storage yet)
+
+**What's Still Needed for Full Document Viewing:**
+1. File storage service (S3/MinIO) integration
+2. File upload endpoint during KYR submission
+3. Replace pending:// URLs with actual storage URLs
+4. Secure document download endpoint for admin access
+
 ## Pending Tasks
 
-1. **KYR Wizard Integration Testing** - Test full KYR submission flow with new data structure
-2. **File Storage Implementation** - For KYR document upload and admin viewing
+1. **File Storage Implementation** - For KYR document upload and admin viewing
+2. **KYR Wizard Integration Testing** - Test full KYR submission flow with new document creation
 
 ## Related Files
 
@@ -236,6 +298,8 @@ The KYR Evidence tab in admin dashboard currently displays:
 - `/home/sugxcoin/prod-blockchain/gx-protocol-backend/apps/svc-admin/src/services/user-management.service.ts`
 - `/home/sugxcoin/prod-blockchain/gx-protocol-backend/apps/svc-admin/src/controllers/user-management.controller.ts`
 - `/home/sugxcoin/prod-blockchain/gx-protocol-backend/apps/svc-identity/src/services/auth.service.ts`
+- `/home/sugxcoin/prod-blockchain/gx-protocol-backend/apps/svc-identity/src/services/users.service.ts`
+- `/home/sugxcoin/prod-blockchain/gx-protocol-backend/apps/svc-identity/src/types/dtos.ts`
 
 ### Frontend
 - `/home/sugxcoin/prod-blockchain/gx-wallet-frontend/app/(root)/admin/dashboard/page.tsx`
