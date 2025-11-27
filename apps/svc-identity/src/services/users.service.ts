@@ -115,7 +115,7 @@ class UsersService {
       firstName: user.firstName,
       lastName: user.lastName,
       phoneNum: user.phoneNum,
-      identityNum: user.identityNum,
+      identityNum: user.nationalIdNumber,
       status: user.status,
       nationalityCountryCode: user.nationalityCountryCode,
       createdAt: user.createdAt,
