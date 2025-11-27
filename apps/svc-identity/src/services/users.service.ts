@@ -6,7 +6,8 @@ import type {
   UserProfileDTO,
   UpdateProfileRequestDTO,
   SubmitKYCRequestDTO,
-  KYCStatusDTO
+  KYCStatusDTO,
+  KYCDocumentDTO
 } from '../types/dtos';
 
 // Prisma transaction client type - omits interactive transaction methods
@@ -265,7 +266,7 @@ class UsersService {
    * @returns KYC verification record
    */
   async submitKYC(profileId: string, data: SubmitKYCRequestDTO): Promise<{ kycRecord: KYCStatusDTO }> {
-    logger.info({ profileId }, 'Submitting KYC verification');
+    logger.info({ profileId, documentCount: data.documents?.length || 0 }, 'Submitting KYC verification');
 
     // Verify user exists
     const user = await db.userProfile.findUnique({
@@ -285,7 +286,7 @@ class UsersService {
       throw new Error('KYC already approved');
     }
 
-    // Create KYC verification record and update user status in a transaction
+    // Create KYC verification record, documents, and update user status in a transaction
     const kycRecord = await db.$transaction(async (tx: TransactionClient) => {
       // Create KYC verification record
       const kyc = await tx.kYCVerification.create({
@@ -297,6 +298,29 @@ class UsersService {
           evidenceMime: data.evidenceMime,
         },
       });
+
+      // Create KYCDocument records if documents are provided
+      if (data.documents && data.documents.length > 0) {
+        const documentRecords = data.documents.map((doc: KYCDocumentDTO) => ({
+          tenantId: user.tenantId,
+          kycId: kyc.kycId,
+          documentType: doc.type as any,
+          documentNumber: doc.documentNumber || data.documentNumber || null,
+          issuingCountry: doc.issuingCountry || data.issuingCountry || null,
+          issuedDate: doc.issuedDate ? new Date(doc.issuedDate) : (data.issuedDate ? new Date(data.issuedDate) : null),
+          expiryDate: doc.expiryDate ? new Date(doc.expiryDate) : (data.expiryDate ? new Date(data.expiryDate) : null),
+          storageUrl: `pending://${doc.fileName}`,
+          fileHash: doc.hash,
+          fileSize: doc.size,
+          mimeType: doc.mimeType,
+        }));
+
+        await tx.kYCDocument.createMany({
+          data: documentRecords,
+        });
+
+        logger.info({ kycId: kyc.kycId, documentCount: documentRecords.length }, 'KYC documents created');
+      }
 
       // Update user status to PENDING_ADMIN_APPROVAL
       await tx.userProfile.update({
