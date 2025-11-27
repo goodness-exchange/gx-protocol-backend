@@ -139,7 +139,59 @@ class AdminService {
       throw new Error('User not found');
     }
 
-    return user;
+    // Transform to include all KYR-related fields
+    return {
+      // Basic info
+      profileId: user.profileId,
+      email: user.email,
+      firstName: user.firstName,
+      middleName: user.middleName,
+      lastName: user.lastName,
+      phoneNum: user.phoneNum,
+      dateOfBirth: user.dateOfBirth,
+      gender: user.gender,
+      placeOfBirth: user.placeOfBirth,
+      nationalityCountryCode: user.nationalityCountryCode,
+      status: user.status,
+
+      // National ID
+      nationalIdNumber: user.nationalIdNumber,
+      nationalIdIssuedAt: user.nationalIdIssuedAt,
+      nationalIdExpiresAt: user.nationalIdExpiresAt,
+
+      // Passport
+      passportNumber: user.passportNumber,
+      passportIssuingCountry: user.passportIssuingCountry,
+      passportIssuedAt: user.passportIssuedAt,
+      passportExpiresAt: user.passportExpiresAt,
+
+      // Employment
+      employmentStatus: user.employmentStatus,
+      jobTitle: user.jobTitle,
+      companyName: user.companyName,
+      industry: user.industry,
+      workEmail: user.workEmail,
+      workPhoneNum: user.workPhoneNum,
+
+      // PEP
+      isPEP: user.isPEP,
+      pepDetails: user.pepDetails,
+
+      // Admin review tracking
+      isLocked: user.isLocked,
+      lockReason: user.lockReason,
+      reviewedBy: user.reviewedBy,
+      reviewedAt: user.reviewedAt,
+      denialReason: user.denialReason,
+
+      // Timestamps
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+
+      // Relations
+      kycVerifications: user.kycVerifications,
+      addresses: user.addresses,
+    };
   }
 
   /**
