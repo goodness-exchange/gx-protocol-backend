@@ -150,10 +150,82 @@ class UsersService {
 
     // Build update data (only include provided fields)
     const updateData: any = {};
+
+    // Basic identity fields
     if (data.firstName !== undefined) updateData.firstName = data.firstName;
+    if (data.middleName !== undefined) updateData.middleName = data.middleName;
     if (data.lastName !== undefined) updateData.lastName = data.lastName;
     if (data.phoneNum !== undefined) updateData.phoneNum = data.phoneNum;
-    if (data.identityNum !== undefined) updateData.identityNum = data.identityNum;
+    if (data.dateOfBirth !== undefined) updateData.dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
+    if (data.gender !== undefined) updateData.gender = data.gender?.toLowerCase();
+    if (data.placeOfBirth !== undefined) updateData.placeOfBirth = data.placeOfBirth;
+    if (data.nationalityCountryCode !== undefined) updateData.nationalityCountryCode = data.nationalityCountryCode;
+
+    // National ID fields (KYR)
+    if (data.nationalIdNumber !== undefined) updateData.nationalIdNumber = data.nationalIdNumber;
+    if (data.nationalIdIssuedAt !== undefined) updateData.nationalIdIssuedAt = data.nationalIdIssuedAt ? new Date(data.nationalIdIssuedAt) : null;
+    if (data.nationalIdExpiresAt !== undefined) updateData.nationalIdExpiresAt = data.nationalIdExpiresAt ? new Date(data.nationalIdExpiresAt) : null;
+
+    // Passport fields (KYR - optional)
+    if (data.passportNumber !== undefined) updateData.passportNumber = data.passportNumber;
+    if (data.passportIssuingCountry !== undefined) updateData.passportIssuingCountry = data.passportIssuingCountry;
+    if (data.passportIssuedAt !== undefined) updateData.passportIssuedAt = data.passportIssuedAt ? new Date(data.passportIssuedAt) : null;
+    if (data.passportExpiresAt !== undefined) updateData.passportExpiresAt = data.passportExpiresAt ? new Date(data.passportExpiresAt) : null;
+
+    // Employment fields (KYR)
+    if (data.employmentStatus !== undefined) updateData.employmentStatus = data.employmentStatus;
+    if (data.jobTitle !== undefined) updateData.jobTitle = data.jobTitle;
+    if (data.companyName !== undefined) updateData.companyName = data.companyName;
+    if (data.industry !== undefined) updateData.industry = data.industry;
+    if (data.workEmail !== undefined) updateData.workEmail = data.workEmail;
+    if (data.workPhoneNum !== undefined) updateData.workPhoneNum = data.workPhoneNum;
+
+    // PEP fields (KYR)
+    if (data.isPEP !== undefined) updateData.isPEP = data.isPEP;
+    if (data.pepDetails !== undefined) updateData.pepDetails = data.pepDetails;
+
+    // Legacy field
+    if (data.identityNum !== undefined) updateData.nationalIdNumber = data.identityNum;
+
+    // Handle address separately (create/update Address record)
+    let addressRecord = null;
+    if (data.addressLine1 && data.city && data.addressCountry) {
+      // Check for existing current address
+      const existingAddress = await db.address.findFirst({
+        where: { profileId, isCurrent: true },
+      });
+
+      if (existingAddress) {
+        // Update existing address
+        addressRecord = await db.address.update({
+          where: { addressId: existingAddress.addressId },
+          data: {
+            addressLine1: data.addressLine1,
+            addressLine2: data.addressLine2 || null,
+            city: data.city,
+            stateProvince: data.stateProvince || null,
+            postalCode: data.postalCode || null,
+            countryCode: data.addressCountry,
+          },
+        });
+      } else {
+        // Create new address
+        addressRecord = await db.address.create({
+          data: {
+            profileId,
+            addressType: 'CURRENT',
+            isCurrent: true,
+            addressLine1: data.addressLine1,
+            addressLine2: data.addressLine2 || null,
+            city: data.city,
+            stateProvince: data.stateProvince || null,
+            postalCode: data.postalCode || null,
+            countryCode: data.addressCountry,
+          },
+        });
+      }
+      logger.info({ profileId, addressId: addressRecord.addressId }, 'Address record created/updated');
+    }
 
     // Update user profile directly
     const updatedUser = await db.userProfile.update({
@@ -170,7 +242,7 @@ class UsersService {
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
         phoneNum: updatedUser.phoneNum,
-        identityNum: updatedUser.identityNum,
+        identityNum: updatedUser.nationalIdNumber,
         status: updatedUser.status,
         nationalityCountryCode: updatedUser.nationalityCountryCode,
         createdAt: updatedUser.createdAt,
