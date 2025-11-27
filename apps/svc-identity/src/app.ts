@@ -14,6 +14,7 @@ import authRoutes from './routes/auth.routes';
 import usersRoutes from './routes/users.routes';
 import healthRoutes from './routes/health.routes';
 import registrationRoutes from './routes/registration.routes';
+import adminRoutes from './routes/admin.routes';
 
 /**
  * Creates and configures the Express application
@@ -95,6 +96,7 @@ export function createApp(): Application {
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/users', usersRoutes);
   app.use('/api/v1/registration', registrationRoutes);
+  app.use('/api/v1/admin', adminRoutes);
 
   // ============================================
   // 404 Handler
