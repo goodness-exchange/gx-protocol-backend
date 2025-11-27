@@ -109,10 +109,29 @@ export interface UpdateProfileRequestDTO {
 // KYC DTOs
 // ============================================
 
+export interface KYCDocumentDTO {
+  type: 'NATIONAL_ID' | 'PASSPORT' | 'DRIVERS_LICENSE' | 'PROOF_OF_ADDRESS' | 'SELFIE_PHOTO' | 'OTHER';
+  side?: 'FRONT' | 'BACK';
+  hash: string;
+  size: number;
+  mimeType: string;
+  fileName: string;
+  documentNumber?: string;
+  issuingCountry?: string;
+  issuedDate?: string;
+  expiryDate?: string;
+}
+
 export interface SubmitKYCRequestDTO {
   evidenceHash: string;
   evidenceSize: number;
   evidenceMime: string;
+  documents?: KYCDocumentDTO[];
+  documentType?: string;
+  documentNumber?: string;
+  issuingCountry?: string;
+  issuedDate?: string;
+  expiryDate?: string;
 }
 
 export interface KYCStatusDTO {
