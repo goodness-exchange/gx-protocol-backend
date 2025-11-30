@@ -57,9 +57,9 @@ class UsersController {
 
       const result = await usersService.registerUser(data);
 
-      logger.info({ commandId: result.commandId }, 'User registration initiated');
+      logger.info({ profileId: result.profileId }, 'User registration successful');
 
-      res.status(202).json(result); // 202 Accepted (async operation)
+      res.status(201).json(result); // 201 Created (synchronous operation)
     } catch (error) {
       logger.error({ error }, 'User registration failed');
       
