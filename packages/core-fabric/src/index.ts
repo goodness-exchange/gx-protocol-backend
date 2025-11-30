@@ -48,6 +48,7 @@ export {
   EventListenerOptions,
   CircuitBreakerStats,
   IFabricClient,
+  SubmitTransactionOptions,
 } from './types';
 
 // Export client implementation
