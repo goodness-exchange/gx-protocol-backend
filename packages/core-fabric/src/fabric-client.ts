@@ -328,12 +328,35 @@ export class FabricClient implements IFabricClient {
       };
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      this.log('error', 'Transaction submission failed', {
+
+      // Extract detailed error information from Fabric SDK
+      const errorDetails: any = {
         contract: contractName,
         function: functionName,
         error: error.message,
         duration,
-      });
+      };
+
+      // Check for EndorseError details (Fabric Gateway SDK specific)
+      if (error.details && Array.isArray(error.details)) {
+        errorDetails.endorseDetails = error.details.map((d: any) => ({
+          address: d.address,
+          mspId: d.mspId,
+          message: d.message,
+        }));
+      }
+
+      // Check for gRPC error code
+      if (error.code !== undefined) {
+        errorDetails.grpcCode = error.code;
+      }
+
+      // Check for cause chain
+      if (error.cause) {
+        errorDetails.cause = error.cause.message || String(error.cause);
+      }
+
+      this.log('error', 'Transaction submission failed', errorDetails);
 
       // Re-throw to trigger circuit breaker
       throw error;
