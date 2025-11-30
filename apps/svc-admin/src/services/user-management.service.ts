@@ -274,11 +274,15 @@ class UserManagementService {
             )
           : 0;
 
+        // Generate unique requestId for idempotency
+        const requestId = `create-user-${user.fabricUserId}-${Date.now()}`;
+
         return prisma.outboxCommand.create({
           data: {
             tenantId: user.tenantId,
-            aggregateId: user.fabricUserId!,
+            service: 'identity',
             commandType: 'CREATE_USER',
+            requestId,
             payload: {
               userId: user.fabricUserId,
               biometricHash: user.biometricHash,
@@ -295,8 +299,8 @@ class UserManagementService {
 
     return {
       commands: commands.map((cmd: typeof commands[0]) => ({
-        userId: cmd.aggregateId,
-        commandId: cmd.commandId,
+        userId: (cmd.payload as any).userId,
+        commandId: cmd.id,
         status: cmd.status,
       })),
     };
@@ -340,8 +344,9 @@ class UserManagementService {
       prisma.outboxCommand.create({
         data: {
           tenantId: user.tenantId,
-          aggregateId: user.fabricUserId,
+          service: 'identity',
           commandType: 'FREEZE_WALLET',
+          requestId: `freeze-${user.fabricUserId}-${Date.now()}`,
           payload: {
             userID: user.fabricUserId,
             reason: `${reason}: ${notes || ''}`,
@@ -395,8 +400,9 @@ class UserManagementService {
       prisma.outboxCommand.create({
         data: {
           tenantId: user.tenantId,
-          aggregateId: user.fabricUserId,
+          service: 'identity',
           commandType: 'UNFREEZE_WALLET',
+          requestId: `unfreeze-${user.fabricUserId}-${Date.now()}`,
           payload: {
             userID: user.fabricUserId,
           },
