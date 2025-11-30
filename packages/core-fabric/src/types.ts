@@ -134,6 +134,27 @@ export interface CircuitBreakerStats {
 }
 
 /**
+ * Options for transaction submission
+ */
+export interface SubmitTransactionOptions {
+  /** Contract name (e.g., 'IdentityContract', 'TokenomicsContract') */
+  contractName: string;
+
+  /** Function name to invoke */
+  functionName: string;
+
+  /** Function arguments */
+  args: string[];
+
+  /**
+   * Organizations that must endorse this transaction.
+   * If not specified, the Gateway SDK will use service discovery.
+   * For MAJORITY endorsement policy with 2 orgs, specify both orgs.
+   */
+  endorsingOrganizations?: string[];
+}
+
+/**
  * Main Fabric client interface
  *
  * This is what application code depends on. Enables:
@@ -152,6 +173,11 @@ export interface IFabricClient {
     contractName: string,
     functionName: string,
     ...args: string[]
+  ): Promise<TransactionResult>;
+
+  /** Submit a transaction with options (write operation with endorsing orgs) */
+  submitTransactionWithOptions(
+    options: SubmitTransactionOptions
   ): Promise<TransactionResult>;
 
   /** Evaluate a transaction (read-only query) */
