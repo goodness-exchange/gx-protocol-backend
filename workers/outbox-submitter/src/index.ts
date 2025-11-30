@@ -656,14 +656,9 @@ class OutboxSubmitter {
       throw new Error(`Fabric client not found for identity: ${identityName}`);
     }
 
-    // ALL transactions require endorsement from both organizations
-    // due to the MAJORITY endorsement policy (2 of 2 orgs must endorse)
-    const endorsingOrganizations = ['Org1MSP', 'Org2MSP'];
-
     this.log('info', 'Submitting transaction to Fabric', {
       commandType,
       identity: identityName,
-      endorsingOrganizations,
     });
 
     // Map command type to chaincode contract and function
@@ -672,18 +667,14 @@ class OutboxSubmitter {
       payload
     );
 
-    // Submit transaction using selected identity with explicit endorsing organizations
-    // This ensures the Gateway SDK will:
-    // 1. Create proposal with the selected identity
-    // 2. Send proposal to peers from BOTH organizations for endorsement
-    // 3. Collect endorsements from both Org1MSP and Org2MSP
-    // 4. Submit transaction to orderer
-    const result = await fabricClient.submitTransactionWithOptions({
+    // Submit transaction using selected identity
+    // Chaincode uses OR endorsement policy: OR('Org1MSP.member','Org2MSP.member')
+    // This means only ONE organization needs to endorse the transaction
+    const result = await fabricClient.submitTransaction(
       contractName,
       functionName,
-      args,
-      endorsingOrganizations,
-    });
+      ...args
+    );
 
     this.log('info', 'Transaction submitted successfully', {
       commandType,
