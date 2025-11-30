@@ -30,18 +30,20 @@ type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' |
 class UsersService {
   /**
    * Register a new user
-   * 
-   * This is a WRITE operation using the CQRS outbox pattern:
+   *
+   * This is a direct WRITE operation to create a local user profile:
    * 1. Hash password
-   * 2. Create OutboxCommand for "CreateUser"
-   * 3. Outbox-submitter will pick it up and submit to Fabric
-   * 4. Fabric emits UserCreated event
-   * 5. Projector updates UserProfile table
-   * 
+   * 2. Create UserProfile in database
+   * 3. User can then complete KYC
+   * 4. Admin approves KYC and triggers on-chain registration via svc-admin
+   *
+   * NOTE: Blockchain registration happens AFTER KYC approval via svc-admin.batchRegisterOnchain()
+   * This separation ensures only verified users get on-chain identities.
+   *
    * @param data - User registration data
-   * @returns Temporary acknowledgment (command ID)
+   * @returns Created user profile
    */
-  async registerUser(data: RegisterUserRequestDTO): Promise<{ commandId: string; message: string }> {
+  async registerUser(data: RegisterUserRequestDTO): Promise<{ profileId: string; message: string }> {
     const { email, password, firstName, lastName, phoneNum, identityNum, nationalityCountryCode } = data;
 
     logger.info({ email }, 'Registering new user');
@@ -61,33 +63,28 @@ class UsersService {
     // Generate a simple biometric hash placeholder (in production, this would be actual biometric data)
     const biometricHash = await bcrypt.hash(`${email}:${Date.now()}`, 10);
 
-    // Create outbox command for Fabric chaincode
-    const command = await db.outboxCommand.create({
+    // Create local user profile (off-chain)
+    // Blockchain registration happens after KYC approval via svc-admin.batchRegisterOnchain()
+    const userProfile = await db.userProfile.create({
       data: {
         tenantId: 'default', // TODO: Get from context
-        service: 'svc-identity',
-        requestId: email.toLowerCase(), // Use email as request ID for idempotency
-        commandType: 'CREATE_USER',
-        payload: {
-          email: email.toLowerCase(),
-          passwordHash,
-          firstName,
-          lastName,
-          phoneNum: phoneNum || null,
-          identityNum: identityNum || null,
-          nationalityCountryCode: nationalityCountryCode || null,
-          biometricHash,
-        },
-        status: 'PENDING',
-        attempts: 0,
+        email: email.toLowerCase(),
+        passwordHash,
+        firstName,
+        lastName,
+        phoneNum: phoneNum || null,
+        nationalIdNumber: identityNum || null,
+        nationalityCountryCode: nationalityCountryCode || null,
+        biometricHash,
+        status: 'PENDING_KYC', // User needs to complete KYC before on-chain registration
       },
     });
 
-    logger.info({ commandId: command.id, email }, 'User registration command created');
+    logger.info({ profileId: userProfile.profileId, email }, 'User profile created');
 
     return {
-      commandId: command.id,
-      message: 'User registration initiated. Check status with command ID.',
+      profileId: userProfile.profileId,
+      message: 'User registration successful. Please complete KYC verification.',
     };
   }
 
