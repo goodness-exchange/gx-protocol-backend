@@ -189,23 +189,9 @@ function selectIdentityForCommand(commandType: string): string {
   return 'org1-partner-api';
 }
 
-/**
- * Check if command requires multi-org endorsement
- *
- * Protocol-level operations require endorsements from multiple organizations
- * as defined by the chaincode endorsement policy (MAJORITY for 2 orgs = both must endorse)
- */
-function requiresMultiOrgEndorsement(commandType: string): boolean {
-  const multiOrgCommands = [
-    'BOOTSTRAP_SYSTEM',
-    'INITIALIZE_COUNTRY_DATA',
-    'PAUSE_SYSTEM',
-    'RESUME_SYSTEM',
-    'UPDATE_SYSTEM_PARAMETER',
-  ];
-
-  return multiOrgCommands.includes(commandType);
-}
+// NOTE: All transactions now require multi-org endorsement due to MAJORITY policy
+// The requiresMultiOrgEndorsement function has been removed as it's no longer needed.
+// Endorsing organizations are explicitly specified in submitToFabric method.
 
 // ========== Main Worker Class ==========
 
@@ -652,19 +638,16 @@ class OutboxSubmitter {
    * 3. Chaincode validates role before executing function
    *
    * Multi-Org Endorsement:
-   * - Protocol-level commands require MAJORITY endorsement (both Org1 and Org2)
-   * - Gateway SDK uses service discovery to find peers from all organizations
-   * - Endorsement policy is defined at chaincode level
+   * - ALL transactions require endorsements from both Org1MSP and Org2MSP
+   * - This is because the chaincode endorsement policy is MAJORITY (2 of 2)
+   * - We explicitly specify endorsingOrganizations to ensure both orgs endorse
    *
-   * Example: INITIALIZE_COUNTRY_DATA requires gx_super_admin role + multi-org endorsement
+   * Example: CREATE_USER requires gx_partner_api role + multi-org endorsement
    */
   private async submitToFabric(
     commandType: string,
     payload: any
   ): Promise<{ transactionId: string; blockNumber?: bigint }> {
-    // Check if multi-org endorsement is required
-    const requiresMultiOrg = requiresMultiOrgEndorsement(commandType);
-
     // Select appropriate Fabric client for this command
     const identityName = selectIdentityForCommand(commandType);
     const fabricClient = fabricClients.get(identityName);
@@ -673,10 +656,14 @@ class OutboxSubmitter {
       throw new Error(`Fabric client not found for identity: ${identityName}`);
     }
 
+    // ALL transactions require endorsement from both organizations
+    // due to the MAJORITY endorsement policy (2 of 2 orgs must endorse)
+    const endorsingOrganizations = ['Org1MSP', 'Org2MSP'];
+
     this.log('info', 'Submitting transaction to Fabric', {
       commandType,
       identity: identityName,
-      requiresMultiOrgEndorsement: requiresMultiOrg,
+      endorsingOrganizations,
     });
 
     // Map command type to chaincode contract and function
@@ -685,18 +672,18 @@ class OutboxSubmitter {
       payload
     );
 
-    // Submit transaction using selected identity
-    // The Gateway SDK will:
-    // 1. Create proposal with Org1 identity
-    // 2. Use service discovery to find peers from Org1 and Org2
-    // 3. Send proposal to peers from both organizations for endorsement
-    // 4. Collect endorsements (must satisfy MAJORITY policy = both orgs)
-    // 5. Submit transaction to orderer
-    const result = await fabricClient.submitTransaction(
+    // Submit transaction using selected identity with explicit endorsing organizations
+    // This ensures the Gateway SDK will:
+    // 1. Create proposal with the selected identity
+    // 2. Send proposal to peers from BOTH organizations for endorsement
+    // 3. Collect endorsements from both Org1MSP and Org2MSP
+    // 4. Submit transaction to orderer
+    const result = await fabricClient.submitTransactionWithOptions({
       contractName,
       functionName,
-      ...args
-    );
+      args,
+      endorsingOrganizations,
+    });
 
     this.log('info', 'Transaction submitted successfully', {
       commandType,
