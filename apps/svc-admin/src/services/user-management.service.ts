@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { db as prisma } from '@gx/core-db';
 import { generateFabricUserId } from '@gx/core-fabric';
 import { logger } from '@gx/core-logger';
@@ -277,6 +278,12 @@ class UserManagementService {
         // Generate unique requestId for idempotency
         const requestId = `create-user-${user.fabricUserId}-${Date.now()}`;
 
+        // Generate SHA-256 biometric hash from user's unique identifiers
+        // The chaincode requires exactly 64 hex characters (SHA-256)
+        // We use a combination of profileId + fabricUserId + dateOfBirth for uniqueness
+        const biometricSource = `${user.profileId}:${user.fabricUserId}:${user.dateOfBirth?.toISOString() || ''}`;
+        const sha256BiometricHash = createHash('sha256').update(biometricSource).digest('hex');
+
         return prisma.outboxCommand.create({
           data: {
             tenantId: user.tenantId,
@@ -285,7 +292,7 @@ class UserManagementService {
             requestId,
             payload: {
               userId: user.fabricUserId,
-              biometricHash: user.biometricHash,
+              biometricHash: sha256BiometricHash,
               nationality: user.nationalityCountryCode,
               age,
             },
