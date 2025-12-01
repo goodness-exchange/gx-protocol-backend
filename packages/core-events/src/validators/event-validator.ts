@@ -110,7 +110,9 @@ export class EventValidator {
 
     // Extract event metadata
     const eventName = event.eventName as string;
-    const eventVersion = event.eventVersion as string;
+    // eventVersion is optional - default to '1.0' for backward compatibility
+    // with chaincode events that don't include version field
+    const eventVersion = (event.eventVersion as string) || '1.0';
 
     // Validate metadata exists
     if (!eventName || typeof eventName !== 'string') {
@@ -121,19 +123,6 @@ export class EventValidator {
             instancePath: '/eventName',
             keyword: 'required',
             message: 'Event must have an "eventName" field',
-          },
-        ],
-      };
-    }
-
-    if (!eventVersion || typeof eventVersion !== 'string') {
-      return {
-        success: false,
-        errors: [
-          {
-            instancePath: '/eventVersion',
-            keyword: 'required',
-            message: 'Event must have an "eventVersion" field',
           },
         ],
       };
