@@ -391,23 +391,22 @@ class Projector {
       const payloadStr = Buffer.from(event.payload).toString('utf-8');
       const payload = JSON.parse(payloadStr);
 
-      // Validate event against schema
+      // Validate event against schema (lenient mode - log warnings but don't skip)
+      // Note: Chaincode events may not match the full schema (e.g., missing eventVersion)
+      // We validate for observability but process all events to ensure read models stay in sync
       const validationResult = eventValidator.validate({
         eventName: event.eventName,
-        version: '1.0', // TODO: Get version from event metadata
-        payload,
+        eventVersion: '1.0', // Default version for chaincode events
+        ...payload,
       });
 
       if (!validationResult.success) {
-        this.log('warn', 'Event validation failed', {
+        this.log('debug', 'Event schema validation info (proceeding anyway)', {
           eventName: event.eventName,
           errors: validationResult.errors,
         });
-        metrics.eventsProcessed.inc({
-          event_name: event.eventName,
-          status: 'validation_failed',
-        });
-        return; // Skip invalid events
+        // Note: We continue processing even if validation fails
+        // because chaincode event format differs from full schema
       }
 
       // Route event to appropriate handler
@@ -609,9 +608,12 @@ class Projector {
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
-    // Find user by fabricUserId (userId in event is the Fabric User ID)
+    // Find user by fabricUserId
+    // Note: Chaincode uses 'userID' (capital ID), handle both formats for compatibility
+    const fabricUserId = payload.userID || payload.userId;
+
     const existingUser = await this.prisma.userProfile.findFirst({
-      where: { fabricUserId: payload.userId },
+      where: { fabricUserId },
     });
 
     if (existingUser) {
@@ -628,33 +630,17 @@ class Projector {
 
       this.log('info', 'User activated on blockchain', {
         profileId: existingUser.profileId,
-        fabricUserId: payload.userId,
+        fabricUserId,
       });
     } else {
-      // Fallback: Create new user profile if not found (shouldn't happen in MVP)
-      await this.prisma.userProfile.create({
-        data: {
-          profileId: payload.userId,
-          tenantId: this.config.tenantId,
-          firstName: payload.firstName || '',
-          lastName: payload.lastName || '',
-          email: payload.email || '',
-          phoneNum: payload.phoneNum || '',
-          identityNum: payload.identityNum || '',
-          biometricHash: payload.biometricHash || '',
-          passwordHash: payload.passwordHash || '',
-          nationalityCountryCode: payload.countryCode || payload.nationality,
-          fabricUserId: payload.userId,
-          status: 'ACTIVE',
-          onchainStatus: 'ACTIVE',
-          onchainRegisteredAt: event.timestamp,
-          createdAt: event.timestamp,
-          updatedAt: event.timestamp,
-        },
-      });
-
-      this.log('warn', 'Created new UserProfile from UserCreated event (unexpected)', {
-        fabricUserId: payload.userId,
+      // Fallback: Log warning but don't create - user should exist from registration flow
+      // Creating stub users for blockchain-only registrations (like direct chaincode tests)
+      // would require all the fields that we don't have from the event payload.
+      // Better to log and skip than create incomplete records.
+      this.log('warn', 'UserCreated event for unknown fabricUserId (skipping)', {
+        fabricUserId,
+        blockNumber: event.blockNumber.toString(),
+        txId: event.transactionId,
       });
     }
   }
