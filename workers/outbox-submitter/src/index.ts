@@ -174,6 +174,7 @@ function selectIdentityForCommand(commandType: string): string {
   const adminCommands = [
     'APPOINT_ADMIN',
     'ACTIVATE_TREASURY',
+    'DISTRIBUTE_GENESIS', // Requires gx_admin role for genesis token distribution
   ];
 
   // For super admin commands, use Org1 super-admin
@@ -731,7 +732,8 @@ class OutboxSubmitter {
           functionName: 'DistributeGenesis',
           args: [
             payload.userId as string,
-            payload.nationality as string,
+            // Support both 'nationality' and 'countryCode' field names for backwards compatibility
+            (payload.nationality || payload.countryCode) as string,
           ],
         };
 
