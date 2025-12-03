@@ -1,8 +1,16 @@
 import { logger } from '@gx/core-logger';
 import { db, PrismaClient } from '@gx/core-db';
+import { generateFabricUserId } from '@gx/core-fabric';
 
 // Prisma transaction client type
 type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
+
+// Result interface for batch approval
+export interface BatchApprovalResult {
+  success: string[];
+  failed: Array<{ profileId: string; error: string }>;
+  totalProcessed: number;
+}
 
 // Type for user with KYC relations
 interface UserWithKyc {
@@ -276,6 +284,196 @@ class AdminService {
     });
 
     logger.info({ profileId, adminId }, 'User rejected');
+  }
+
+  /**
+   * Batch approve users and register them on blockchain
+   *
+   * This function:
+   * 1. Finds all users with APPROVED KYC status but not yet on blockchain
+   * 2. Generates Fabric User IDs for each
+   * 3. Creates CREATE_USER outbox commands for blockchain registration
+   * 4. Updates user status to APPROVED_PENDING_ONCHAIN
+   *
+   * @param adminId - Admin performing the batch approval
+   * @param profileIds - Optional array of specific profile IDs to approve (if empty, approves all eligible)
+   * @returns BatchApprovalResult with success/failed counts
+   */
+  async batchApproveForBlockchain(
+    adminId: string,
+    profileIds?: string[]
+  ): Promise<BatchApprovalResult> {
+    logger.info({ adminId, profileIds }, 'Starting batch approval for blockchain registration');
+
+    const result: BatchApprovalResult = {
+      success: [],
+      failed: [],
+      totalProcessed: 0,
+    };
+
+    // Find eligible users: KYC approved but not yet on blockchain
+    const whereClause: any = {
+      status: 'ACTIVE', // User has been approved by admin
+      onchainStatus: 'NOT_REGISTERED', // Not yet on blockchain
+      nationalityCountryCode: { not: null }, // Must have nationality for Fabric ID
+      dateOfBirth: { not: null }, // Must have DOB for Fabric ID
+    };
+
+    // If specific profile IDs provided, filter to those
+    if (profileIds && profileIds.length > 0) {
+      whereClause.profileId = { in: profileIds };
+    }
+
+    const eligibleUsers = await db.userProfile.findMany({
+      where: whereClause,
+      select: {
+        profileId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        dateOfBirth: true,
+        gender: true,
+        nationalityCountryCode: true,
+        biometricHash: true,
+      },
+    });
+
+    logger.info({ count: eligibleUsers.length }, 'Found eligible users for blockchain registration');
+
+    // Process each user
+    for (const user of eligibleUsers) {
+      result.totalProcessed++;
+
+      try {
+        // Validate required fields
+        if (!user.dateOfBirth || !user.nationalityCountryCode) {
+          throw new Error('Missing required fields: dateOfBirth or nationalityCountryCode');
+        }
+
+        // Format DOB for Fabric ID generation (YYYY-MM-DD)
+        const dobString = user.dateOfBirth instanceof Date
+          ? user.dateOfBirth.toISOString().slice(0, 10)
+          : new Date(user.dateOfBirth).toISOString().slice(0, 10);
+
+        // Generate deterministic Fabric User ID
+        const fabricUserId = generateFabricUserId(
+          user.nationalityCountryCode,
+          dobString,
+          user.gender || 'male',
+          '0' // Account type 0 = Individuals
+        );
+
+        // Calculate age for blockchain
+        const age = this.calculateAge(user.dateOfBirth);
+
+        // Use transaction to update user and create outbox command atomically
+        await db.$transaction(async (tx: TransactionClient) => {
+          // Update user with Fabric ID and pending status
+          await tx.userProfile.update({
+            where: { profileId: user.profileId },
+            data: {
+              fabricUserId: fabricUserId,
+              onchainStatus: 'PENDING',
+              reviewedBy: adminId,
+              reviewedAt: new Date(),
+            },
+          });
+
+          // Create outbox command for blockchain registration
+          // NOTE: Field names must match what outbox-submitter expects:
+          // - userId (lowercase 'd') not userID
+          await tx.outboxCommand.create({
+            data: {
+              tenantId: 'default',
+              service: 'svc-identity',
+              commandType: 'CREATE_USER',
+              requestId: user.profileId,
+              payload: {
+                userId: fabricUserId,
+                biometricHash: user.biometricHash,
+                nationality: user.nationalityCountryCode,
+                age: age,
+              },
+              status: 'PENDING',
+            },
+          });
+        });
+
+        result.success.push(user.profileId);
+        logger.info(
+          { profileId: user.profileId, fabricUserId },
+          'Queued user for blockchain registration'
+        );
+
+      } catch (error: any) {
+        result.failed.push({
+          profileId: user.profileId,
+          error: error.message || 'Unknown error',
+        });
+        logger.error(
+          { profileId: user.profileId, error: error.message },
+          'Failed to queue user for blockchain registration'
+        );
+      }
+    }
+
+    logger.info(
+      { adminId, success: result.success.length, failed: result.failed.length },
+      'Batch approval completed'
+    );
+
+    return result;
+  }
+
+  /**
+   * Get users pending blockchain registration
+   *
+   * @returns List of users with ACTIVE status but NOT_REGISTERED onchainStatus
+   */
+  async getUsersPendingBlockchain(): Promise<UserListItem[]> {
+    const users = await db.userProfile.findMany({
+      where: {
+        status: 'ACTIVE',
+        onchainStatus: 'NOT_REGISTERED',
+      },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        kycVerifications: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    return users.map((user: UserWithKyc) => ({
+      profileId: user.profileId,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phoneNum: user.phoneNum,
+      status: user.status,
+      nationalityCountryCode: user.nationalityCountryCode,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      kycStatus: user.kycVerifications[0]?.status || null,
+      kycSubmittedAt: user.kycVerifications[0]?.createdAt || null,
+    }));
+  }
+
+  /**
+   * Calculate age from date of birth
+   */
+  private calculateAge(dob: Date | string): number {
+    const birthDate = dob instanceof Date ? dob : new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+
+    return age;
   }
 }
 
