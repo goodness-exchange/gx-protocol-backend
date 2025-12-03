@@ -9,5 +9,8 @@ export * from './middlewares/metrics';
 export * from './middlewares/auth';
 export * from './middlewares/rate-limit';
 
+// Validation utilities
+export * from './utils/validation';
+
 // Types
 export * from './types/auth';
