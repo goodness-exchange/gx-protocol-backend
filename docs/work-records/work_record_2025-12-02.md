@@ -324,3 +324,101 @@ peer chaincode invoke ... \
 | TC-2: DisburseFromPool | PASSED | Pool disbursement from pre-existing balance |
 
 **Conclusion:** Mainnet mint-on-demand architecture verified. Ready for backend integration.
+
+### Session 2.2: Relationship Tree Testing
+
+**Objective:** Test relationship functionality between users
+
+#### Test Setup
+
+Two test users created on mainnet:
+
+| User ID | Nationality | Age | Genesis Minted | Balance |
+|---------|-------------|-----|----------------|---------|
+| TEST-MAINNET-001 | NG | 30 | Yes | 10,500 GX |
+| TEST-MAINNET-002 | IN | 25 | Yes | 500 GX |
+
+#### TC-3: RequestRelationship
+
+**Test Input:**
+```bash
+peer chaincode invoke ... \
+  -c '{"function":"IdentityContract:RequestRelationship","Args":["TEST-MAINNET-001","TEST-MAINNET-002","FRIEND_OF"]}'
+```
+
+**Result:** EXPECTED FAILURE - Identity Binding Enforced
+
+**Error Message:**
+```
+submitter with ID x509::CN=admin.org1,OU=admin,O=Hyperledger,ST=North Carolina,C=US::CN=fabric-ca-server,...
+is not authorized to request a relationship on behalf of TEST-MAINNET-001
+```
+
+**Analysis:**
+The chaincode correctly enforces identity binding:
+1. `RequestRelationship` verifies `submitterID == subjectID`
+2. Admin certificate (`admin.org1`) cannot act on behalf of user (`TEST-MAINNET-001`)
+3. This is correct security behavior - prevents unauthorized relationship creation
+
+#### GetMyProfile Schema Validation Issue
+
+**Error:**
+```
+Error handling success response. Value did not match schema:
+1. return.relationships: Invalid type. Expected: array, given: null
+2. return.user.guardians: Invalid type. Expected: array, given: null
+3. return.user: velocityTaxExempt is required
+```
+
+**Root Cause:** API response validation expects non-null arrays and a `velocityTaxExempt` field that isn't set.
+
+**Recommendation:** Update chaincode to:
+1. Initialize empty arrays `[]` instead of `null` for `relationships` and `guardians`
+2. Add `velocityTaxExempt` field to User struct with default value
+
+#### Direct CouchDB Verification
+
+User data verified via CouchDB query:
+```json
+{
+  "userID": "TEST-MAINNET-001",
+  "docType": "user",
+  "nationality": "NG",
+  "age": 30,
+  "status": "Active",
+  "trustScore": 10,
+  "genesisMinted": true,
+  "guardians": null,
+  "createdAt": "2025-12-03T04:39:23.75014812Z"
+}
+```
+
+No relationships exist (empty `docType: relationship` result set).
+
+#### Relationship Testing Summary
+
+| Test | Status | Notes |
+|------|--------|-------|
+| User Creation | PASSED | Both test users exist with correct data |
+| Identity Binding | VERIFIED | Chaincode correctly rejects admin-as-user attempts |
+| RequestRelationship | BLOCKED | Requires user-specific certificate from Fabric CA |
+| ConfirmRelationship | BLOCKED | Depends on RequestRelationship |
+
+#### Backend Integration Requirements
+
+For relationship functionality to work end-to-end:
+
+1. **User Certificate Enrollment:**
+   - Backend must enroll user-specific certificates via Fabric CA
+   - Certificate CN/ID must match the user's `userID`
+   - Store user certificates securely for transaction signing
+
+2. **Wallet Management:**
+   - Each user needs a Fabric wallet with their enrolled identity
+   - Backend signs transactions with user's private key
+   - Cannot use admin certificate for user operations
+
+3. **Alternative Approach (Admin Bypass):**
+   - NOT RECOMMENDED for production
+   - Could add `RequireAdmin` override for testing only
+   - Would weaken security model
