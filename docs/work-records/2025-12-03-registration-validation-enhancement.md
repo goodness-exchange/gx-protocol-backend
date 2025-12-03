@@ -127,6 +127,50 @@ const handleApiError = (error: any, defaultField?: string) => {
 - Dynamic placeholder with country-specific format
 - Shows country name alongside dial code
 
+#### 4. Modular Feature Flags System
+
+**File:** `gx-wallet-frontend/lib/config/registration-features.ts`
+
+Created a feature flags system for toggling registration features:
+
+```typescript
+export const registrationFeatures: RegistrationFeatureFlags = {
+  emailVerification: true,     // Toggle email OTP step
+  phoneVerification: true,     // Toggle phone OTP step
+  passwordStrengthIndicator: true,
+  genesisEligibilityDisplay: true,
+  countryDialCodeAutofill: true,
+  devOtpHint: process.env.NODE_ENV === 'development',
+};
+```
+
+Environment variable overrides:
+- `NEXT_PUBLIC_FEATURE_EMAIL_VERIFICATION`
+- `NEXT_PUBLIC_FEATURE_PHONE_VERIFICATION`
+- `NEXT_PUBLIC_FEATURE_PASSWORD_STRENGTH`
+- `NEXT_PUBLIC_FEATURE_GENESIS_DISPLAY`
+- `NEXT_PUBLIC_FEATURE_DIAL_CODE_AUTOFILL`
+- `NEXT_PUBLIC_FEATURE_DEV_OTP_HINT`
+
+#### 5. Structured Error Propagation
+
+**File:** `gx-wallet-frontend/lib/backendClient.ts`
+
+Added `getApiErrorDetails` helper to extract structured error information:
+
+```typescript
+export interface ApiErrorDetails {
+  message: string;
+  code: string;
+  field?: string;
+  status: number;
+}
+
+export function getApiErrorDetails(error: unknown, defaultField?: string): ApiErrorDetails
+```
+
+All registration API routes now use this helper to ensure backend error codes (like `EMAIL_ALREADY_EXISTS`) are properly forwarded to the frontend.
+
 ## Validation Rules Summary
 
 | Field | Rules |
@@ -171,6 +215,18 @@ const handleApiError = (error: any, defaultField?: string) => {
 | File | Changes |
 |------|---------|
 | `components/registration/RegistrationWizard.tsx` | Enhanced validation, error handling, phone integration |
+| `lib/config/registration-features.ts` | NEW - Feature flags for modular registration |
+| `lib/backendClient.ts` | Added getApiErrorDetails helper for structured error extraction |
+| `app/api/registration/email/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/email/verify/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/email/resend/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/name-country/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/dob-gender/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/password/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/phone/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/phone/verify/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/phone/resend/route.ts` | Enhanced error handling with structured responses |
+| `app/api/registration/[registrationId]/route.ts` | Enhanced error handling with structured responses |
 
 ## Commits
 
@@ -184,6 +240,19 @@ ca8fc93 feat(core-http): export validation utilities from package index
 ### Frontend
 ```
 f9f20eb refactor(registration): enhance validation and error handling in RegistrationWizard
+66c59c1 feat(config): add modular registration feature flags configuration
+28deb46 refactor(registration): integrate modular feature flags into wizard
+b759ab5 feat(lib): add getApiErrorDetails helper for structured error extraction
+24a9b8f refactor(api): enhance email registration route with structured error handling
+1917fb0 refactor(api): enhance email verify route with structured error handling
+14494d8 refactor(api): enhance email resend route with structured error handling
+4d0c793 refactor(api): enhance name-country route with structured error handling
+9c87c2e refactor(api): enhance dob-gender route with structured error handling
+1b31f74 refactor(api): enhance password route with structured error handling
+433e3df refactor(api): enhance phone registration route with structured error handling
+984527e refactor(api): enhance phone verify route with structured error handling
+6c12d9d refactor(api): enhance phone resend route with structured error handling
+23e2a49 refactor(api): enhance registration status route with structured error handling
 ```
 
 ## Testing
