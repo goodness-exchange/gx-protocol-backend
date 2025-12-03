@@ -245,3 +245,82 @@ export CORE_PEER_MSPCONFIGPATH=/tmp/admin-msp
 peer chaincode query -C gxchannel -n gxtv3 \
   -c '"'"'{"function":"TokenomicsContract:GetSupplyStatus","Args":[]}'"'"''
 ```
+
+### Session 2.1: Mainnet Integration Testing
+
+**Objective:** Verify mint-on-demand functionality on mainnet before backend integration
+
+#### TC-1: CreateUser with Auto-Genesis Minting
+
+**Test Input:**
+```bash
+BIOMETRIC_HASH=$(echo -n "test-user-001-biometric-data" | sha256sum | cut -d' ' -f1)
+# Hash: 0c69db7ab5723a11d5b3949cab701598176215aa9ad0b700e565bdc124d7b002
+
+peer chaincode invoke ... \
+  -c '{"function":"IdentityContract:CreateUser","Args":["TEST-MAINNET-001","<hash>","NG","30"]}'
+```
+
+**Result:** PASSED
+
+| Metric | Value |
+|--------|-------|
+| User Balance | 500,000,000 Qirat (500 GX) |
+| USER_GENESIS Minted | 500,000,000 Qirat (500 GX) |
+| GOVT_GENESIS Minted | 50,000,000 Qirat (50 GX) |
+| Total Minted | 550,000,000 Qirat (550 GX) |
+
+#### TC-2: DisburseFromPool from CHARITABLE
+
+**Test Input:**
+```bash
+peer chaincode invoke ... \
+  -c '{"function":"AdminContract:DisburseFromPool","Args":["CHARITABLE","TEST-MAINNET-001","10000000000","Mainnet integration test disbursement"]}'
+```
+
+**Result:** PASSED
+
+| Metric | Before | After |
+|--------|--------|-------|
+| User Balance | 500 GX | 10,500 GX |
+| CHARITABLE Balance | 158,000,000,000 GX | 157,999,990,000 GX |
+| CHARITABLE Minted | 0 | 0 (no new minting - used pre-existing balance) |
+
+**Key Observation:** DisburseFromPool correctly uses pre-existing pool balance without incrementing the minted counter. This is correct behavior as the tokens were pre-minted before the mint-on-demand migration.
+
+#### Final Mainnet Supply Status
+
+```json
+{
+  "maxSupply": 1250000000000000000,
+  "totalMinted": 550000000,
+  "availableToMint": 1249999999450000000,
+  "circulatingSupply": 550000000,
+  "pools": {
+    "CHARITABLE": {
+      "cap": 158000000000000000,
+      "minted": 0,
+      "balance": 157999990000000000
+    },
+    "GOVT_GENESIS": {
+      "cap": 152000000000000000,
+      "minted": 50000000,
+      "balance": 0
+    },
+    "USER_GENESIS": {
+      "cap": 577500000000000000,
+      "minted": 500000000,
+      "balance": 0
+    }
+  }
+}
+```
+
+#### Mainnet Test Summary
+
+| Test Case | Status | Notes |
+|-----------|--------|-------|
+| TC-1: CreateUser | PASSED | Auto-genesis minting working correctly |
+| TC-2: DisburseFromPool | PASSED | Pool disbursement from pre-existing balance |
+
+**Conclusion:** Mainnet mint-on-demand architecture verified. Ready for backend integration.
