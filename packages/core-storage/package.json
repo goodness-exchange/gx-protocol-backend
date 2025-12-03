@@ -1,0 +1,23 @@
+{
+  "name": "@gx/core-storage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Document storage abstraction with Google Drive provider and ClamAV virus scanning",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "jest"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0",
+    "clamscan": "^2.2.1",
+    "@gx/core-logger": "1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.18.0"
+  }
+}
