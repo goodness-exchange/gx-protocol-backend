@@ -2,15 +2,13 @@
 #
 # Local Development Environment Startup Script
 #
-# This script sets up the local development environment by:
-# 1. Starting local PostgreSQL and Redis (via Docker)
-# 2. Port-forwarding Fabric network from testnet
-# 3. Creating the development database if needed
+# This script port-forwards Kubernetes services to localhost so you can
+# run backend Node.js services locally with hot-reload while using
+# the actual testnet/mainnet database and Redis.
 #
-# Usage: ./scripts/dev-local-start.sh [--use-testnet-db]
-#
-# Options:
-#   --use-testnet-db  Use testnet database instead of local (port-forward)
+# Usage:
+#   ./scripts/dev-local-start.sh              # Use testnet (default)
+#   ./scripts/dev-local-start.sh --mainnet    # Use mainnet
 #
 
 set -e
@@ -18,186 +16,153 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Colors for output
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Parse arguments
-USE_TESTNET_DB=false
+USE_MAINNET=false
 for arg in "$@"; do
     case $arg in
-        --use-testnet-db)
-            USE_TESTNET_DB=true
+        --mainnet)
+            USE_MAINNET=true
             shift
             ;;
     esac
 done
 
-# Configuration
-LOCAL_DB_PORT=5432
-LOCAL_REDIS_PORT=6379
-LOCAL_DB_USER="gx_admin"
-LOCAL_DB_PASSWORD="localdevpassword"
-LOCAL_DB_NAME="gx_protocol_dev"
-
-TESTNET_NAMESPACE="backend-testnet"
-FABRIC_TESTNET_NAMESPACE="fabric-testnet"
+# Set namespace based on environment
+if [ "$USE_MAINNET" = true ]; then
+    BACKEND_NS="backend-mainnet"
+    FABRIC_NS="fabric"
+    ENV_NAME="MAINNET"
+    DB_PASSWORD='IpBZ31PZvN1ma/Q8BIoEhp6haKYRLlUkRk1eRRhtssY='
+else
+    BACKEND_NS="backend-testnet"
+    FABRIC_NS="fabric-testnet"
+    ENV_NAME="TESTNET"
+    DB_PASSWORD='TESTNET_PASSWORD_HERE'  # Update with actual testnet password
+fi
 
 # PID file for cleanup
 PID_FILE="/tmp/gx-dev-local.pids"
 
 cleanup() {
-    log_info "Cleaning up..."
+    log_info "Stopping port-forwards..."
     if [ -f "$PID_FILE" ]; then
         while read -r pid; do
             kill "$pid" 2>/dev/null || true
         done < "$PID_FILE"
         rm -f "$PID_FILE"
     fi
-    # Kill any lingering port-forwards
-    pkill -f "kubectl port-forward.*backend-testnet" 2>/dev/null || true
-    pkill -f "kubectl port-forward.*fabric-testnet" 2>/dev/null || true
+    pkill -f "kubectl port-forward.*$BACKEND_NS" 2>/dev/null || true
 }
 
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 # Clear previous PIDs
 rm -f "$PID_FILE"
 
 echo ""
 echo "============================================"
-echo "  GX Protocol - Local Development Setup"
+echo "  GX Protocol - Local Development"
+echo "  Environment: $ENV_NAME"
 echo "============================================"
 echo ""
 
+# Kill any existing port-forwards
+log_info "Cleaning up existing port-forwards..."
+pkill -f "kubectl port-forward.*$BACKEND_NS" 2>/dev/null || true
+sleep 1
+
 # ============================================
-# Step 1: Local Database and Redis
+# Port-forward PostgreSQL
 # ============================================
+log_info "Port-forwarding PostgreSQL (5432)..."
+kubectl port-forward -n "$BACKEND_NS" svc/postgres-primary 5432:5432 > /dev/null 2>&1 &
+echo $! >> "$PID_FILE"
+sleep 2
 
-if [ "$USE_TESTNET_DB" = true ]; then
-    log_info "Using testnet database (port-forwarding)..."
-
-    # Port-forward PostgreSQL from testnet
-    kubectl port-forward -n $TESTNET_NAMESPACE svc/postgres-primary $LOCAL_DB_PORT:5432 &
-    echo $! >> "$PID_FILE"
-
-    # Port-forward Redis from testnet
-    kubectl port-forward -n $TESTNET_NAMESPACE svc/redis-master $LOCAL_REDIS_PORT:6379 &
-    echo $! >> "$PID_FILE"
-
-    log_success "Testnet database port-forwarded to localhost:$LOCAL_DB_PORT"
+# Verify PostgreSQL connection
+if nc -z localhost 5432 2>/dev/null; then
+    log_success "PostgreSQL: localhost:5432"
 else
-    log_info "Starting local PostgreSQL and Redis via Docker..."
-
-    # Check if Docker is running
-    if ! docker info > /dev/null 2>&1; then
-        log_error "Docker is not running. Please start Docker first."
-        exit 1
-    fi
-
-    # Start PostgreSQL if not running
-    if ! docker ps | grep -q "gx-dev-postgres"; then
-        log_info "Starting local PostgreSQL..."
-        docker run -d \
-            --name gx-dev-postgres \
-            -e POSTGRES_USER=$LOCAL_DB_USER \
-            -e POSTGRES_PASSWORD=$LOCAL_DB_PASSWORD \
-            -e POSTGRES_DB=$LOCAL_DB_NAME \
-            -p $LOCAL_DB_PORT:5432 \
-            -v gx-dev-postgres-data:/var/lib/postgresql/data \
-            postgres:15-alpine \
-            || docker start gx-dev-postgres
-    else
-        log_info "PostgreSQL already running"
-    fi
-
-    # Start Redis if not running
-    if ! docker ps | grep -q "gx-dev-redis"; then
-        log_info "Starting local Redis..."
-        docker run -d \
-            --name gx-dev-redis \
-            -p $LOCAL_REDIS_PORT:6379 \
-            redis:7-alpine \
-            || docker start gx-dev-redis
-    else
-        log_info "Redis already running"
-    fi
-
-    # Wait for database to be ready
-    log_info "Waiting for database to be ready..."
-    sleep 3
-
-    # Run migrations
-    log_info "Running database migrations..."
-    cd "$PROJECT_ROOT"
-    DATABASE_URL="postgresql://$LOCAL_DB_USER:$LOCAL_DB_PASSWORD@localhost:$LOCAL_DB_PORT/$LOCAL_DB_NAME" \
-        npx prisma migrate deploy --schema=./db/prisma/schema.prisma 2>/dev/null || true
-
-    log_success "Local database ready at localhost:$LOCAL_DB_PORT"
+    log_error "PostgreSQL port-forward failed!"
+    exit 1
 fi
 
 # ============================================
-# Step 2: Port-forward Fabric Network
+# Port-forward Redis
 # ============================================
+log_info "Port-forwarding Redis (6379)..."
+kubectl port-forward -n "$BACKEND_NS" svc/redis-master 6379:6379 > /dev/null 2>&1 &
+echo $! >> "$PID_FILE"
+sleep 2
 
-log_info "Setting up Fabric network port-forwards..."
-
-# Check if fabric-testnet namespace exists
-if kubectl get namespace $FABRIC_TESTNET_NAMESPACE > /dev/null 2>&1; then
-    # Port-forward peer
-    log_info "Port-forwarding Fabric peer..."
-    kubectl port-forward -n $FABRIC_TESTNET_NAMESPACE svc/peer0-org1 7051:7051 &
-    echo $! >> "$PID_FILE"
-
-    # Port-forward orderer
-    log_info "Port-forwarding Fabric orderer..."
-    kubectl port-forward -n $FABRIC_TESTNET_NAMESPACE svc/orderer0-org0 7050:7050 &
-    echo $! >> "$PID_FILE"
-
-    log_success "Fabric network port-forwarded"
+if nc -z localhost 6379 2>/dev/null; then
+    log_success "Redis: localhost:6379"
 else
-    log_warn "Fabric testnet namespace not found. Skipping Fabric port-forwards."
-    log_warn "Backend will work but blockchain operations will fail."
+    log_error "Redis port-forward failed!"
+    exit 1
 fi
 
 # ============================================
-# Step 3: Create environment file
+# Port-forward Fabric (if available)
 # ============================================
+if kubectl get namespace "$FABRIC_NS" > /dev/null 2>&1; then
+    log_info "Port-forwarding Fabric peer (7051)..."
+    kubectl port-forward -n "$FABRIC_NS" svc/peer0-org1 7051:7051 > /dev/null 2>&1 &
+    echo $! >> "$PID_FILE"
 
-ENV_LOCAL_FILE="$PROJECT_ROOT/.env.local"
+    log_info "Port-forwarding Fabric orderer (7050)..."
+    kubectl port-forward -n "$FABRIC_NS" svc/orderer0-org0 7050:7050 > /dev/null 2>&1 &
+    echo $! >> "$PID_FILE"
 
-if [ ! -f "$ENV_LOCAL_FILE" ]; then
-    log_info "Creating .env.local file..."
-    cat > "$ENV_LOCAL_FILE" << EOF
-# Local Development Environment
+    sleep 2
+    log_success "Fabric: localhost:7050/7051"
+else
+    log_warn "Fabric namespace not found - blockchain operations will fail"
+fi
+
+# ============================================
+# Create/Update .env.local
+# ============================================
+ENV_FILE="$PROJECT_ROOT/.env.local"
+
+log_info "Creating .env.local..."
+cat > "$ENV_FILE" << EOF
+# Local Development Environment - $ENV_NAME
+# Auto-generated by dev-local-start.sh
+# Do not commit this file!
+
 NODE_ENV=development
 LOG_LEVEL=debug
 
-# Database
-DATABASE_URL=postgresql://$LOCAL_DB_USER:$LOCAL_DB_PASSWORD@localhost:$LOCAL_DB_PORT/$LOCAL_DB_NAME
+# Database (port-forwarded from $BACKEND_NS)
+DATABASE_URL="postgresql://gx_admin:${DB_PASSWORD}@localhost:5432/gx_protocol?schema=public"
 
-# Redis
-REDIS_URL=redis://localhost:$LOCAL_REDIS_PORT
+# Redis (port-forwarded from $BACKEND_NS)
+REDIS_URL=redis://localhost:6379
 
-# Fabric Network (port-forwarded from testnet)
+# Fabric Network (port-forwarded)
 FABRIC_PEER_ENDPOINT=localhost:7051
 FABRIC_ORDERER_ENDPOINT=localhost:7050
 FABRIC_CHANNEL_NAME=gxchannel
 FABRIC_CHAINCODE_NAME=gxtv3
 
-# JWT Secret (for local development only)
-JWT_SECRET=local-dev-secret-change-in-production
-JWT_REFRESH_SECRET=local-dev-refresh-secret
+# JWT Secrets
+JWT_SECRET=dev-jwt-secret-min-32-characters-long
+JWT_REFRESH_SECRET=dev-refresh-secret-min-32-chars
 
-# Service Ports
+# Service Ports (for local development)
 SVC_IDENTITY_PORT=3001
 SVC_TOKENOMICS_PORT=3003
 SVC_ADMIN_PORT=3006
@@ -206,43 +171,37 @@ SVC_LOANPOOL_PORT=3007
 SVC_GOVERNANCE_PORT=3008
 SVC_TAX_PORT=3009
 EOF
-    log_success "Created .env.local"
-else
-    log_info ".env.local already exists"
-fi
+
+log_success ".env.local created"
 
 # ============================================
 # Summary
 # ============================================
-
 echo ""
 echo "============================================"
-echo "  Local Development Environment Ready!"
+echo "  Ready for Local Development!"
 echo "============================================"
 echo ""
-echo "  Services:"
-if [ "$USE_TESTNET_DB" = true ]; then
-    echo "    PostgreSQL: localhost:$LOCAL_DB_PORT (testnet)"
-    echo "    Redis:      localhost:$LOCAL_REDIS_PORT (testnet)"
-else
-    echo "    PostgreSQL: localhost:$LOCAL_DB_PORT (local Docker)"
-    echo "    Redis:      localhost:$LOCAL_REDIS_PORT (local Docker)"
-fi
-echo "    Fabric:     localhost:7050/7051 (testnet)"
+echo "  Port-forwards active:"
+echo "    • PostgreSQL: localhost:5432 → $BACKEND_NS"
+echo "    • Redis:      localhost:6379 → $BACKEND_NS"
+echo "    • Fabric:     localhost:7050/7051 → $FABRIC_NS"
 echo ""
-echo "  Next Steps:"
-echo "    1. Open a new terminal"
-echo "    2. cd $PROJECT_ROOT"
-echo "    3. npm run dev"
+echo "  Next steps:"
 echo ""
-echo "  Frontend:"
-echo "    1. cd $(dirname "$PROJECT_ROOT")/gx-wallet-frontend"
-echo "    2. Update .env.local with NEXT_PUBLIC_IDENTITY_API_URL=http://localhost:3001"
-echo "    3. npm run dev"
+echo "    Terminal 2 - Start Backend:"
+echo "      cd $PROJECT_ROOT"
+echo "      npm run dev"
 echo ""
-echo "  Press Ctrl+C to stop port-forwards"
+echo "    Terminal 3 - Start Frontend:"
+echo "      cd $(dirname "$PROJECT_ROOT")/gx-wallet-frontend"
+echo "      # Edit .env.local: NEXT_PUBLIC_IDENTITY_API_URL=http://localhost:3001"
+echo "      npm run dev"
+echo ""
+echo "  Press Ctrl+C to stop all port-forwards"
 echo "============================================"
 echo ""
 
 # Keep script running to maintain port-forwards
+log_info "Port-forwards running... (Ctrl+C to stop)"
 wait
