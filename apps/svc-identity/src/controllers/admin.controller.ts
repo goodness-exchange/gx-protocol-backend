@@ -153,6 +153,49 @@ class AdminController {
       });
     }
   };
+
+  /**
+   * GET /api/v1/admin/users/pending-blockchain
+   * Get users pending blockchain registration
+   */
+  getUsersPendingBlockchain = async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const users = await adminService.getUsersPendingBlockchain();
+
+      res.status(200).json({ users, total: users.length });
+    } catch (error) {
+      logger.error({ error }, 'Failed to get users pending blockchain');
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to get users pending blockchain registration',
+      });
+    }
+  };
+
+  /**
+   * POST /api/v1/admin/batch-approve-blockchain
+   * Batch approve users for blockchain registration
+   *
+   * @body profileIds - Optional array of specific profile IDs to process
+   */
+  batchApproveForBlockchain = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { profileIds } = req.body;
+
+      // TODO: Get admin ID from authenticated session
+      const adminId = 'system-admin';
+
+      const result = await adminService.batchApproveForBlockchain(adminId, profileIds);
+
+      res.status(200).json(result);
+    } catch (error) {
+      logger.error({ error }, 'Failed to batch approve for blockchain');
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to batch approve users for blockchain registration',
+      });
+    }
+  };
 }
 
 export const adminController = new AdminController();
