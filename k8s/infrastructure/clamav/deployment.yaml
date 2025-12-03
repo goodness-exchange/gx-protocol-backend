@@ -1,0 +1,140 @@
+---
+# ClamAV Antivirus Scanner Deployment
+# Used for scanning uploaded files before storage
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clamav
+  namespace: backend-mainnet
+  labels:
+    app: clamav
+    component: security
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clamav
+  template:
+    metadata:
+      labels:
+        app: clamav
+        component: security
+    spec:
+      containers:
+        - name: clamav
+          image: clamav/clamav:1.2
+          ports:
+            - containerPort: 3310
+              name: clamd
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 2Gi
+          # ClamAV needs time to download virus definitions on first start
+          startupProbe:
+            tcpSocket:
+              port: 3310
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: 3310
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 3310
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: clamav-data
+              mountPath: /var/lib/clamav
+            - name: clamav-config
+              mountPath: /etc/clamav/clamd.conf
+              subPath: clamd.conf
+      volumes:
+        - name: clamav-data
+          persistentVolumeClaim:
+            claimName: clamav-data-pvc
+        - name: clamav-config
+          configMap:
+            name: clamav-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clamav
+  namespace: backend-mainnet
+  labels:
+    app: clamav
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3310
+      targetPort: 3310
+      protocol: TCP
+      name: clamd
+  selector:
+    app: clamav
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clamav-data-pvc
+  namespace: backend-mainnet
+  labels:
+    app: clamav
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clamav-config
+  namespace: backend-mainnet
+  labels:
+    app: clamav
+data:
+  clamd.conf: |
+    # ClamAV daemon configuration
+    TCPSocket 3310
+    TCPAddr 0.0.0.0
+
+    # Maximum file size to scan (10MB)
+    MaxFileSize 10M
+    MaxScanSize 10M
+
+    # Logging
+    LogTime yes
+    LogClean yes
+    LogVerbose no
+
+    # Performance tuning
+    MaxConnectionQueueLength 30
+    MaxThreads 4
+    ReadTimeout 60
+
+    # Database directory
+    DatabaseDirectory /var/lib/clamav
+
+    # Security settings
+    DetectPUA yes
+    ScanPE yes
+    ScanELF yes
+    ScanOLE2 yes
+    ScanPDF yes
+    ScanHTML yes
+    ScanMail yes
+    ScanArchive yes
