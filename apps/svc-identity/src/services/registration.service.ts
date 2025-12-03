@@ -801,15 +801,19 @@ class RegistrationService {
 
   /**
    * Migrate PendingRegistration to UserProfile
+   *
+   * Note: This creates a UserProfile with status REGISTERED.
+   * The user still needs to complete KYC and get admin approval before
+   * being registered on the blockchain via the batch approval process.
    */
   private async migrateToUserProfile(registration: any) {
-    // Generate placeholder biometric hash
+    // Generate placeholder biometric hash (will be replaced with actual biometric in KYC)
     const biometricPlaceholder = await bcrypt.hash(
       `${registration.email}:${Date.now()}`,
       10
     );
 
-    // Create user profile
+    // Create user profile (NOT yet on blockchain - that happens after admin approval)
     const user = await db.userProfile.create({
       data: {
         tenantId: 'default',
