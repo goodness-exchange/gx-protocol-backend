@@ -20,6 +20,34 @@ spec:
         app: clamav
         component: security
     spec:
+      # Init container to set up virus definitions
+      initContainers:
+        - name: freshclam-init
+          image: clamav/clamav:1.2
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Setting up ClamAV virus definitions..."
+              # Try to download definitions, but don't fail if unable
+              timeout 60 freshclam --stdout || echo "Unable to download virus definitions (network restricted)"
+              # Check if databases exist, if not create empty marker
+              if [ ! -f /var/lib/clamav/main.cvd ] && [ ! -f /var/lib/clamav/main.cld ]; then
+                echo "No virus definitions available - ClamAV will run in reduced mode"
+                # Copy any default databases from the image
+                cp -n /var/lib/clamav.default/* /var/lib/clamav/ 2>/dev/null || true
+              fi
+              ls -la /var/lib/clamav/
+              echo "ClamAV setup complete"
+          volumeMounts:
+            - name: clamav-data
+              mountPath: /var/lib/clamav
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
       containers:
         - name: clamav
           image: clamav/clamav:1.2
@@ -34,11 +62,11 @@ spec:
             limits:
               cpu: 500m
               memory: 2Gi
-          # ClamAV needs time to download virus definitions on first start
+          # ClamAV needs time to load virus definitions
           startupProbe:
             tcpSocket:
               port: 3310
-            initialDelaySeconds: 60
+            initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 30
           livenessProbe:
@@ -138,3 +166,20 @@ data:
     ScanHTML yes
     ScanMail yes
     ScanArchive yes
+  freshclam.conf: |
+    # Freshclam configuration for virus definition updates
+    DatabaseDirectory /var/lib/clamav
+    UpdateLogFile /var/log/clamav/freshclam.log
+    LogVerbose yes
+    LogSyslog no
+    LogFacility LOG_LOCAL6
+    LogFileMaxSize 2M
+    LogTime yes
+    Foreground yes
+    Debug no
+    MaxAttempts 3
+    DatabaseMirror database.clamav.net
+    ConnectTimeout 30
+    ReceiveTimeout 60
+    Checks 24
+    CompressLocalDatabase no
