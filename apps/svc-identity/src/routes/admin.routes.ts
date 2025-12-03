@@ -24,6 +24,19 @@ const router = Router();
 router.get('/users', adminController.listUsers);
 
 /**
+ * GET /api/v1/admin/users/pending-blockchain
+ * Get users pending blockchain registration
+ *
+ * Returns users with ACTIVE status but NOT_REGISTERED onchainStatus
+ * These are users who have been KYC-approved but not yet registered on blockchain
+ *
+ * NOTE: This route MUST be before /users/:id to avoid matching 'pending-blockchain' as an id
+ *
+ * @returns {users: UserListItem[], total: number}
+ */
+router.get('/users/pending-blockchain', adminController.getUsersPendingBlockchain);
+
+/**
  * GET /api/v1/admin/users/:id
  * Get detailed user information for admin review
  *
@@ -51,5 +64,20 @@ router.post('/users/:id/approve', adminController.approveUser);
  * @returns {success: true, message: string}
  */
 router.post('/users/:id/reject', adminController.rejectUser);
+
+/**
+ * POST /api/v1/admin/batch-approve-blockchain
+ * Batch approve users for blockchain registration
+ *
+ * This endpoint:
+ * 1. Finds eligible users (ACTIVE status, NOT_REGISTERED onchainStatus)
+ * 2. Generates Fabric User IDs
+ * 3. Creates CREATE_USER outbox commands for blockchain submission
+ * 4. Updates user onchainStatus to PENDING
+ *
+ * @body {profileIds?: string[]} - Optional array of specific profile IDs to process
+ * @returns {success: string[], failed: {profileId: string, error: string}[], totalProcessed: number}
+ */
+router.post('/batch-approve-blockchain', adminController.batchApproveForBlockchain);
 
 export default router;
