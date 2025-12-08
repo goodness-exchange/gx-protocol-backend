@@ -510,6 +510,8 @@ model UserProfile {
   @@index([fabricUserId])
   @@index([isLocked])
   @@index([reviewedBy])
+  // Unique constraint: National ID must be unique within a country
+  @@unique([nationalityCountryCode, nationalIdNumber], name: "unique_national_id_per_country")
 }
 
 /// Address: Stores user address history for KYR verification.
