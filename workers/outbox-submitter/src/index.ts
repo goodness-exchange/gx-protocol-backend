@@ -586,6 +586,12 @@ class OutboxSubmitter {
         },
       });
 
+      // Post-commit side effects for specific command types
+      // Note: Fabric only emits ONE event per transaction (the last SetEvent call wins),
+      // so we cannot rely on the projector to update user status for CREATE_USER commands
+      // because the UserCreated event is overwritten by subsequent genesis distribution events.
+      await this.handlePostCommitSideEffects(command.commandType, payload, result);
+
       metrics.commandsProcessed.inc({ status: 'success' });
 
       const duration = Date.now() - startTime;
@@ -941,6 +947,62 @@ class OutboxSubmitter {
         attempts: { lt: this.config.maxRetries },
       },
     });
+  }
+
+  /**
+   * Handle post-commit side effects for specific command types
+   *
+   * Background: Hyperledger Fabric only emits ONE event per transaction
+   * (the last SetEvent call in the chaincode wins). For CREATE_USER commands,
+   * the UserCreated event is overwritten by the TreasuryAllocationEvent
+   * from genesis distribution. This means the projector never receives
+   * the UserCreated event and cannot update the user status.
+   *
+   * Solution: Update user status directly in this worker after the
+   * blockchain transaction is confirmed, bypassing the event-based flow.
+   */
+  private async handlePostCommitSideEffects(
+    commandType: string,
+    payload: any,
+    result: { transactionId: string; blockNumber?: bigint }
+  ): Promise<void> {
+    if (commandType === 'CREATE_USER') {
+      try {
+        // The payload.userId contains the fabricUserId assigned to the user
+        const fabricUserId = payload.userId as string;
+
+        // Update UserProfile status to ACTIVE after successful blockchain registration
+        const updateResult = await this.prisma.userProfile.updateMany({
+          where: { fabricUserId },
+          data: {
+            status: 'ACTIVE',
+            onchainStatus: 'ACTIVE',
+            onchainRegisteredAt: new Date(),
+          },
+        });
+
+        if (updateResult.count > 0) {
+          this.log('info', 'Updated user status to ACTIVE after CREATE_USER commit', {
+            fabricUserId,
+            txId: result.transactionId,
+            blockNumber: result.blockNumber?.toString(),
+            updatedCount: updateResult.count,
+          });
+        } else {
+          this.log('warn', 'No user found to update after CREATE_USER commit', {
+            fabricUserId,
+            txId: result.transactionId,
+          });
+        }
+      } catch (error: any) {
+        // Log error but don't fail the command - the blockchain transaction succeeded
+        this.log('error', 'Failed to update user status after CREATE_USER commit', {
+          error: error.message,
+          fabricUserId: payload.userId,
+          txId: result.transactionId,
+        });
+      }
+    }
   }
 
   /**
