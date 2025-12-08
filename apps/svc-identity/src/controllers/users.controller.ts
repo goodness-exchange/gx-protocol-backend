@@ -253,10 +253,59 @@ class UsersController {
       res.status(200).json({ kycStatus });
     } catch (error) {
       logger.error({ error, userId: req.params.id }, 'Failed to fetch KYC status');
-      
+
       res.status(500).json({
         error: 'Internal Server Error',
         message: 'Failed to fetch KYC status',
+      });
+    }
+  };
+
+  /**
+   * POST /api/v1/validation/national-id
+   * Check if a National ID number is available (not already registered)
+   *
+   * @param req.body {nationalIdNumber, countryCode}
+   * @returns {isAvailable, message}
+   */
+  checkNationalIdAvailability = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { nationalIdNumber, countryCode } = req.body;
+
+      // Validate required fields
+      if (!nationalIdNumber || !countryCode) {
+        res.status(400).json({
+          error: 'Bad Request',
+          message: 'nationalIdNumber and countryCode are required',
+        });
+        return;
+      }
+
+      // Validate country code format (2 letters)
+      if (!/^[A-Z]{2}$/.test(countryCode.toUpperCase())) {
+        res.status(400).json({
+          error: 'Bad Request',
+          message: 'countryCode must be a 2-letter ISO country code',
+        });
+        return;
+      }
+
+      // Exclude current user's profile from check (for updates)
+      const excludeProfileId = req.user?.profileId;
+
+      const result = await usersService.checkNationalIdAvailability(
+        nationalIdNumber.trim(),
+        countryCode.toUpperCase(),
+        excludeProfileId
+      );
+
+      res.status(200).json(result);
+    } catch (error) {
+      logger.error({ error }, 'Failed to check National ID availability');
+
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to check National ID availability',
       });
     }
   };
