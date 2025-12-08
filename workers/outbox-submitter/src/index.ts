@@ -971,9 +971,22 @@ class OutboxSubmitter {
         // The payload.userId contains the fabricUserId assigned to the user
         const fabricUserId = payload.userId as string;
 
-        // Update UserProfile status to ACTIVE after successful blockchain registration
-        const updateResult = await this.prisma.userProfile.updateMany({
+        // Find the user profile to get the profileId
+        const userProfile = await this.prisma.userProfile.findFirst({
           where: { fabricUserId },
+        });
+
+        if (!userProfile) {
+          this.log('warn', 'No user found to update after CREATE_USER commit', {
+            fabricUserId,
+            txId: result.transactionId,
+          });
+          return;
+        }
+
+        // Update UserProfile status to ACTIVE after successful blockchain registration
+        await this.prisma.userProfile.update({
+          where: { profileId: userProfile.profileId },
           data: {
             status: 'ACTIVE',
             onchainStatus: 'ACTIVE',
@@ -981,22 +994,51 @@ class OutboxSubmitter {
           },
         });
 
-        if (updateResult.count > 0) {
-          this.log('info', 'Updated user status to ACTIVE after CREATE_USER commit', {
+        this.log('info', 'Updated user status to ACTIVE after CREATE_USER commit', {
+          fabricUserId,
+          profileId: userProfile.profileId,
+          txId: result.transactionId,
+          blockNumber: result.blockNumber?.toString(),
+        });
+
+        // Create wallet for the user (if not exists)
+        // Due to Fabric's single-event-per-transaction limitation, the WalletCreated event
+        // is not received by the projector, so we create the wallet here
+        const existingWallet = await this.prisma.wallet.findFirst({
+          where: { profileId: userProfile.profileId, deletedAt: null },
+        });
+
+        if (!existingWallet) {
+          const { randomUUID } = await import('crypto');
+          const walletId = randomUUID();
+          const accountId = randomUUID();
+
+          await this.prisma.wallet.create({
+            data: {
+              walletId,
+              tenantId: 'default',
+              profileId: userProfile.profileId,
+              primaryAccountId: accountId,
+              walletName: 'Primary Wallet',
+              cachedBalance: 0,
+            },
+          });
+
+          this.log('info', 'Created wallet for user after CREATE_USER commit', {
+            walletId,
+            profileId: userProfile.profileId,
             fabricUserId,
             txId: result.transactionId,
-            blockNumber: result.blockNumber?.toString(),
-            updatedCount: updateResult.count,
           });
         } else {
-          this.log('warn', 'No user found to update after CREATE_USER commit', {
-            fabricUserId,
-            txId: result.transactionId,
+          this.log('info', 'Wallet already exists for user', {
+            walletId: existingWallet.walletId,
+            profileId: userProfile.profileId,
           });
         }
       } catch (error: any) {
         // Log error but don't fail the command - the blockchain transaction succeeded
-        this.log('error', 'Failed to update user status after CREATE_USER commit', {
+        this.log('error', 'Failed to update user status/wallet after CREATE_USER commit', {
           error: error.message,
           fabricUserId: payload.userId,
           txId: result.transactionId,
