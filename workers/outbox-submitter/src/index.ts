@@ -714,7 +714,8 @@ class OutboxSubmitter {
           args: [
             payload.userId as string,
             payload.biometricHash as string,
-            payload.nationality as string,
+            // Support both 'nationality' and 'countryCode' field names for backwards compatibility
+            (payload.nationality || payload.countryCode) as string,
             payload.age.toString(),
           ],
         };
@@ -1004,16 +1005,16 @@ class OutboxSubmitter {
         // Create wallet for the user (if not exists)
         // Due to Fabric's single-event-per-transaction limitation, the WalletCreated event
         // is not received by the projector, so we create the wallet here
-        const existingWallet = await this.prisma.wallet.findFirst({
+        let wallet = await this.prisma.wallet.findFirst({
           where: { profileId: userProfile.profileId, deletedAt: null },
         });
 
-        if (!existingWallet) {
+        if (!wallet) {
           const { randomUUID } = await import('crypto');
           const walletId = randomUUID();
           const accountId = randomUUID();
 
-          await this.prisma.wallet.create({
+          wallet = await this.prisma.wallet.create({
             data: {
               walletId,
               tenantId: 'default',
@@ -1030,12 +1031,13 @@ class OutboxSubmitter {
             fabricUserId,
             txId: result.transactionId,
           });
-        } else {
-          this.log('info', 'Wallet already exists for user', {
-            walletId: existingWallet.walletId,
-            profileId: userProfile.profileId,
-          });
         }
+
+        // ENTERPRISE FIX: Sync balance from blockchain state
+        // Due to Fabric's single-event-per-transaction limitation, the GenesisDistributed
+        // event is not received by the projector. We query the actual blockchain state
+        // and update the wallet's cachedBalance to ensure consistency.
+        await this.syncWalletBalanceFromBlockchain(fabricUserId, wallet.walletId);
       } catch (error: any) {
         // Log error but don't fail the command - the blockchain transaction succeeded
         this.log('error', 'Failed to update user status/wallet after CREATE_USER commit', {
@@ -1044,6 +1046,73 @@ class OutboxSubmitter {
           txId: result.transactionId,
         });
       }
+    }
+  }
+
+  /**
+   * Sync wallet balance from blockchain state
+   *
+   * ENTERPRISE PATTERN: State Reconciliation
+   *
+   * Why this is needed:
+   * Hyperledger Fabric only emits ONE event per transaction (the last SetEvent() call wins).
+   * During CREATE_USER, the genesis distribution happens atomically, but the GenesisDistributed
+   * event is overwritten by subsequent events. This means the projector never receives the
+   * balance update.
+   *
+   * Solution:
+   * After CREATE_USER commits, we query the actual blockchain state using evaluateTransaction
+   * and update the wallet's cachedBalance. This ensures the PostgreSQL read model is consistent
+   * with the blockchain source of truth.
+   *
+   * @param fabricUserId - The user's blockchain ID (e.g., "LK FF3 ABL912 0WLUY 6025")
+   * @param walletId - The wallet UUID in PostgreSQL
+   */
+  private async syncWalletBalanceFromBlockchain(
+    fabricUserId: string,
+    walletId: string
+  ): Promise<void> {
+    try {
+      // Use partner-api client for read operations (any identity can query)
+      const fabricClient = fabricClients.get('org1-partner-api');
+      if (!fabricClient) {
+        this.log('warn', 'No Fabric client available for balance query', { fabricUserId });
+        return;
+      }
+
+      // Query blockchain for actual balance
+      // Chaincode function: TokenomicsContract:GetBalance(userId) -> balance as string
+      const balanceBytes = await fabricClient.evaluateTransaction(
+        'TokenomicsContract',
+        'GetBalance',
+        fabricUserId
+      );
+
+      // Parse balance from chaincode response (returns balance as string)
+      const balanceStr = new TextDecoder().decode(balanceBytes);
+
+      // Update wallet's cached balance in PostgreSQL
+      // cachedBalance is Decimal type, so we pass the string directly
+      await this.prisma.wallet.update({
+        where: { walletId },
+        data: {
+          cachedBalance: balanceStr,
+          updatedAt: new Date(),
+        },
+      });
+
+      this.log('info', 'Synced wallet balance from blockchain', {
+        fabricUserId,
+        walletId,
+        balance: balanceStr,
+      });
+    } catch (error: any) {
+      // Log error but don't fail - balance will be 0 until next sync
+      this.log('error', 'Failed to sync wallet balance from blockchain', {
+        error: error.message,
+        fabricUserId,
+        walletId,
+      });
     }
   }
 
