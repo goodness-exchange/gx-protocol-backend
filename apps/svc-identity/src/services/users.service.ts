@@ -386,6 +386,47 @@ class UsersService {
       updatedAt: kycRecord.updatedAt,
     };
   }
+
+  /**
+   * Check if a National ID number is already registered
+   *
+   * This ensures no duplicate National IDs within the same country.
+   * Used for real-time validation during KYR submission.
+   *
+   * @param nationalIdNumber - The National ID number to check
+   * @param countryCode - The country code (2-letter ISO)
+   * @param excludeProfileId - Optional profile ID to exclude (for updates)
+   * @returns Object with isAvailable boolean and optional existingProfileId
+   */
+  async checkNationalIdAvailability(
+    nationalIdNumber: string,
+    countryCode: string,
+    excludeProfileId?: string
+  ): Promise<{ isAvailable: boolean; message: string }> {
+    logger.debug({ nationalIdNumber: nationalIdNumber.substring(0, 4) + '***', countryCode }, 'Checking National ID availability');
+
+    const existingUser = await db.userProfile.findFirst({
+      where: {
+        nationalIdNumber: nationalIdNumber,
+        nationalityCountryCode: countryCode,
+        ...(excludeProfileId ? { NOT: { profileId: excludeProfileId } } : {}),
+      },
+      select: { profileId: true },
+    });
+
+    if (existingUser) {
+      logger.info({ countryCode }, 'National ID already registered');
+      return {
+        isAvailable: false,
+        message: 'This National ID is already registered in our system',
+      };
+    }
+
+    return {
+      isAvailable: true,
+      message: 'National ID is available',
+    };
+  }
 }
 
 export const usersService = new UsersService();
