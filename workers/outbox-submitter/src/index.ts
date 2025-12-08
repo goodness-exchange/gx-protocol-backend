@@ -1047,6 +1047,110 @@ class OutboxSubmitter {
         });
       }
     }
+
+    // Handle TRANSFER_TOKENS: Sync balances and create notifications
+    if (commandType === 'TRANSFER_TOKENS') {
+      try {
+        const fromUserId = payload.fromUserId as string;
+        const toUserId = payload.toUserId as string;
+        const amount = payload.amount as number;
+        const remark = (payload.remark as string) || '';
+
+        // Find sender and receiver profiles
+        const [senderProfile, receiverProfile] = await Promise.all([
+          this.prisma.userProfile.findFirst({ where: { fabricUserId: fromUserId } }),
+          this.prisma.userProfile.findFirst({ where: { fabricUserId: toUserId } }),
+        ]);
+
+        // Sync both wallets from blockchain
+        if (senderProfile) {
+          const senderWallet = await this.prisma.wallet.findFirst({
+            where: { profileId: senderProfile.profileId, deletedAt: null },
+          });
+          if (senderWallet) {
+            await this.syncWalletBalanceFromBlockchain(fromUserId, senderWallet.walletId);
+          }
+        }
+
+        if (receiverProfile) {
+          const receiverWallet = await this.prisma.wallet.findFirst({
+            where: { profileId: receiverProfile.profileId, deletedAt: null },
+          });
+          if (receiverWallet) {
+            await this.syncWalletBalanceFromBlockchain(toUserId, receiverWallet.walletId);
+          }
+        }
+
+        // Create notifications for sender and receiver
+        const { randomUUID } = await import('crypto');
+        const formattedAmount = amount.toLocaleString();
+
+        if (senderProfile) {
+          const receiverName = receiverProfile
+            ? `${receiverProfile.fname || ''} ${receiverProfile.lname || ''}`.trim() || 'Unknown'
+            : toUserId.slice(0, 15) + '...';
+
+          await this.prisma.notification.create({
+            data: {
+              notificationId: randomUUID(),
+              tenantId: 'default',
+              recipientId: senderProfile.profileId,
+              type: 'WALLET_DEBITED',
+              title: 'Transfer Sent',
+              message: `You sent ${formattedAmount} Q to ${receiverName}${remark ? `. Reason: ${remark}` : ''}`,
+              actionUrl: '/transactions',
+              actionRequired: false,
+            },
+          });
+
+          this.log('info', 'Created WALLET_DEBITED notification for sender', {
+            profileId: senderProfile.profileId,
+            amount,
+            txId: result.transactionId,
+          });
+        }
+
+        if (receiverProfile) {
+          const senderName = senderProfile
+            ? `${senderProfile.fname || ''} ${senderProfile.lname || ''}`.trim() || 'Unknown'
+            : fromUserId.slice(0, 15) + '...';
+
+          await this.prisma.notification.create({
+            data: {
+              notificationId: randomUUID(),
+              tenantId: 'default',
+              recipientId: receiverProfile.profileId,
+              type: 'WALLET_CREDITED',
+              title: 'Transfer Received',
+              message: `You received ${formattedAmount} Q from ${senderName}${remark ? `. Reason: ${remark}` : ''}`,
+              actionUrl: '/transactions',
+              actionRequired: false,
+            },
+          });
+
+          this.log('info', 'Created WALLET_CREDITED notification for receiver', {
+            profileId: receiverProfile.profileId,
+            amount,
+            txId: result.transactionId,
+          });
+        }
+
+        this.log('info', 'Processed TRANSFER_TOKENS post-commit side effects', {
+          fromUserId,
+          toUserId,
+          amount,
+          txId: result.transactionId,
+        });
+      } catch (error: any) {
+        // Log error but don't fail the command - the blockchain transaction succeeded
+        this.log('error', 'Failed to process TRANSFER_TOKENS post-commit side effects', {
+          error: error.message,
+          fromUserId: payload.fromUserId,
+          toUserId: payload.toUserId,
+          txId: result.transactionId,
+        });
+      }
+    }
   }
 
   /**
