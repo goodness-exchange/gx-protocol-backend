@@ -85,10 +85,10 @@ export async function upload(
     }
 
     // Verify user owns this profile or is admin
-    const requestingUserId = (req as Request & { user?: { id: string; role: string } }).user?.id;
-    const requestingUserRole = (req as Request & { user?: { id: string; role: string } }).user?.role;
+    const requestingUserProfileId = (req as Request & { user?: { profileId: string; role?: string } }).user?.profileId;
+    const requestingUserRole = (req as Request & { user?: { profileId: string; role?: string } }).user?.role;
 
-    if (requestingUserId !== profileId && requestingUserRole !== 'admin') {
+    if (requestingUserProfileId !== profileId && requestingUserRole !== 'admin') {
       res.status(403).json({
         success: false,
         error: 'Forbidden',
@@ -156,10 +156,10 @@ export async function list(
     const { id: profileId } = req.params;
 
     // Verify user owns this profile or is admin
-    const requestingUserId = (req as Request & { user?: { id: string; role: string } }).user?.id;
-    const requestingUserRole = (req as Request & { user?: { id: string; role: string } }).user?.role;
+    const requestingUserProfileId = (req as Request & { user?: { profileId: string; role?: string } }).user?.profileId;
+    const requestingUserRole = (req as Request & { user?: { profileId: string; role?: string } }).user?.role;
 
-    if (requestingUserId !== profileId && requestingUserRole !== 'admin') {
+    if (requestingUserProfileId !== profileId && requestingUserRole !== 'admin') {
       res.status(403).json({
         success: false,
         error: 'Forbidden',
