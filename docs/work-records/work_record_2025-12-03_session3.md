@@ -243,12 +243,82 @@ if (this.config.bypassScan) {
 
 ---
 
-## Next Steps
+---
 
-1. **User Action**: Create GCP project and service account
-2. **User Action**: Share Google Drive folder with service account
-3. Deploy ClamAV to Kubernetes cluster
-4. Create and apply Google Drive credentials secret
-5. Build and deploy updated svc-identity
-6. Update frontend KYRWizard for actual uploads
-7. End-to-end testing
+## Continuation Work (December 7-8, 2025)
+
+### Session 4: Deployment and Module Resolution Fixes
+
+#### Google Drive Credentials Configured
+- User provided service account: `gx-drive-uploader@gx-protocol-storage.iam.gserviceaccount.com`
+- Root folder ID: `11Y79OCvjzgYbEiiPArXsS6UoXKGA5l8A`
+- Created Kubernetes secret `google-drive-credentials` in `backend-mainnet` namespace
+
+#### Dockerfile Refactoring for Monorepo Compatibility
+
+**Problem**: npm workspace symlinks in `node_modules/@gx/` were not resolving correctly when:
+1. Container uses `readOnlyRootFilesystem: true`
+2. Container runs as different UID than image's USER directive
+
+**Root Cause Analysis**:
+- Image built with USER 1001 (gxprotocol)
+- Deployment had `runAsUser: 1000`
+- Combined with `readOnlyRootFilesystem: true`, caused module resolution failures
+
+**Solution Applied**:
+1. Replace symlinks with actual directories in `node_modules/@gx/`
+2. Copy full package directories (package.json + dist) from builder
+3. Updated deployment to use `runAsUser: 1001`
+
+**Dockerfile Changes**:
+```dockerfile
+# Replace workspace symlinks with actual directories
+RUN rm -rf /app/node_modules/@gx && mkdir -p /app/node_modules/@gx && \
+    cp -r /app/packages/core-config /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-db /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-logger /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-http /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-events /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-openapi /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-fabric /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-storage /app/node_modules/@gx/
+```
+
+#### Deployment Fixes
+- Fixed `runAsUser` from 1000 to 1001 to match image's gxprotocol user
+- Added environment variables:
+  - `GOOGLE_DRIVE_ROOT_FOLDER_ID`
+  - `GOOGLE_SERVICE_ACCOUNT_KEY` (from secret)
+  - `CLAMAV_BYPASS=true` (ClamAV not deployed yet)
+
+#### Build Versions
+- v2.0.26 - v2.0.31: Various failed attempts with symlink issues
+- v2.0.32: **Successfully deployed** with directory-based module resolution
+
+#### Final Deployment Status
+```
+NAME                            READY   STATUS    RESTARTS   AGE
+svc-identity-5c4b65b648-d6vwf   1/1     Running   0          50s
+svc-identity-5c4b65b648-f4f9k   1/1     Running   0          35s
+svc-identity-5c4b65b648-n88z7   1/1     Running   0          20s
+```
+
+All 3 pods running healthy across all cluster nodes (Malaysia, USA, Germany).
+
+#### Commits Made
+1. `fix(core-storage): configure TypeScript to include custom type declarations`
+2. `refactor(svc-identity): improve Dockerfile for npm workspace monorepo compatibility`
+
+---
+
+## Completed Tasks (Updated)
+
+- [x] Create GCP project and service account
+- [x] Share Google Drive folder with service account
+- [x] Create and apply Google Drive credentials secret
+- [x] Fix Dockerfile for monorepo workspace compatibility
+- [x] Fix deployment user ID mismatch
+- [x] Build and deploy updated svc-identity (v2.0.32)
+- [ ] Deploy ClamAV to Kubernetes cluster (network restrictions)
+- [ ] Update frontend KYRWizard for actual uploads
+- [ ] End-to-end testing
