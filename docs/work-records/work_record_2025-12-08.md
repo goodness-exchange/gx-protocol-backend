@@ -609,3 +609,249 @@ curl http://localhost:3000/api/admin/users  # Returns users data
 - [ ] ClamAV deployment (currently bypassed with CLAMAV_BYPASS=true)
 - [ ] Configure Google Workspace or alternative storage solution
 - [ ] Enable real document uploads when storage is ready
+
+---
+
+## Session 4 Work Completed
+
+### 12. Dashboard API Integration
+
+**Problem**: Frontend dashboard showing "ApiError: Not Found" when loading:
+- `/api/wallet/dashboard` - 404
+- `/api/wallet/transactions` - 404
+
+**Root Cause Analysis**:
+1. Frontend was using `tokenomicsClient` (localhost:3003) instead of `identityClient`
+2. The `api.gxcoin.money` only routes to svc-identity, not svc-tokenomics
+3. No wallet routes existed in svc-identity
+
+**Solution**: Implemented API Gateway pattern - added wallet routes to svc-identity.
+
+---
+
+### 13. Wallet Routes in svc-identity (API Gateway Pattern)
+
+Created new files to serve wallet data through svc-identity:
+
+#### apps/svc-identity/src/services/wallet.service.ts
+```typescript
+// Read-only service for wallet data
+- getWalletBalance(profileId): Queries Wallet table
+- getTransactionHistory(profileId, limit, offset): Queries Transaction table
+- getDashboardData(profileId): Combined balance + recent transactions
+```
+
+#### apps/svc-identity/src/controllers/wallet.controller.ts
+```typescript
+// Controller with authorization checks
+- GET /wallets/:profileId/balance - User can only view own balance
+- GET /wallets/:profileId/transactions - User can only view own transactions
+- GET /wallets/:profileId/dashboard - Combined dashboard data
+```
+
+#### apps/svc-identity/src/routes/wallet.routes.ts
+```typescript
+// Route registration with JWT authentication
+router.get('/:profileId/balance', authenticateJWT, walletController.getBalance);
+router.get('/:profileId/transactions', authenticateJWT, walletController.getTransactions);
+router.get('/:profileId/dashboard', authenticateJWT, walletController.getDashboard);
+```
+
+#### apps/svc-identity/src/app.ts
+```typescript
+// Added wallet routes
+import walletRoutes from './routes/wallet.routes';
+app.use('/api/v1/wallets', walletRoutes);
+```
+
+---
+
+### 14. Wallet Creation in Outbox-Submitter
+
+**Problem**: Wallets weren't being created for users after blockchain registration.
+
+**Root Cause**: Hyperledger Fabric only emits ONE event per transaction (the last `SetEvent()` call wins). For CREATE_USER commands, the WalletCreated event was overwritten by the TreasuryAllocationEvent from genesis distribution.
+
+**Solution**: Extended `handlePostCommitSideEffects` in outbox-submitter to create wallet after CREATE_USER commits:
+
+```typescript
+// After updating user status to ACTIVE...
+const existingWallet = await this.prisma.wallet.findFirst({
+  where: { profileId: userProfile.profileId, deletedAt: null },
+});
+
+if (!existingWallet) {
+  const { randomUUID } = await import('crypto');
+  await this.prisma.wallet.create({
+    data: {
+      walletId: randomUUID(),
+      tenantId: 'default',
+      profileId: userProfile.profileId,
+      primaryAccountId: randomUUID(),
+      walletName: 'Primary Wallet',
+      cachedBalance: 0,
+    },
+  });
+}
+```
+
+---
+
+### 15. Frontend API Routes Update
+
+Updated frontend BFF routes to use `identityClient` instead of `tokenomicsClient`:
+
+#### app/api/wallet/dashboard/route.ts
+- Changed from `tokenomicsClient` to `identityClient`
+- Transform response to match frontend `WalletData` interface
+- Handle 404 gracefully with default empty wallet
+
+#### app/api/wallet/transactions/route.ts
+- Changed from `tokenomicsClient` to `identityClient`
+- Transform `TransactionDTO` to frontend `Transaction` interface
+- Handle 404 gracefully with empty transactions array
+
+---
+
+### 16. Database Manual Fixes
+
+**Created Wallets for ACTIVE Users**:
+```sql
+INSERT INTO "Wallet" (...)
+SELECT gen_random_uuid(), 'default', u."profileId", ...
+FROM "UserProfile" u
+WHERE u.status = 'ACTIVE'
+AND NOT EXISTS (SELECT 1 FROM "Wallet" w WHERE w."profileId" = u."profileId");
+-- Result: 3 wallets created
+```
+
+**Updated Balances to Match Blockchain**:
+```sql
+UPDATE "Wallet" w
+SET "cachedBalance" = 500000000  -- 500 X coins
+FROM "UserProfile" u
+WHERE w."profileId" = u."profileId"
+AND u.status = 'ACTIVE';
+-- Verified blockchain balance: 500000000 Qirats per user
+```
+
+---
+
+## Session 4 Files Created
+
+| File | Repository | Purpose |
+|------|------------|---------|
+| `apps/svc-identity/src/services/wallet.service.ts` | gx-protocol-backend | Wallet query service |
+| `apps/svc-identity/src/controllers/wallet.controller.ts` | gx-protocol-backend | Wallet API controller |
+| `apps/svc-identity/src/routes/wallet.routes.ts` | gx-protocol-backend | Wallet route definitions |
+
+---
+
+## Session 4 Files Modified
+
+| File | Repository | Changes |
+|------|------------|---------|
+| `apps/svc-identity/src/app.ts` | gx-protocol-backend | Added wallet routes |
+| `workers/outbox-submitter/src/index.ts` | gx-protocol-backend | Added wallet creation after CREATE_USER |
+| `app/api/wallet/dashboard/route.ts` | gx-wallet-frontend | Use identityClient, transform response |
+| `app/api/wallet/transactions/route.ts` | gx-wallet-frontend | Use identityClient, transform response |
+
+---
+
+## Session 4 Commits Made
+
+### gx-protocol-backend (phase1-infrastructure branch)
+1. `8248440` - feat(svc-identity): add wallet service for dashboard balance queries
+2. `9eca2a5` - feat(svc-identity): add wallet controller with balance and transaction endpoints
+3. `15c00c7` - feat(svc-identity): add wallet routes for API gateway pattern
+4. `fb4274a` - feat(svc-identity): integrate wallet routes into Express application
+5. `56a8ef6` - feat(outbox-submitter): create wallet for user after CREATE_USER blockchain commit
+
+### gx-wallet-frontend (dev branch)
+1. `3036eee` - refactor(api): use identity service for wallet dashboard endpoint
+2. `8b22133` - refactor(api): use identity service for wallet transactions endpoint
+
+---
+
+## Session 4 Deployments
+
+| Service | Version | Changes | Status |
+|---------|---------|---------|--------|
+| svc-identity | v2.0.38 | Wallet routes (API gateway) | Deployed |
+| outbox-submitter | v2.0.16 | Wallet creation on CREATE_USER | Deployed |
+
+---
+
+## Session 4 API Endpoints Added
+
+| Endpoint | Method | Description | Auth |
+|----------|--------|-------------|------|
+| `/api/v1/wallets/:profileId/balance` | GET | Get wallet balance | JWT |
+| `/api/v1/wallets/:profileId/transactions` | GET | Get transaction history | JWT |
+| `/api/v1/wallets/:profileId/dashboard` | GET | Combined dashboard data | JWT |
+
+---
+
+## Session 4 Verification
+
+**API Test**:
+```bash
+curl https://api.gxcoin.money/api/v1/wallets/{profileId}/balance \
+  -H "Authorization: Bearer {jwt}"
+
+# Response:
+{
+  "balance": {
+    "walletId": "28ae5a72-...",
+    "profileId": "0afd6668-...",
+    "balance": 500000000,
+    "updatedAt": "2025-12-08T07:21:54.187Z"
+  }
+}
+```
+
+**Database State**:
+| User | Balance | FabricUserId |
+|------|---------|--------------|
+| testflow@example.com | 500,000,000 | MY 8F0 ABH006 0TURJ 7108 |
+| user1@test.com | 500,000,000 | LK FF3 ABL912 0WLUY 6025 |
+| user2@test.com | 500,000,000 | US A12 XYZ789 TEST1 3985 |
+
+---
+
+## Session 4 Statistics
+
+| Metric | Value |
+|--------|-------|
+| Duration | ~2.5 hours |
+| Files Created | 3 |
+| Files Modified | 4 |
+| Backend Commits | 5 |
+| Frontend Commits | 2 |
+| Deployments | 2 |
+| Docker Images Built | 2 |
+
+---
+
+## All Sessions Combined Status (Updated)
+
+### Completed (Sessions 1-4)
+- [x] BFF document upload endpoint
+- [x] KYRWizard document upload integration
+- [x] PEP declaration removal
+- [x] JWT profileId authorization fix (v2.0.35)
+- [x] NetworkPolicy HTTPS egress
+- [x] Google Shared Drive code support (v2.0.36)
+- [x] DOCUMENT_UPLOAD_ENABLED feature flag (v2.0.37)
+- [x] KYR flow completes successfully with mock uploads
+- [x] Admin dashboard users endpoint working
+- [x] Dashboard API integration (v2.0.38)
+- [x] Wallet routes in svc-identity (API gateway pattern)
+- [x] Wallet creation on CREATE_USER blockchain commit (v2.0.16)
+- [x] Frontend using identityClient for wallet data
+
+### Pending (Future Work)
+- [ ] ClamAV deployment (currently bypassed with CLAMAV_BYPASS=true)
+- [ ] Configure Google Workspace or alternative storage solution
+- [ ] Enable real document uploads when storage is ready
+- [ ] Implement balance sync mechanism from blockchain to PostgreSQL
