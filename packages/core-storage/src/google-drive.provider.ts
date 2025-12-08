@@ -111,18 +111,20 @@ export class GoogleDriveProvider implements StorageProvider {
         continue;
       }
 
-      // Search for existing folder
+      // Search for existing folder (with Shared Drive support)
       const searchResponse = await drive.files.list({
         q: `name='${folderName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: 'files(id, name)',
         spaces: 'drive',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
       });
 
       if (searchResponse.data.files && searchResponse.data.files.length > 0) {
         // Folder exists
         parentId = searchResponse.data.files[0].id!;
       } else {
-        // Create new folder
+        // Create new folder (with Shared Drive support)
         const createResponse = await drive.files.create({
           requestBody: {
             name: folderName,
@@ -130,6 +132,7 @@ export class GoogleDriveProvider implements StorageProvider {
             parents: [parentId],
           },
           fields: 'id',
+          supportsAllDrives: true,
         });
 
         parentId = createResponse.data.id!;
@@ -162,7 +165,7 @@ export class GoogleDriveProvider implements StorageProvider {
     // Create readable stream from buffer
     const stream = Readable.from(file);
 
-    // Upload file
+    // Upload file (with Shared Drive support)
     const response = await drive.files.create({
       requestBody: {
         name: fileName,
@@ -181,6 +184,7 @@ export class GoogleDriveProvider implements StorageProvider {
         body: stream,
       },
       fields: 'id, name, size, mimeType, createdTime',
+      supportsAllDrives: true,
     });
 
     const fileId = response.data.id!;
@@ -215,7 +219,7 @@ export class GoogleDriveProvider implements StorageProvider {
     const drive = await this.initialize();
 
     const response = await drive.files.get(
-      { fileId, alt: 'media' },
+      { fileId, alt: 'media', supportsAllDrives: true },
       { responseType: 'arraybuffer' }
     );
 
@@ -238,6 +242,7 @@ export class GoogleDriveProvider implements StorageProvider {
     const file = await drive.files.get({
       fileId,
       fields: 'id, webContentLink, webViewLink',
+      supportsAllDrives: true,
     });
 
     // For a service account, we need to create a permission for "anyone with link"
@@ -256,12 +261,14 @@ export class GoogleDriveProvider implements StorageProvider {
         role: 'reader',
         type: 'anyone',
       },
+      supportsAllDrives: true,
     });
 
     // Get the updated file with webContentLink
     const updatedFile = await drive.files.get({
       fileId,
       fields: 'webContentLink',
+      supportsAllDrives: true,
     });
 
     logger.debug(
@@ -283,7 +290,7 @@ export class GoogleDriveProvider implements StorageProvider {
   async delete(fileId: string): Promise<void> {
     const drive = await this.initialize();
 
-    await drive.files.delete({ fileId });
+    await drive.files.delete({ fileId, supportsAllDrives: true });
 
     logger.info({ fileId }, 'File deleted from Google Drive');
   }
@@ -301,6 +308,8 @@ export class GoogleDriveProvider implements StorageProvider {
       q: `'${folderId}' in parents and trashed=false`,
       fields: 'files(id, name, mimeType, size, createdTime, modifiedTime, parents)',
       orderBy: 'createdTime desc',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
     });
 
     return (response.data.files || []).map((file) => ({
@@ -324,6 +333,7 @@ export class GoogleDriveProvider implements StorageProvider {
       await drive.files.get({
         fileId,
         fields: 'id',
+        supportsAllDrives: true,
       });
       return true;
     } catch (error) {
