@@ -38,6 +38,10 @@ const configSchema = z.object({
   // API Rate Limiting
   rateLimitWindowMs: z.coerce.number().default(15 * 60 * 1000), // 15 minutes
   rateLimitMaxRequests: z.coerce.number().default(100),
+
+  // Feature Flags
+  // When false, document upload returns mock response (for development without storage)
+  documentUploadEnabled: z.coerce.boolean().default(false),
 });
 
 /**
@@ -64,4 +68,5 @@ export const identityConfig: IdentityConfig = configSchema.parse({
   projectionLagThresholdMs: Number(process.env.PROJECTION_LAG_THRESHOLD_MS) || 5000,
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   rateLimitMaxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  documentUploadEnabled: process.env.DOCUMENT_UPLOAD_ENABLED === 'true',
 });
