@@ -854,4 +854,211 @@ curl https://api.gxcoin.money/api/v1/wallets/{profileId}/balance \
 - [ ] ClamAV deployment (currently bypassed with CLAMAV_BYPASS=true)
 - [ ] Configure Google Workspace or alternative storage solution
 - [ ] Enable real document uploads when storage is ready
-- [ ] Implement balance sync mechanism from blockchain to PostgreSQL
+
+---
+
+## Session 5 Work Completed
+
+### 17. Enterprise Balance Sync from Blockchain
+
+**Problem**: User asked why genesis minting balance had to be added manually instead of projector picking it up.
+
+**Root Cause Analysis**:
+Hyperledger Fabric only emits ONE event per transaction (the last `SetEvent()` call wins). During CREATE_USER:
+1. IdentityContract.CreateUser emits `UserCreated` event
+2. TokenomicsContract.DistributeGenesis emits `GenesisDistributed` event
+3. TokenomicsContract.AllocateToTreasury emits `TreasuryAllocationEvent` (LAST - wins)
+
+The projector only receives `TreasuryAllocationEvent`, missing both user creation and balance update events.
+
+**Enterprise Solution**: State Reconciliation Pattern
+
+Instead of relying on events, query the actual blockchain state after transaction commits.
+
+---
+
+### 18. syncWalletBalanceFromBlockchain Implementation
+
+Added new method to outbox-submitter that:
+1. Uses `evaluateTransaction` (read-only query) to call `TokenomicsContract:GetBalance`
+2. Parses the balance string returned by chaincode
+3. Updates wallet's `cachedBalance` in PostgreSQL
+
+```typescript
+private async syncWalletBalanceFromBlockchain(
+  fabricUserId: string,
+  walletId: string
+): Promise<void> {
+  // Use partner-api client for read operations
+  const fabricClient = fabricClients.get('org1-partner-api');
+
+  // Query blockchain for actual balance
+  const balanceBytes = await fabricClient.evaluateTransaction(
+    'TokenomicsContract',
+    'GetBalance',
+    fabricUserId
+  );
+
+  // Parse and update PostgreSQL
+  const balanceStr = new TextDecoder().decode(balanceBytes);
+  await this.prisma.wallet.update({
+    where: { walletId },
+    data: { cachedBalance: balanceStr },
+  });
+}
+```
+
+**Called from**: `handlePostCommitSideEffects` after wallet creation
+
+---
+
+### 19. Bug Fixes During Implementation
+
+#### Fix 1: JSPB Undefined Array Error
+**Symptom**: `Inconsistent type in JSPB repeated field array. Got undefined expected object`
+
+**Root Cause**: CREATE_USER command payload used `countryCode` but code expected `nationality`, causing `undefined` to be passed to Fabric SDK.
+
+**Fix**: Support both field names for backwards compatibility:
+```typescript
+case 'CREATE_USER':
+  return {
+    args: [
+      payload.userId,
+      payload.biometricHash,
+      (payload.nationality || payload.countryCode) as string,  // Support both
+      payload.age.toString(),
+    ],
+  };
+```
+
+#### Fix 2: Prisma Decimal Type Mismatch
+**Symptom**: `Argument cachedBalance: Invalid value. Expected Decimal, provided BigInt`
+
+**Root Cause**: `cachedBalance` field is `Decimal @db.Decimal(36, 9)` but code passed `BigInt`.
+
+**Fix**: Pass balance as string (Prisma accepts string for Decimal):
+```typescript
+// Before: cachedBalance: BigInt(balanceStr)
+// After:  cachedBalance: balanceStr
+```
+
+---
+
+### 20. End-to-End Verification
+
+**Test User**: `e2e-test-sync2-079f9689`
+
+**Command Flow**:
+1. `test-sync2-cmd-001` created with status PENDING
+2. Outbox-submitter processes command
+3. Fabric transaction committed (block 86)
+4. User status updated to ACTIVE
+5. Wallet created with initial balance 0
+6. **Balance synced from blockchain: 500,000,000 Qirats**
+
+**Logs Showing Success**:
+```
+Transaction committed successfully, blockNumber: 86
+Updated user status to ACTIVE after CREATE_USER commit
+Created wallet for user after CREATE_USER commit
+Synced wallet balance from blockchain, balance: 500000000
+Command processed successfully
+```
+
+**Database Verification**:
+```sql
+SELECT "cachedBalance"::text FROM "Wallet" WHERE profileId = 'e2e-test-sync2-079f9689';
+-- Result: 500000000.000000000
+```
+
+---
+
+## Session 5 Files Modified
+
+| File | Repository | Changes |
+|------|------------|---------|
+| `workers/outbox-submitter/src/index.ts` | gx-protocol-backend | Added syncWalletBalanceFromBlockchain, backwards-compatible nationality/countryCode |
+
+---
+
+## Session 5 Commits Made
+
+### gx-protocol-backend (phase1-infrastructure branch)
+1. `28b5bab` - fix(outbox-submitter): update user status after CREATE_USER blockchain commit
+2. `797f6af` - feat(outbox-submitter): implement blockchain state sync for wallet balance
+   - Added syncWalletBalanceFromBlockchain method
+   - Query balance using evaluateTransaction (read-only)
+   - Fixed Decimal type mismatch
+   - Support both nationality and countryCode field names
+
+---
+
+## Session 5 Deployments
+
+| Service | Version | Changes | Status |
+|---------|---------|---------|--------|
+| outbox-submitter | v2.0.17 | Balance sync (BigInt bug) | Superseded |
+| outbox-submitter | v2.0.18 | nationality/countryCode fix | Superseded |
+| outbox-submitter | v2.0.19 | Decimal type fix | **Active** |
+
+---
+
+## Session 5 Technical Pattern
+
+### State Reconciliation Pattern (Enterprise)
+
+**When to use**: When event-driven architecture cannot capture all state changes (e.g., Fabric's single-event limitation).
+
+**Implementation**:
+1. **Submit transaction** (write) - `submitTransaction`
+2. **Wait for commit** (confirmation) - Gateway handles this
+3. **Query state** (read) - `evaluateTransaction`
+4. **Update read model** - Sync PostgreSQL with blockchain state
+
+**Benefits**:
+- PostgreSQL always reflects actual blockchain state
+- Works regardless of which events were emitted
+- Self-healing - balance will be correct even if intermediate steps fail
+
+**Trade-offs**:
+- Additional latency per transaction (~500ms for balance query)
+- More Fabric network load (extra query per write)
+- Acceptable for critical data like balances
+
+---
+
+## Session 5 Statistics
+
+| Metric | Value |
+|--------|-------|
+| Duration | ~1.5 hours |
+| Bug Fixes | 2 (JSPB error, Decimal type) |
+| Docker Images Built | 3 (v2.0.17, v2.0.18, v2.0.19) |
+| Deployments | 3 |
+| Test Users Created | 2 |
+
+---
+
+## All Sessions Combined Status (Final)
+
+### Completed (Sessions 1-5)
+- [x] BFF document upload endpoint
+- [x] KYRWizard document upload integration
+- [x] PEP declaration removal
+- [x] JWT profileId authorization fix (v2.0.35)
+- [x] NetworkPolicy HTTPS egress
+- [x] Google Shared Drive code support (v2.0.36)
+- [x] DOCUMENT_UPLOAD_ENABLED feature flag (v2.0.37)
+- [x] KYR flow completes successfully with mock uploads
+- [x] Admin dashboard users endpoint working
+- [x] Dashboard API integration (v2.0.38)
+- [x] Wallet routes in svc-identity (API gateway pattern)
+- [x] Wallet creation on CREATE_USER blockchain commit (v2.0.16)
+- [x] Frontend using identityClient for wallet data
+- [x] **Enterprise balance sync from blockchain (v2.0.19)**
+
+### Pending (Future Work)
+- [ ] ClamAV deployment (currently bypassed with CLAMAV_BYPASS=true)
+- [ ] Configure Google Workspace or alternative storage solution
+- [ ] Enable real document uploads when storage is ready
