@@ -456,8 +456,156 @@ The code now supports Shared Drives, but configuration is needed:
 - [x] JWT profileId authorization fix
 - [x] NetworkPolicy HTTPS egress
 - [x] Google Shared Drive code support
+- [x] DOCUMENT_UPLOAD_ENABLED feature flag (Session 3)
+- [x] Mock response for disabled document uploads (Session 3)
 
 ### Pending
-- [ ] Update Google Drive root-folder-id secret with Shared Drive ID
-- [ ] Test end-to-end document upload with Shared Drive
 - [ ] ClamAV deployment (currently bypassed)
+- [ ] Configure Google Workspace or alternative storage when available
+
+---
+
+## Session 3 Work Completed
+
+### 10. DOCUMENT_UPLOAD_ENABLED Feature Flag
+
+**Problem**: Google Drive storage requires Google Workspace with Shared Drives. User has personal Google account which cannot be used by service accounts (they have no storage quota on personal accounts).
+
+**Solution**: Implemented enterprise-grade feature flag to gracefully disable document uploads while allowing KYR flow to complete.
+
+**Changes Made**:
+
+#### Configuration (apps/svc-identity/src/config.ts)
+Added `documentUploadEnabled` feature flag:
+```typescript
+// Feature Flags
+// When false, document upload returns mock response (for development without storage)
+documentUploadEnabled: z.coerce.boolean().default(false),
+
+// In config parsing:
+documentUploadEnabled: process.env.DOCUMENT_UPLOAD_ENABLED === 'true',
+```
+
+#### Controller (apps/svc-identity/src/controllers/documents.controller.ts)
+Added mock response logic when uploads are disabled:
+```typescript
+if (!identityConfig.documentUploadEnabled) {
+  const mockDocumentId = randomUUID();
+  const fileHash = createHash('sha256').update(file.buffer).digest('hex');
+
+  res.status(201).json({
+    success: true,
+    data: {
+      documentId: mockDocumentId,
+      hash: fileHash,
+      size: file.size,
+      mimeType: file.mimetype,
+      fileName: file.originalname,
+      documentType,
+      side: side || null,
+      virusScanStatus: 'SKIPPED',
+      storageUrl: `mock://${mockDocumentId}`,
+      uploadedAt: new Date().toISOString(),
+      _mock: true,
+      _message: 'Document upload is disabled. File metadata recorded but not stored.',
+    },
+  });
+  return;
+}
+```
+
+Also added `uploadEnabled` to constraints endpoint for frontend visibility.
+
+**Deployment**: svc-identity v2.0.37
+
+**To Enable Real Uploads Later**:
+```bash
+kubectl set env deployment/svc-identity DOCUMENT_UPLOAD_ENABLED=true -n backend-mainnet
+```
+
+---
+
+### 11. Admin Dashboard 404 Fix
+
+**Problem**: After KYR form submission completed, user encountered:
+```
+Error: Route GET /api/v1/admin/users not found
+```
+
+**Root Cause**: The error appeared to be a cached/stale response in the BFF layer. The backend endpoint `/api/v1/admin/users` was working correctly when tested directly via curl.
+
+**Solution**: Frontend dev server restart resolved the issue. The BFF routes exist and work correctly:
+- BFF route: `app/api/admin/users/route.ts`
+- Backend route: `apps/svc-identity/src/routes/admin.routes.ts`
+
+**Verification**:
+```bash
+# Backend works directly
+curl https://api.gxcoin.money/api/v1/admin/users  # Returns users data
+
+# BFF works after restart
+curl http://localhost:3000/api/admin/users  # Returns users data
+```
+
+---
+
+## Session 3 Files Modified
+
+| File | Repository | Changes |
+|------|------------|---------|
+| `apps/svc-identity/src/config.ts` | gx-protocol-backend | Added documentUploadEnabled feature flag |
+| `apps/svc-identity/src/controllers/documents.controller.ts` | gx-protocol-backend | Added mock response for disabled uploads |
+
+---
+
+## Session 3 Commits Made
+
+### gx-protocol-backend (phase1-infrastructure branch)
+1. `0ec0964` - feat(svc-identity): add DOCUMENT_UPLOAD_ENABLED feature flag
+   - Added documentUploadEnabled to config schema
+   - Defaults to false for graceful degradation
+
+2. `9923ce1` - feat(svc-identity): implement mock response for disabled document uploads
+   - Returns mock documentId, hash, metadata when uploads disabled
+   - Includes `_mock: true` flag for frontend awareness
+   - Added uploadEnabled to constraints endpoint
+
+---
+
+## Session 3 Deployments
+
+| Version | Changes | Status |
+|---------|---------|--------|
+| v2.0.37 | Feature flag + mock response | Deployed (all 3 pods) |
+
+---
+
+## Session 3 Statistics
+
+| Metric | Value |
+|--------|-------|
+| Duration | ~1 hour |
+| Feature Flags Added | 1 |
+| Files Modified | 2 |
+| Commits | 2 |
+| Deployments | 1 (v2.0.37) |
+
+---
+
+## All Sessions Combined Status
+
+### Completed (Sessions 1-3)
+- [x] BFF document upload endpoint
+- [x] KYRWizard document upload integration
+- [x] PEP declaration removal
+- [x] JWT profileId authorization fix (v2.0.35)
+- [x] NetworkPolicy HTTPS egress
+- [x] Google Shared Drive code support (v2.0.36)
+- [x] DOCUMENT_UPLOAD_ENABLED feature flag (v2.0.37)
+- [x] KYR flow completes successfully with mock uploads
+- [x] Admin dashboard users endpoint working
+
+### Pending (Future Work)
+- [ ] ClamAV deployment (currently bypassed with CLAMAV_BYPASS=true)
+- [ ] Configure Google Workspace or alternative storage solution
+- [ ] Enable real document uploads when storage is ready
