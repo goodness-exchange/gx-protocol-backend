@@ -13,7 +13,7 @@ COPY package.json package-lock.json* turbo.json ./
 COPY apps/svc-identity/package.json ./apps/svc-identity/
 COPY packages/*/package.json ./packages/
 
-# Install dependencies
+# Install all dependencies (including dev for building)
 RUN npm ci --legacy-peer-deps
 
 # ============================================
@@ -26,6 +26,7 @@ WORKDIR /app
 # Copy dependencies from previous stage
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies /app/package.json ./
+COPY --from=dependencies /app/package-lock.json ./
 
 # Copy source code
 COPY . .
@@ -33,8 +34,8 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate --schema=./db/prisma/schema.prisma
 
-# Build all packages and the service
-RUN npm run build --filter=@gx/svc-identity
+# Build all packages and the service using turbo
+RUN npx turbo run build --filter=@gx/svc-identity...
 
 # ============================================
 # Stage 3: Production
@@ -46,25 +47,52 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
-# Install production dependencies only
-COPY package.json package-lock.json* ./
-COPY apps/svc-identity/package.json ./apps/svc-identity/
-COPY packages/ ./packages/
+# Copy node_modules from builder
+COPY --from=builder /app/node_modules ./node_modules
 
-RUN npm ci --production --legacy-peer-deps --ignore-scripts
-
-# Copy built artifacts from builder
+# Copy built service
 COPY --from=builder /app/apps/svc-identity/dist ./apps/svc-identity/dist
-COPY --from=builder /app/packages/ ./packages/
 
-# Copy Prisma schema
+# Copy built workspace packages (package.json + dist for each)
+COPY --from=builder /app/packages/core-config/package.json ./packages/core-config/
+COPY --from=builder /app/packages/core-config/dist ./packages/core-config/dist
+COPY --from=builder /app/packages/core-db/package.json ./packages/core-db/
+COPY --from=builder /app/packages/core-db/dist ./packages/core-db/dist
+COPY --from=builder /app/packages/core-logger/package.json ./packages/core-logger/
+COPY --from=builder /app/packages/core-logger/dist ./packages/core-logger/dist
+COPY --from=builder /app/packages/core-http/package.json ./packages/core-http/
+COPY --from=builder /app/packages/core-http/dist ./packages/core-http/dist
+COPY --from=builder /app/packages/core-events/package.json ./packages/core-events/
+COPY --from=builder /app/packages/core-events/dist ./packages/core-events/dist
+COPY --from=builder /app/packages/core-openapi/package.json ./packages/core-openapi/
+COPY --from=builder /app/packages/core-openapi/dist ./packages/core-openapi/dist
+COPY --from=builder /app/packages/core-fabric/package.json ./packages/core-fabric/
+COPY --from=builder /app/packages/core-fabric/dist ./packages/core-fabric/dist
+COPY --from=builder /app/packages/core-storage/package.json ./packages/core-storage/
+COPY --from=builder /app/packages/core-storage/dist ./packages/core-storage/dist
+
+# Copy workspace packages' node_modules (for nested dependencies like @grpc/grpc-js)
+COPY --from=builder /app/packages/core-fabric/node_modules ./packages/core-fabric/node_modules
+
+# Copy Prisma schema and generated client
 COPY --from=builder /app/db/prisma ./db/prisma
+COPY --from=builder /app/packages/core-db/node_modules/.prisma ./packages/core-db/node_modules/.prisma
 
-# Generate Prisma client in production stage
-RUN npx prisma generate --schema=./db/prisma/schema.prisma
+# Replace workspace symlinks with actual directories in node_modules/@gx
+# This ensures module resolution works without relying on symlinks
+RUN rm -rf /app/node_modules/@gx && mkdir -p /app/node_modules/@gx && \
+    cp -r /app/packages/core-config /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-db /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-logger /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-http /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-events /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-openapi /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-fabric /app/node_modules/@gx/ && \
+    cp -r /app/packages/core-storage /app/node_modules/@gx/
 
-# Copy generated Prisma client to root node_modules (monorepo fix)
-RUN cp -r /app/packages/core-db/node_modules/.prisma /app/node_modules/
+# Copy Prisma client to root node_modules (for packages that import directly)
+RUN mkdir -p /app/node_modules/.prisma && \
+    cp -r /app/packages/core-db/node_modules/.prisma/* /app/node_modules/.prisma/
 
 # Create non-root user
 RUN (addgroup -g 1001 gxprotocol || true) && \
