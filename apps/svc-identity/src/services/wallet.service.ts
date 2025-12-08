@@ -14,6 +14,7 @@ import { db } from '@gx/core-db';
 export interface WalletBalanceDTO {
   walletId: string;
   profileId: string;
+  fabricUserId: string;
   balance: number;
   walletName: string;
   updatedAt: Date;
@@ -37,8 +38,10 @@ class WalletService {
    * Get wallet balance for a user profile
    *
    * CQRS Read Operation: Queries projected Wallet table
+   * Includes fabricUserId (blockchain address) for the wallet display
    */
   async getWalletBalance(profileId: string): Promise<WalletBalanceDTO> {
+    // Fetch wallet along with user profile to get fabricUserId
     const wallet = await db.wallet.findFirst({
       where: { profileId, deletedAt: null },
     });
@@ -47,9 +50,16 @@ class WalletService {
       throw new Error('Wallet not found');
     }
 
+    // Get user profile to fetch the blockchain address (fabricUserId)
+    const userProfile = await db.userProfile.findUnique({
+      where: { profileId },
+      select: { fabricUserId: true },
+    });
+
     return {
       walletId: wallet.walletId,
       profileId: wallet.profileId,
+      fabricUserId: userProfile?.fabricUserId || '',
       balance: Number(wallet.cachedBalance),
       walletName: wallet.walletName,
       updatedAt: wallet.updatedAt,
