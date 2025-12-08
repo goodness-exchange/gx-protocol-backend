@@ -20,6 +20,7 @@ import validationRoutes from './routes/validation.routes';
 import walletRoutes from './routes/wallet.routes';
 import beneficiariesRoutes from './routes/beneficiaries.routes';
 import transfersRoutes from './routes/transfers.routes';
+import notificationsRoutes from './routes/notifications.routes';
 
 /**
  * Creates and configures the Express application
@@ -108,6 +109,7 @@ export function createApp(): Application {
   app.use('/api/v1/beneficiaries', beneficiariesRoutes);
   app.use('/api/v1/transfers', transfersRoutes);
   app.use('/api/v1/commands', transfersRoutes); // Alias for command status polling
+  app.use('/api/v1/notifications', notificationsRoutes);
 
   // ============================================
   // 404 Handler
