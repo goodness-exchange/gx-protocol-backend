@@ -2,7 +2,9 @@
 
 ## Session Overview
 **Date**: December 8, 2025
-**Focus**: End-to-End Registration Flow Completion and User Wallet Interface
+**Focus**:
+- Session 1: End-to-End Registration Flow Completion and User Wallet Interface
+- Session 2: PEP Removal, Document Upload Bug Fixes, and Google Shared Drive Integration
 
 ---
 
@@ -246,3 +248,216 @@ PostgreSQL (document record)
 4. **Admin Panel**: Review admin approval workflow
    - Ensure admins can view uploaded documents
    - Test approval/denial flow
+
+---
+
+## Session 2 Work Completed
+
+### 6. PEP (Politically Exposed Person) Removal
+
+**Requirement**: Remove PEP declaration from KYR wizard as per user request.
+
+**Changes Made**:
+
+#### Frontend (KYRWizard.tsx)
+- Removed `isPEP` and `pepDetails` from `KYRFormData` interface
+- Removed from initial form state
+- Removed PEP validation in step 7 (Review & Submit)
+- Removed PEP Declaration section from ReviewStep component
+- Removed `pep` object from submission data
+
+#### BFF (app/api/users/[id]/kyc/submit/route.ts)
+- Removed `pep` from `KYCSubmissionData` interface
+- Removed `isPEP` and `pepDetails` from profile update payload
+
+**Reason**: PEP declaration determined to be unnecessary for current KYC requirements.
+
+---
+
+### 7. Document Upload "Forbidden" Error Fix
+
+**Problem**: User encountered "Forbidden" error when completing KYR form at document upload step.
+
+**Root Cause**: JWT payload uses `profileId` but `documents.controller.ts` was checking `req.user.id`.
+
+**Analysis**:
+```typescript
+// BROKEN CODE:
+const requestingUserId = (req as Request & { user?: { id: string; role: string } }).user?.id;
+if (requestingUserId !== profileId && requestingUserRole !== 'admin') {
+  // This always failed because id was undefined, profileId existed
+}
+```
+
+**Solution**: Changed to use `req.user.profileId` in both `upload` and `list` functions.
+
+**File Modified**: `apps/svc-identity/src/controllers/documents.controller.ts`
+
+**Deployment**: svc-identity v2.0.35
+
+---
+
+### 8. Kubernetes NetworkPolicy Update
+
+**Problem**: After fixing the Forbidden error, backend still couldn't reach Google APIs.
+
+**Symptom**: `connect ECONNREFUSED 64.233.176.95:443` errors in logs.
+
+**Root Cause**: The `allow-backend-egress` NetworkPolicy in `backend-mainnet` namespace only allowed:
+- Port 5432 (PostgreSQL)
+- Port 6379 (Redis)
+- Port 7050/7051 (Fabric)
+
+It was missing port 443 for HTTPS egress to external services like Google APIs.
+
+**Solution**: Added egress rule for port 443 TCP:
+```yaml
+egress:
+  - ports:
+    - port: 443
+      protocol: TCP
+```
+
+**Applied via**: `kubectl apply -f` on updated NetworkPolicy
+
+---
+
+### 9. Google Drive Shared Drive Support
+
+**Problem**: After NetworkPolicy fix, uploads failed with:
+```
+Service Accounts do not have storage quota. Leverage shared drives...
+```
+
+**Root Cause**: Google service accounts cannot upload to their own "My Drive" storage. They require access to a Shared Drive (Team Drive) with storage quota from the organization.
+
+**Solution**: Added `supportsAllDrives: true` to all Google Drive API calls in `google-drive.provider.ts`:
+
+| Method | Parameters Added |
+|--------|------------------|
+| `files.list` | `supportsAllDrives: true`, `includeItemsFromAllDrives: true` |
+| `files.create` (folder) | `supportsAllDrives: true` |
+| `files.create` (upload) | `supportsAllDrives: true` |
+| `files.get` | `supportsAllDrives: true` |
+| `files.delete` | `supportsAllDrives: true` |
+| `permissions.create` | `supportsAllDrives: true` |
+
+**File Modified**: `packages/core-storage/src/google-drive.provider.ts`
+
+**Deployment**: svc-identity v2.0.36
+
+**Configuration Required**:
+- Google Drive Shared Drive folder ID: `11Y79OCvjzgYbEiiPArXsS6UoXKGA5l8A`
+- Need to update Kubernetes secret with this Shared Drive folder ID
+- Service account must be added as Content Manager on the Shared Drive
+
+---
+
+## Session 2 Files Modified
+
+| File | Repository | Changes |
+|------|------------|---------|
+| `components/kyr/KYRWizard.tsx` | gx-wallet-frontend | Removed PEP declaration fields and UI |
+| `app/api/users/[id]/kyc/submit/route.ts` | gx-wallet-frontend | Removed PEP from submission interface |
+| `apps/svc-identity/src/controllers/documents.controller.ts` | gx-protocol-backend | Fixed JWT property from `id` to `profileId` |
+| `packages/core-storage/src/google-drive.provider.ts` | gx-protocol-backend | Added Shared Drive support |
+
+---
+
+## Session 2 Commits Made
+
+### gx-wallet-frontend (dev branch)
+1. `6c1f131` - `refactor(kyr): remove Politically Exposed Person (PEP) declaration`
+   - Removed isPEP and pepDetails fields
+   - Removed PEP validation and UI section
+
+2. `2debb65` - `refactor(api): remove PEP fields from KYC submission BFF endpoint`
+   - Removed pep interface from KYCSubmissionData
+   - Removed from profile update payload
+
+### gx-protocol-backend (phase1-infrastructure branch)
+1. `c3f0121` - `fix(svc-identity): correct JWT property access in documents controller`
+   - Changed req.user.id to req.user.profileId
+   - Fixed authorization check for document operations
+
+2. `0a1b103` - `feat(core-storage): add Shared Drive support to Google Drive provider`
+   - Added supportsAllDrives to all API calls
+   - Added includeItemsFromAllDrives for list operations
+
+---
+
+## Session 2 Deployments
+
+| Version | Changes | Status |
+|---------|---------|--------|
+| v2.0.35 | JWT profileId fix | Deployed |
+| v2.0.36 | Shared Drive support | Deployed |
+
+---
+
+## Session 2 Infrastructure Changes
+
+### NetworkPolicy Updated
+**Resource**: `allow-backend-egress` in `backend-mainnet` namespace
+
+**Added Rule**:
+```yaml
+- ports:
+  - port: 443
+    protocol: TCP
+```
+
+**Purpose**: Allow HTTPS egress to Google APIs and other external services.
+
+---
+
+## Session 2 Pending Configuration
+
+### Google Shared Drive Setup
+
+The code now supports Shared Drives, but configuration is needed:
+
+1. **Shared Drive Folder ID**: `11Y79OCvjzgYbEiiPArXsS6UoXKGA5l8A`
+
+2. **Required Steps**:
+   - Verify service account has access to the Shared Drive
+   - Update Kubernetes secret with Shared Drive folder ID:
+     ```bash
+     kubectl create secret generic google-drive-credentials \
+       --from-literal=root-folder-id=11Y79OCvjzgYbEiiPArXsS6UoXKGA5l8A \
+       --from-file=service-account-key=<key-file> \
+       -n backend-mainnet \
+       --dry-run=client -o yaml | kubectl apply -f -
+     ```
+   - Restart svc-identity pods to pick up new configuration
+
+---
+
+## Session 2 Statistics
+
+| Metric | Value |
+|--------|-------|
+| Duration | ~3 hours |
+| Bug Fixes | 2 |
+| Refactors | 2 |
+| Deployments | 2 (v2.0.35, v2.0.36) |
+| Infrastructure Changes | 1 (NetworkPolicy) |
+| Commits (frontend) | 2 |
+| Commits (backend) | 2 |
+
+---
+
+## Combined Session Status
+
+### Completed
+- [x] BFF document upload endpoint
+- [x] KYRWizard document upload integration
+- [x] PEP declaration removal
+- [x] JWT profileId authorization fix
+- [x] NetworkPolicy HTTPS egress
+- [x] Google Shared Drive code support
+
+### Pending
+- [ ] Update Google Drive root-folder-id secret with Shared Drive ID
+- [ ] Test end-to-end document upload with Shared Drive
+- [ ] ClamAV deployment (currently bypassed)
