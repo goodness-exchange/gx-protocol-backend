@@ -111,11 +111,18 @@ class UsersService {
       profileId: user.profileId,
       email: user.email,
       firstName: user.firstName,
+      middleName: user.middleName,
       lastName: user.lastName,
       phoneNum: user.phoneNum,
       identityNum: user.nationalIdNumber,
       status: user.status,
       nationalityCountryCode: user.nationalityCountryCode,
+      // Additional fields for KYC pre-fill
+      dateOfBirth: user.dateOfBirth,
+      gender: user.gender,
+      placeOfBirth: user.placeOfBirth,
+      // Denial reason for re-submission
+      denialReason: user.denialReason,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

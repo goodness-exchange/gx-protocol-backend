@@ -46,11 +46,17 @@ export interface UserProfileDTO {
   profileId: string;
   email: string | null;
   firstName: string;
+  middleName?: string | null;
   lastName: string;
   phoneNum: string | null;
   identityNum: string | null;
   status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED' | 'SUSPENDED' | 'CLOSED';
   nationalityCountryCode: string | null;
+  // Additional fields for KYC/KYR pre-fill
+  dateOfBirth?: Date | null;
+  gender?: string | null;
+  placeOfBirth?: string | null;
+  denialReason?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
