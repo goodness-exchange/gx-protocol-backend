@@ -16,6 +16,7 @@ import healthRoutes from './routes/health.routes';
 import registrationRoutes from './routes/registration.routes';
 import adminRoutes from './routes/admin.routes';
 import documentsRoutes from './routes/documents.routes';
+import validationRoutes from './routes/validation.routes';
 
 /**
  * Creates and configures the Express application
@@ -99,6 +100,7 @@ export function createApp(): Application {
   app.use('/api/v1/registration', registrationRoutes);
   app.use('/api/v1/admin', adminRoutes);
   app.use('/api/v1', documentsRoutes);
+  app.use('/api/v1/validation', validationRoutes);
 
   // ============================================
   // 404 Handler
