@@ -2,10 +2,14 @@
  * Documents Controller
  *
  * Handles HTTP requests for document upload and management.
+ * Supports feature flag to disable actual uploads during development.
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 import { logger } from '@gx/core-logger';
+import { identityConfig } from '../config';
 import {
   uploadDocument,
   getDocumentsByProfileId,
@@ -93,6 +97,43 @@ export async function upload(
         success: false,
         error: 'Forbidden',
         message: 'You can only upload documents for your own profile',
+      });
+      return;
+    }
+
+    // Check if document upload is enabled
+    if (!identityConfig.documentUploadEnabled) {
+      // Return mock response when uploads are disabled
+      const mockDocumentId = randomUUID();
+      const fileHash = createHash('sha256').update(file.buffer).digest('hex');
+
+      logger.info(
+        {
+          profileId,
+          documentId: mockDocumentId,
+          documentType,
+          side,
+          uploadEnabled: false,
+        },
+        'Document upload disabled - returning mock response'
+      );
+
+      res.status(201).json({
+        success: true,
+        data: {
+          documentId: mockDocumentId,
+          hash: fileHash,
+          size: file.size,
+          mimeType: file.mimetype,
+          fileName: file.originalname,
+          documentType,
+          side: side || null,
+          virusScanStatus: 'SKIPPED',
+          storageUrl: `mock://${mockDocumentId}`,
+          uploadedAt: new Date().toISOString(),
+          _mock: true,
+          _message: 'Document upload is disabled. File metadata recorded but not stored.',
+        },
       });
       return;
     }
@@ -338,6 +379,7 @@ export async function constraints(
         'OTHER',
       ],
       documentSides: ['FRONT', 'BACK'],
+      uploadEnabled: identityConfig.documentUploadEnabled,
     },
   });
 }
