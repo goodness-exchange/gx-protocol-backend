@@ -131,12 +131,47 @@ enum LegalTenderStatusEnum {
 }
 
 enum OffChainTxType {
-  MINT
-  SENT
-  RECEIVED
-  TAX
-  LOAN_DISBURSEMENT
-  LOAN_REPAYMENT
+  // Core token operations
+  MINT                      // System minting new tokens
+  GENESIS                   // Initial token allocation
+
+  // P2P transfers
+  SENT                      // Outgoing transfer
+  RECEIVED                  // Incoming transfer
+
+  // Fees & taxes
+  FEE                       // Transaction fees
+  TAX                       // Tax deductions (velocity tax, hoarding tax)
+  TAX_REFUND                // Tax refund/correction
+
+  // Loans
+  LOAN_DISBURSEMENT         // Loan funds received
+  LOAN_REPAYMENT            // Loan payment made
+
+  // Donations & grants
+  DONATION                  // Charitable donation
+  GRANT                     // Grant received
+
+  // Organization/multi-sig
+  ORG_DEPOSIT               // Deposit to organization
+  ORG_WITHDRAWAL            // Withdrawal from organization
+  ORG_DIVIDEND              // Dividend/distribution from org
+
+  // Escrow & holds
+  ESCROW_LOCK               // Funds locked in escrow
+  ESCROW_RELEASE            // Funds released from escrow
+  HOLD                      // Temporary hold on funds
+  HOLD_RELEASE              // Hold released
+
+  // Rewards & incentives
+  REWARD                    // System reward/incentive
+  REFERRAL_BONUS            // Referral program bonus
+  STAKING_REWARD            // Staking rewards
+
+  // Corrections & adjustments
+  ADJUSTMENT                // Manual adjustment by admin
+  REVERSAL                  // Transaction reversal
+  REFUND                    // Refund issued
 }
 
 enum CollateralStatus {
