@@ -1649,3 +1649,208 @@ func (s *TokenomicsContract) TransferInternal(...) error {
 - [ ] Enable real document uploads when storage is ready
 - [ ] Full beneficiary management with database persistence
 - [ ] Consider implementing per-user Fabric identities for strict Transfer authorization
+
+---
+
+## Session 9 Work Completed (December 9, 2025 - Continuation)
+
+### 26. Transaction History Not Updating - Root Cause Analysis
+
+**Problem**: After successful P2P transfers, transaction history was not showing in the frontend.
+
+**Root Cause Analysis**:
+1. Projector logs showed "Unknown event type" for `InternalTransferEvent`
+2. The chaincode `TransferInternal` function emits `InternalTransferEvent`, not `TransferCompleted`
+3. Projector had handler for `TransferCompleted` but not for `InternalTransferEvent`
+4. Transaction table exists but was not being populated
+
+**Solution**: Added `InternalTransferEvent` handler to projector worker.
+
+---
+
+### 27. Projector InternalTransferEvent Handler Implementation
+
+**Changes to `workers/projector/src/index.ts`**:
+
+1. Added case for `InternalTransferEvent` in the event router:
+```typescript
+case 'InternalTransferEvent':
+  await this.handleInternalTransferEvent(payload, event);
+  break;
+```
+
+2. Implemented `handleInternalTransferEvent` method:
+   - Looks up wallets via `fabricUserId` through `UserProfile`
+   - Updates sender balance (decrement) and receiver balance (increment)
+   - Creates `Transaction` records for both parties (SENT/RECEIVED)
+
+**Event Payload from Chaincode**:
+```json
+{
+  "fromID": "LK FF3 ABL912 0WLUY 6025",
+  "toID": "US A12 XYZ789 TEST1 3985",
+  "amount": 1000,
+  "type": "P2P_TRANSFER",
+  "remark": "User-initiated transfer"
+}
+```
+
+---
+
+### 28. OffChainTxType Enum Mismatch Fix
+
+**Problem**: Prisma error "Invalid value for argument `type`. Expected OffChainTxType."
+
+**Root Cause**: 
+- Code used `SEND` and `RECEIVE` 
+- Enum had `SENT` and `RECEIVED`
+
+**Fix**: Updated handler to use correct enum values (SENT/RECEIVED).
+
+---
+
+### 29. Comprehensive Transaction Type Enum Expansion
+
+**Added new transaction types to `OffChainTxType` enum** aligned with GX Protocol's interest-free economic model:
+
+```prisma
+enum OffChainTxType {
+  // Core token operations
+  MINT                      // System minting new tokens
+  GENESIS                   // Initial token allocation
+
+  // P2P transfers
+  SENT                      // Outgoing transfer
+  RECEIVED                  // Incoming transfer
+
+  // Fees & taxes
+  FEE                       // Transaction fees
+  TAX                       // Tax deductions (velocity tax, hoarding tax)
+  TAX_REFUND                // Tax refund/correction
+
+  // Loans
+  LOAN_DISBURSEMENT         // Loan funds received
+  LOAN_REPAYMENT            // Loan payment made
+
+  // Donations & grants
+  DONATION                  // Charitable donation
+  GRANT                     // Grant received
+
+  // Organization/multi-sig
+  ORG_DEPOSIT               // Deposit to organization
+  ORG_WITHDRAWAL            // Withdrawal from organization
+  ORG_DIVIDEND              // Dividend/distribution from org
+
+  // Escrow & holds
+  ESCROW_LOCK               // Funds locked in escrow
+  ESCROW_RELEASE            // Funds released from escrow
+  HOLD                      // Temporary hold on funds
+  HOLD_RELEASE              // Hold released
+
+  // Rewards & incentives
+  REWARD                    // System reward/incentive
+  REFERRAL_BONUS            // Referral program bonus
+  STAKING_REWARD            // Staking rewards
+
+  // Corrections & adjustments
+  ADJUSTMENT                // Manual adjustment by admin
+  REVERSAL                  // Transaction reversal
+  REFUND                    // Refund issued
+}
+```
+
+**Applied to production database**:
+```sql
+ALTER TYPE "OffChainTxType" ADD VALUE IF NOT EXISTS 'GENESIS';
+ALTER TYPE "OffChainTxType" ADD VALUE IF NOT EXISTS 'TAX_REFUND';
+-- (14 more enum values added)
+```
+
+---
+
+### 30. Projector Deployment and Testing
+
+**Deployed**: projector:2.0.44
+
+**Checkpoint Reset Process**:
+1. Scale down projector to 0 replicas
+2. Update `ProjectorState.lastBlock` to 86 (before transfer events)
+3. Scale up projector to 1 replica
+4. Projector reprocesses blocks 87 and 88
+
+**Successful Reprocessing**:
+```
+InternalTransferEvent processed - fromUserId: LK FF3 ABL912 0WLUY 6025, toUserId: US A12 XYZ789 TEST1 3985, amount: 1000, block: 87
+InternalTransferEvent processed - fromUserId: LK FF3 ABL912 0WLUY 6025, toUserId: US A12 XYZ789 TEST1 3985, amount: 500, block: 88
+```
+
+**Verified Transaction Table**:
+```
+offTxId                              | type     | amount         | counterparty              | remark
+32e2b2b7-9d17-41ab-bd75-0367f238a8cd | RECEIVED | 500.000000000  | LK FF3 ABL912 0WLUY 6025  | Test transfer for name verification
+88ac50be-c42f-4d21-ab82-47937c95a69a | SENT     | 500.000000000  | US A12 XYZ789 TEST1 3985  | Test transfer for name verification
+2b706e8c-49b0-452d-82ac-02fbda52ce77 | RECEIVED | 1000.000000000 | LK FF3 ABL912 0WLUY 6025  | Test transfer attempt 5
+daf0d818-81ba-4cfc-a8a6-d652eb08c8d0 | SENT     | 1000.000000000 | US A12 XYZ789 TEST1 3985  | Test transfer attempt 5
+```
+
+---
+
+### 31. Admin API fabricUserId Enhancement
+
+**Problem**: Admin dashboard couldn't show blockchain addresses - API wasn't returning `fabricUserId`.
+
+**Fix in `apps/svc-identity/src/services/admin.service.ts`**:
+
+1. Updated `UserWithKyc` interface to include:
+   - `fabricUserId: string | null`
+   - `onchainStatus: string | null`
+
+2. Updated `UserListItem` interface to include same fields
+
+3. Updated `listUsers()` to return:
+   - `fabricUserId` (blockchain address)
+   - `onchainStatus` (blockchain registration status)
+
+4. Updated `getUserDetails()` to return same fields
+
+**Deployed**: svc-identity:2.0.41
+
+**Verified API Response**:
+```json
+{
+  "profileId": "e2e-test-sync2-079f9689",
+  "fabricUserId": "SG E2E TEST02 SYNC0 9689",
+  "email": "e2e-test2-079f@gxcoin.money",
+  "status": "ACTIVE",
+  "onchainStatus": "ACTIVE"
+}
+```
+
+---
+
+## Session 9 Commits
+
+| Commit | Description |
+|--------|-------------|
+| `fe6840d` | feat(schema): expand OffChainTxType enum with comprehensive transaction types |
+| `f91a8c7` | feat(projector): add InternalTransferEvent handler for P2P transfers |
+| `002b644` | feat(svc-identity): add fabricUserId and onchainStatus to admin API responses |
+
+---
+
+## Session 9 Deployments
+
+| Service | Version | Status |
+|---------|---------|--------|
+| projector | 2.0.44 | Deployed ✓ |
+| svc-identity | 2.0.41 | Deployed ✓ |
+
+---
+
+## Current System State
+
+**Transaction History**: Working - P2P transfers now populate Transaction table
+**Notifications**: Working - Sender and receiver both receive notifications
+**Admin API**: Returns fabricUserId and onchainStatus
+**Blockchain Height**: Block 88
+**All Services**: Running normally
