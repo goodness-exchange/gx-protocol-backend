@@ -175,6 +175,7 @@ function selectIdentityForCommand(commandType: string): string {
     'APPOINT_ADMIN',
     'ACTIVATE_TREASURY',
     'DISTRIBUTE_GENESIS', // Requires gx_admin role for genesis token distribution
+    'TRANSFER_TOKENS', // Uses TransferInternal which requires Admin role
   ];
 
   // For super admin commands, use Org1 super-admin
@@ -722,14 +723,19 @@ class OutboxSubmitter {
 
       // ========== TokenomicsContract ==========
       case 'TRANSFER_TOKENS':
+        // Note: Using TransferInternal which requires Admin role and is fee-exempt.
+        // The chaincode Transfer function requires submitter == fromID (user's own identity),
+        // but our backend uses a shared admin identity for all API operations.
+        // TransferInternal bypasses this check and allows admin-initiated transfers.
         return {
           contractName: 'TokenomicsContract',
-          functionName: 'Transfer',
+          functionName: 'TransferInternal',
           args: [
             payload.fromUserId as string,
             payload.toUserId as string,
             payload.amount.toString(),
-            payload.remark as string || '',
+            'P2P_TRANSFER', // Transaction type for audit trail
+            payload.remark as string || 'User-initiated transfer',
           ],
         };
 
@@ -1087,7 +1093,7 @@ class OutboxSubmitter {
 
         if (senderProfile) {
           const receiverName = receiverProfile
-            ? `${receiverProfile.fname || ''} ${receiverProfile.lname || ''}`.trim() || 'Unknown'
+            ? `${receiverProfile.firstName || ''} ${receiverProfile.lastName || ''}`.trim() || 'Unknown'
             : toUserId.slice(0, 15) + '...';
 
           await this.prisma.notification.create({
@@ -1112,7 +1118,7 @@ class OutboxSubmitter {
 
         if (receiverProfile) {
           const senderName = senderProfile
-            ? `${senderProfile.fname || ''} ${senderProfile.lname || ''}`.trim() || 'Unknown'
+            ? `${senderProfile.firstName || ''} ${senderProfile.lastName || ''}`.trim() || 'Unknown'
             : fromUserId.slice(0, 15) + '...';
 
           await this.prisma.notification.create({
