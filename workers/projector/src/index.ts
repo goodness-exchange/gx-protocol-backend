@@ -483,6 +483,10 @@ class Projector {
         await this.handleTransferCompleted(payload, event);
         break;
 
+      case 'InternalTransferEvent':
+        await this.handleInternalTransferEvent(payload, event);
+        break;
+
       case 'GenesisDistributed':
         await this.handleGenesisDistributed(payload, event);
         break;
@@ -753,13 +757,13 @@ class Projector {
         },
       });
 
-      // Create transaction history for sender
+      // Create transaction history for sender (SENT enum value)
       await tx.transaction.create({
         data: {
           tenantId: this.config.tenantId,
           onChainTxId: event.transactionId,
           walletId: senderWallet.walletId,
-          type: 'SEND',
+          type: 'SENT',
           counterparty: payload.toUserId,
           amount: parseFloat(payload.amount),
           fee: parseFloat(payload.fee || 0),
@@ -769,13 +773,13 @@ class Projector {
         },
       });
 
-      // Create transaction history for receiver
+      // Create transaction history for receiver (RECEIVED enum value)
       await tx.transaction.create({
         data: {
           tenantId: this.config.tenantId,
-          onChainTxId: event.transactionId,
+          onChainTxId: `${event.transactionId}-recv`,
           walletId: receiverWallet.walletId,
-          type: 'RECEIVE',
+          type: 'RECEIVED',
           counterparty: payload.fromUserId,
           amount: parseFloat(payload.amount),
           fee: 0,
@@ -790,6 +794,124 @@ class Projector {
       fromUserId: payload.fromUserId,
       toUserId: payload.toUserId,
       amount: payload.amount,
+    });
+  }
+
+  /**
+   * Handle InternalTransferEvent (from TransferInternal chaincode function)
+   *
+   * Event Structure (from chaincode):
+   * ```json
+   * {
+   *   "fromID": "LK FF3 ABL912 0WLUY 6025",
+   *   "toID": "US A12 XYZ789 TEST1 3985",
+   *   "amount": 1000,
+   *   "type": "P2P_TRANSFER",
+   *   "remark": "User-initiated transfer"
+   * }
+   * ```
+   *
+   * Read Model Updates:
+   * - Update sender wallet balance (decrease)
+   * - Update receiver wallet balance (increase)
+   * - Create transaction history entries for both parties
+   */
+  private async handleInternalTransferEvent(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    const fromUserId = payload.fromID;
+    const toUserId = payload.toID;
+    const amount = typeof payload.amount === 'string' ? parseFloat(payload.amount) : payload.amount;
+
+    // Use transaction to ensure atomicity
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Find wallets by fabricUserId (look up via UserProfile)
+      const senderProfile = await tx.userProfile.findFirst({
+        where: { fabricUserId: fromUserId },
+      });
+      const receiverProfile = await tx.userProfile.findFirst({
+        where: { fabricUserId: toUserId },
+      });
+
+      const senderWallet = senderProfile
+        ? await tx.wallet.findFirst({ where: { profileId: senderProfile.profileId } })
+        : null;
+      const receiverWallet = receiverProfile
+        ? await tx.wallet.findFirst({ where: { profileId: receiverProfile.profileId } })
+        : null;
+
+      if (!senderWallet || !receiverWallet) {
+        this.log('warn', 'Wallet not found for internal transfer', {
+          fromUserId,
+          toUserId,
+          senderFound: !!senderWallet,
+          receiverFound: !!receiverWallet,
+        });
+        return;
+      }
+
+      // Update sender balance (subtract amount - no fee for internal transfers)
+      await tx.wallet.update({
+        where: { walletId: senderWallet.walletId },
+        data: {
+          cachedBalance: {
+            decrement: amount,
+          },
+          updatedAt: event.timestamp,
+        },
+      });
+
+      // Update receiver balance (add amount)
+      await tx.wallet.update({
+        where: { walletId: receiverWallet.walletId },
+        data: {
+          cachedBalance: {
+            increment: amount,
+          },
+          updatedAt: event.timestamp,
+        },
+      });
+
+      // Create transaction history for sender (SENT enum value)
+      await tx.transaction.create({
+        data: {
+          tenantId: this.config.tenantId,
+          onChainTxId: event.transactionId,
+          walletId: senderWallet.walletId,
+          type: 'SENT',
+          counterparty: toUserId,
+          amount: amount,
+          fee: 0,
+          remark: payload.remark || `${payload.type || 'Transfer'}`,
+          timestamp: event.timestamp,
+          blockNumber: event.blockNumber,
+        },
+      });
+
+      // Create transaction history for receiver (RECEIVED enum value)
+      await tx.transaction.create({
+        data: {
+          tenantId: this.config.tenantId,
+          onChainTxId: `${event.transactionId}-recv`, // Unique for receiver entry
+          walletId: receiverWallet.walletId,
+          type: 'RECEIVED',
+          counterparty: fromUserId,
+          amount: amount,
+          fee: 0,
+          remark: payload.remark || `${payload.type || 'Transfer'}`,
+          timestamp: event.timestamp,
+          blockNumber: event.blockNumber,
+        },
+      });
+    });
+
+    this.log('info', 'InternalTransferEvent processed', {
+      fromUserId,
+      toUserId,
+      amount,
+      type: payload.type,
+      blockNumber: event.blockNumber.toString(),
     });
   }
 
