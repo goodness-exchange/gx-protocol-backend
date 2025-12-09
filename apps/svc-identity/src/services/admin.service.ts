@@ -15,11 +15,13 @@ export interface BatchApprovalResult {
 // Type for user with KYC relations
 interface UserWithKyc {
   profileId: string;
+  fabricUserId: string | null;
   email: string;
   firstName: string;
   lastName: string;
   phoneNum: string | null;
   status: string;
+  onchainStatus: string | null;
   nationalityCountryCode: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -40,11 +42,13 @@ interface UserWithKyc {
 
 export interface UserListItem {
   profileId: string;
+  fabricUserId: string | null;
   email: string;
   firstName: string;
   lastName: string;
   phoneNum: string | null;
   status: string;
+  onchainStatus: string | null;
   nationalityCountryCode: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -102,11 +106,13 @@ class AdminService {
 
     const userList: UserListItem[] = users.map((user: UserWithKyc) => ({
       profileId: user.profileId,
+      fabricUserId: user.fabricUserId,  // Blockchain address
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
       phoneNum: user.phoneNum,
       status: user.status,
+      onchainStatus: user.onchainStatus,  // Blockchain registration status
       nationalityCountryCode: user.nationalityCountryCode,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -147,10 +153,11 @@ class AdminService {
       throw new Error('User not found');
     }
 
-    // Transform to include all KYR-related fields
+    // Transform to include all KYC-related fields
     return {
       // Basic info
       profileId: user.profileId,
+      fabricUserId: user.fabricUserId,  // Blockchain address
       email: user.email,
       firstName: user.firstName,
       middleName: user.middleName,
@@ -161,6 +168,7 @@ class AdminService {
       placeOfBirth: user.placeOfBirth,
       nationalityCountryCode: user.nationalityCountryCode,
       status: user.status,
+      onchainStatus: user.onchainStatus,  // Blockchain registration status
 
       // National ID
       nationalIdNumber: user.nationalIdNumber,
