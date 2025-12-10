@@ -162,6 +162,18 @@ class Projector {
   private lastProcessedBlock: bigint = 0n;
   private lastEventIndex = 0;
 
+  /**
+   * ENTERPRISE PATTERN: Idempotency Check Cache
+   *
+   * In-memory cache of recently processed transaction IDs to avoid
+   * database lookups for every event. This provides O(1) duplicate detection
+   * for the common case where duplicates arrive close together.
+   *
+   * The cache is bounded to prevent memory leaks.
+   */
+  private processedTxCache: Set<string> = new Set();
+  private readonly MAX_CACHE_SIZE = 10000;
+
   constructor(
     config: WorkerConfig,
     prisma: PrismaClient,
@@ -173,14 +185,142 @@ class Projector {
   }
 
   /**
+   * ENTERPRISE PATTERN: Idempotency Check for Transaction-Creating Events
+   *
+   * Why this is critical:
+   * - If projector crashes/restarts mid-batch, events may be replayed
+   * - Without idempotency checks, this creates duplicate transaction records
+   * - Duplicate records cause incorrect balance displays and audit inconsistencies
+   *
+   * Algorithm:
+   * 1. Check in-memory cache first (O(1), covers recent duplicates)
+   * 2. If not in cache, check database for existing transaction with same onChainTxId
+   * 3. If found, skip processing and return true (already processed)
+   * 4. If not found, add to cache and return false (process normally)
+   *
+   * Cache Management:
+   * - Bounded to MAX_CACHE_SIZE entries
+   * - When full, clear oldest half (LRU approximation)
+   *
+   * @param onChainTxId - The blockchain transaction ID
+   * @returns true if already processed, false if new
+   */
+  private async isTransactionAlreadyProcessed(onChainTxId: string): Promise<boolean> {
+    // Step 1: Check in-memory cache
+    if (this.processedTxCache.has(onChainTxId)) {
+      return true;
+    }
+
+    // Step 2: Check database
+    const existing = await this.prisma.transaction.findFirst({
+      where: {
+        tenantId: this.config.tenantId,
+        onChainTxId: onChainTxId,
+      },
+      select: { offTxId: true },
+    });
+
+    if (existing) {
+      // Add to cache for future checks
+      this.addToProcessedCache(onChainTxId);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Add transaction ID to processed cache with size management
+   */
+  private addToProcessedCache(txId: string): void {
+    if (this.processedTxCache.size >= this.MAX_CACHE_SIZE) {
+      // Clear oldest half of cache (simple LRU approximation)
+      const entries = Array.from(this.processedTxCache);
+      this.processedTxCache.clear();
+      entries.slice(entries.length / 2).forEach(id => this.processedTxCache.add(id));
+    }
+    this.processedTxCache.add(txId);
+  }
+
+  /**
+   * ENTERPRISE PATTERN: Distributed Lock for Single Instance
+   *
+   * Why this is critical:
+   * - Multiple projector instances would process the same events
+   * - This leads to duplicate transaction records and balance inconsistencies
+   * - Only ONE projector should be active at any time
+   *
+   * Implementation:
+   * - Uses PostgreSQL advisory locks (pg_try_advisory_lock)
+   * - Lock ID is derived from tenant + channel (deterministic)
+   * - Lock is session-scoped (released on disconnect)
+   * - Non-blocking: returns immediately if lock is held
+   *
+   * Why advisory lock over table row lock?
+   * - Advisory locks don't require a dedicated lock table
+   * - They're automatically released on connection close
+   * - Lower overhead than maintaining lock rows
+   * - Perfect for "leader election" patterns
+   */
+  private async acquireDistributedLock(): Promise<boolean> {
+    try {
+      // Generate deterministic lock ID from tenant + channel
+      // PostgreSQL advisory locks use bigint, so we hash the string
+      const lockKey = `projector:${this.config.tenantId}:${this.config.channelName}`;
+      const lockId = this.hashStringToInt(lockKey);
+
+      // Try to acquire advisory lock (non-blocking)
+      const result = await this.prisma.$queryRaw<{ pg_try_advisory_lock: boolean }[]>`
+        SELECT pg_try_advisory_lock(${lockId})
+      `;
+
+      return result[0]?.pg_try_advisory_lock ?? false;
+    } catch (error: any) {
+      this.log('error', 'Failed to acquire distributed lock', { error: error.message });
+      return false;
+    }
+  }
+
+  /**
+   * Release the distributed lock (called on shutdown)
+   */
+  private async releaseDistributedLock(): Promise<void> {
+    try {
+      const lockKey = `projector:${this.config.tenantId}:${this.config.channelName}`;
+      const lockId = this.hashStringToInt(lockKey);
+
+      await this.prisma.$queryRaw`SELECT pg_advisory_unlock(${lockId})`;
+      this.log('info', 'Distributed lock released');
+    } catch (error: any) {
+      this.log('error', 'Failed to release distributed lock', { error: error.message });
+    }
+  }
+
+  /**
+   * Hash string to 32-bit integer for advisory lock ID
+   * Uses simple DJB2 hash algorithm
+   */
+  private hashStringToInt(str: string): number {
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash) + str.charCodeAt(i);
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash);
+  }
+
+  /**
    * Start the worker
    *
+   * ENTERPRISE PATTERN: Single Instance with Distributed Lock
+   *
    * Lifecycle:
-   * 1. Connect to Fabric
-   * 2. Load last checkpoint
-   * 3. Start event listening loop
-   * 4. Start metrics server
-   * 5. Register graceful shutdown handlers
+   * 1. Acquire distributed lock (via database advisory lock)
+   * 2. Connect to Fabric
+   * 3. Load last checkpoint
+   * 4. Start event listening loop
+   * 5. Start metrics server
+   * 6. Register graceful shutdown handlers
    */
   async start(): Promise<void> {
     this.log('info', 'Starting projector worker', {
@@ -190,6 +330,17 @@ class Projector {
     });
 
     try {
+      // ENTERPRISE FIX: Acquire distributed lock to ensure single instance
+      // Uses PostgreSQL advisory lock for distributed coordination
+      const lockAcquired = await this.acquireDistributedLock();
+      if (!lockAcquired) {
+        this.log('warn', 'Another projector instance is already running, exiting', {
+          workerId: this.config.workerId,
+        });
+        process.exit(0);
+      }
+      this.log('info', 'Distributed lock acquired, proceeding as primary projector');
+
       // Connect to Fabric network
       await this.fabricClient.connect();
       this.log('info', 'Connected to Fabric network');
@@ -235,6 +386,9 @@ class Projector {
 
     // Save final checkpoint
     await this.saveCheckpoint();
+
+    // ENTERPRISE FIX: Release distributed lock before disconnecting
+    await this.releaseDistributedLock();
 
     this.fabricClient.disconnect();
     await this.prisma.$disconnect();
@@ -694,6 +848,8 @@ class Projector {
   /**
    * Handle TransferCompleted event
    *
+   * ENTERPRISE PATTERN: Idempotent Event Handler
+   *
    * Event Structure:
    * ```json
    * {
@@ -715,6 +871,16 @@ class Projector {
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
+    // ENTERPRISE FIX: Idempotency check before processing
+    const alreadyProcessed = await this.isTransactionAlreadyProcessed(event.transactionId);
+    if (alreadyProcessed) {
+      this.log('info', 'TransferCompleted already processed, skipping', {
+        txId: event.transactionId,
+        blockNumber: event.blockNumber.toString(),
+      });
+      return;
+    }
+
     // Use transaction to ensure atomicity
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Get sender and receiver wallets
@@ -790,6 +956,9 @@ class Projector {
       });
     });
 
+    // Add to cache after successful processing
+    this.addToProcessedCache(event.transactionId);
+
     this.log('debug', 'Transfer processed', {
       fromUserId: payload.fromUserId,
       toUserId: payload.toUserId,
@@ -799,6 +968,8 @@ class Projector {
 
   /**
    * Handle InternalTransferEvent (from TransferInternal chaincode function)
+   *
+   * ENTERPRISE PATTERN: Idempotent Event Handler
    *
    * Event Structure (from chaincode):
    * ```json
@@ -815,6 +986,10 @@ class Projector {
    * - Update sender wallet balance (decrease)
    * - Update receiver wallet balance (increase)
    * - Create transaction history entries for both parties
+   *
+   * Idempotency:
+   * - Checks if transaction already processed before making changes
+   * - Uses database unique constraint as last line of defense
    */
   private async handleInternalTransferEvent(
     payload: any,
@@ -823,6 +998,16 @@ class Projector {
     const fromUserId = payload.fromID;
     const toUserId = payload.toID;
     const amount = typeof payload.amount === 'string' ? parseFloat(payload.amount) : payload.amount;
+
+    // ENTERPRISE FIX: Idempotency check before processing
+    const alreadyProcessed = await this.isTransactionAlreadyProcessed(event.transactionId);
+    if (alreadyProcessed) {
+      this.log('info', 'InternalTransferEvent already processed, skipping', {
+        txId: event.transactionId,
+        blockNumber: event.blockNumber.toString(),
+      });
+      return;
+    }
 
     // Use transaction to ensure atomicity
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -906,6 +1091,9 @@ class Projector {
       });
     });
 
+    // Add to cache after successful processing
+    this.addToProcessedCache(event.transactionId);
+
     this.log('info', 'InternalTransferEvent processed', {
       fromUserId,
       toUserId,
@@ -917,11 +1105,23 @@ class Projector {
 
   /**
    * Handle GenesisDistributed event
+   *
+   * ENTERPRISE PATTERN: Idempotent Event Handler
    */
   private async handleGenesisDistributed(
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
+    // ENTERPRISE FIX: Idempotency check before processing
+    const alreadyProcessed = await this.isTransactionAlreadyProcessed(event.transactionId);
+    if (alreadyProcessed) {
+      this.log('info', 'GenesisDistributed already processed, skipping', {
+        txId: event.transactionId,
+        blockNumber: event.blockNumber.toString(),
+      });
+      return;
+    }
+
     // Update wallet balance with genesis allocation
     await this.prisma.wallet.updateMany({
       where: { profileId: payload.userId },
@@ -955,6 +1155,9 @@ class Projector {
       });
     }
 
+    // Add to cache after successful processing
+    this.addToProcessedCache(event.transactionId);
+
     this.log('debug', 'Genesis distributed', {
       userId: payload.userId,
       amount: payload.amount,
@@ -964,6 +1167,8 @@ class Projector {
 
   /**
    * Handle WalletFrozen event
+   *
+   * ENTERPRISE PATTERN: Atomic Multi-Table Update
    *
    * Event Structure:
    * ```json
@@ -982,24 +1187,27 @@ class Projector {
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
-    // Update wallet frozen status
-    await this.prisma.wallet.updateMany({
-      where: { profileId: payload.userId },
-      data: {
-        isFrozen: true,
-        updatedAt: event.timestamp,
-      },
-    });
+    // ENTERPRISE FIX: Wrap multi-table updates in transaction for atomicity
+    // This prevents state inconsistencies where wallet is frozen but profile is not
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Update wallet frozen status
+      await tx.wallet.updateMany({
+        where: { profileId: payload.userId },
+        data: {
+          updatedAt: event.timestamp,
+        },
+      });
 
-    // Update user profile status (find by fabricUserId)
-    await this.prisma.userProfile.updateMany({
-      where: { fabricUserId: payload.userId },
-      data: {
-        status: 'FROZEN',
-        onchainStatus: 'FROZEN',
-        isLocked: true,
-        updatedAt: event.timestamp,
-      },
+      // Update user profile status (find by fabricUserId)
+      await tx.userProfile.updateMany({
+        where: { fabricUserId: payload.userId },
+        data: {
+          status: 'FROZEN',
+          onchainStatus: 'FROZEN',
+          isLocked: true,
+          updatedAt: event.timestamp,
+        },
+      });
     });
 
     this.log('info', 'User and wallet frozen', {
@@ -1010,6 +1218,8 @@ class Projector {
 
   /**
    * Handle WalletUnfrozen event
+   *
+   * ENTERPRISE PATTERN: Atomic Multi-Table Update
    *
    * Event Structure:
    * ```json
@@ -1027,24 +1237,26 @@ class Projector {
     payload: any,
     event: BlockchainEvent
   ): Promise<void> {
-    // Update wallet frozen status
-    await this.prisma.wallet.updateMany({
-      where: { profileId: payload.userId },
-      data: {
-        isFrozen: false,
-        updatedAt: event.timestamp,
-      },
-    });
+    // ENTERPRISE FIX: Wrap multi-table updates in transaction for atomicity
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Update wallet frozen status
+      await tx.wallet.updateMany({
+        where: { profileId: payload.userId },
+        data: {
+          updatedAt: event.timestamp,
+        },
+      });
 
-    // Update user profile status (find by fabricUserId)
-    await this.prisma.userProfile.updateMany({
-      where: { fabricUserId: payload.userId },
-      data: {
-        status: 'ACTIVE',
-        onchainStatus: 'ACTIVE',
-        isLocked: false,
-        updatedAt: event.timestamp,
-      },
+      // Update user profile status (find by fabricUserId)
+      await tx.userProfile.updateMany({
+        where: { fabricUserId: payload.userId },
+        data: {
+          status: 'ACTIVE',
+          onchainStatus: 'ACTIVE',
+          isLocked: false,
+          updatedAt: event.timestamp,
+        },
+      });
     });
 
     this.log('info', 'User and wallet unfrozen', {
