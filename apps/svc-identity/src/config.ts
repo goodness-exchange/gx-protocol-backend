@@ -13,28 +13,28 @@ const configSchema = z.object({
   // Server Configuration
   port: z.coerce.number().min(1000).max(65535).default(3001),
   nodeEnv: z.enum(['development', 'production', 'test']).default('development'),
-  
+
   // Database Configuration
   databaseUrl: z.string().url().startsWith('postgresql://'),
-  
+
   // Redis Configuration
   redisUrl: z.string().url().startsWith('redis://'),
-  
+
   // JWT Authentication
   jwtSecret: z.string().min(32),
   jwtExpiresIn: z.string().default('24h'),
   jwtRefreshExpiresIn: z.string().default('7d'),
-  
+
   // Logging
   logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
-  
+
   // Idempotency
   enableIdempotency: z.coerce.boolean().default(true),
   idempotencyTtlHours: z.coerce.number().default(24),
-  
+
   // Projection Lag Threshold (for readiness checks)
   projectionLagThresholdMs: z.coerce.number().default(5000),
-  
+
   // API Rate Limiting
   rateLimitWindowMs: z.coerce.number().default(15 * 60 * 1000), // 15 minutes
   rateLimitMaxRequests: z.coerce.number().default(100),
@@ -42,6 +42,13 @@ const configSchema = z.object({
   // Feature Flags
   // When false, document upload returns mock response (for development without storage)
   documentUploadEnabled: z.coerce.boolean().default(false),
+
+  // Email Configuration (Resend)
+  resendApiKey: z.string().optional(),
+  emailFromAddress: z.string().email().default('noreply@gxcoin.money'),
+  emailFromName: z.string().default('GX Coin'),
+  emailEnabled: z.coerce.boolean().default(false),
+  appUrl: z.string().url().default('https://app.gxcoin.money'),
 });
 
 /**
@@ -69,4 +76,10 @@ export const identityConfig: IdentityConfig = configSchema.parse({
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   rateLimitMaxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
   documentUploadEnabled: process.env.DOCUMENT_UPLOAD_ENABLED === 'true',
+  // Email Configuration
+  resendApiKey: process.env.RESEND_API_KEY,
+  emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'noreply@gxcoin.money',
+  emailFromName: process.env.EMAIL_FROM_NAME || 'GX Coin',
+  emailEnabled: process.env.EMAIL_ENABLED === 'true',
+  appUrl: process.env.APP_URL || 'https://app.gxcoin.money',
 });
