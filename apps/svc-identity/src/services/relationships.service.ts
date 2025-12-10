@@ -97,7 +97,7 @@ class RelationshipsService {
     const trustScore = await this.getTrustScore(profileId);
 
     // Transform to DTOs
-    const relationships: RelationshipDTO[] = initiatedRelationships.map((rel) => ({
+    const relationships: RelationshipDTO[] = initiatedRelationships.map((rel: typeof initiatedRelationships[number]) => ({
       relationshipId: rel.relationshipId,
       relationType: rel.relationType as RelationType,
       status: rel.status as RelationshipStatus,
@@ -113,7 +113,7 @@ class RelationshipsService {
       createdAt: rel.createdAt
     }));
 
-    const pendingInviteDTOs: RelationshipDTO[] = pendingInvites.map((rel) => ({
+    const pendingInviteDTOs: RelationshipDTO[] = pendingInvites.map((rel: typeof pendingInvites[number]) => ({
       relationshipId: rel.relationshipId,
       relationType: rel.relationType as RelationType,
       status: rel.status as RelationshipStatus,
