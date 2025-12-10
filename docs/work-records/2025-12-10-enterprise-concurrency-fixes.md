@@ -202,9 +202,73 @@ wait
 
 ---
 
+---
+
+## Chaincode Layer Fixes
+
+### 6. Idempotency Keys for TransferInternal
+
+Added optional `idempotencyKey` parameter to `TransferInternal`:
+
+```go
+func (s *TokenomicsContract) TransferInternal(
+    ctx contractapi.TransactionContextInterface,
+    fromID, toID, amountStr, txType, remark string,
+    idempotencyKey ...string,  // NEW: Optional idempotency key
+) error {
+    if len(idempotencyKey) > 0 && idempotencyKey[0] != "" {
+        alreadyProcessed, err := checkAndSetIdempotencyKey(ctx, idempotencyKey[0])
+        if alreadyProcessed {
+            return nil  // Skip duplicate
+        }
+    }
+    // ... proceed with transfer
+}
+```
+
+### 7. Helper Functions for Idempotency
+
+Added to `helpers.go`:
+- `checkAndSetIdempotencyKey()` - Atomic check-and-set for idempotency
+- `isOperationProcessed()` - Read-only check for idempotency
+
+### 8. MVCC Documentation
+
+Documented Fabric's built-in MVCC protection in the `Transfer` function:
+
+```go
+// CONCURRENCY SAFETY (Fabric MVCC):
+// Hyperledger Fabric uses Multi-Version Concurrency Control (MVCC) to prevent double-spending.
+// When this function reads the sender's balance, Fabric records that read in the transaction's
+// "read set". At commit time, if another transaction modified that balance after our read,
+// the endorsement fails with MVCC_READ_CONFLICT.
+```
+
+### Chaincode Commits
+
+1. `591fbfc` - feat(chaincode): add idempotency key functions for enterprise concurrency
+2. `9be30b9` - feat(chaincode): add idempotency support and MVCC documentation
+
+---
+
+## Complete Concurrency Stack
+
+| Layer | Protection Mechanism | Status |
+|-------|---------------------|--------|
+| **Chaincode** | MVCC read-set conflict detection | Built-in |
+| **Chaincode** | GenesisMinted flag (genesis idempotency) | Existing |
+| **Chaincode** | Idempotency keys (TransferInternal) | NEW |
+| **Outbox-Submitter** | FOR UPDATE SKIP LOCKED | NEW |
+| **Outbox-Submitter** | Optimistic locking with worker verification | NEW |
+| **Projector** | Idempotency cache + DB check | NEW |
+| **Projector** | PostgreSQL advisory lock | NEW |
+| **Database** | Unique constraint (tenantId, onChainTxId) | Existing |
+
+---
+
 ## Next Steps
 
 1. Deploy updated workers to testnet
-2. Monitor for any edge cases with new locking patterns
-3. Consider adding Redis-based distributed lock as alternative to advisory locks
-4. Implement chaincode-level idempotency keys for full end-to-end protection
+2. Upgrade chaincode on testnet with new version
+3. Monitor for any edge cases with new locking patterns
+4. Load test concurrent transfers to verify MVCC behavior
