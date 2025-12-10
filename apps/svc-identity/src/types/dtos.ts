@@ -174,3 +174,61 @@ import { Request } from 'express';
 export interface AuthenticatedRequest extends Request {
   user?: JWTPayload;
 }
+
+// ============================================
+// Relationship (KYR) DTOs
+// ============================================
+
+export type RelationType =
+  | 'FATHER'
+  | 'MOTHER'
+  | 'SPOUSE'
+  | 'CHILD'
+  | 'SIBLING'
+  | 'BUSINESS_PARTNER'
+  | 'DIRECTOR'
+  | 'WORKPLACE_ASSOCIATE'
+  | 'FRIEND';
+
+export type RelationshipStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'REJECTED'
+  | 'DECEASED'
+  | 'DIVORCED'
+  | 'NOT_APPLICABLE';
+
+export interface CreateRelationshipRequestDTO {
+  email: string;
+  relationType: RelationType;
+}
+
+export interface RelationshipDTO {
+  relationshipId: string;
+  relationType: RelationType;
+  status: RelationshipStatus;
+  relatedProfile?: {
+    profileId: string;
+    firstName: string;
+    lastName: string;
+    email?: string;
+  } | null;
+  relatedEmail?: string | null;
+  pointsAwarded: number;
+  confirmedAt?: Date | null;
+  createdAt: Date;
+}
+
+export interface TrustScoreDTO {
+  familyScore: number;
+  businessScore: number;
+  friendsScore: number;
+  totalScore: number;
+  lastCalculatedAt: Date | null;
+}
+
+export interface RelationshipsResponseDTO {
+  relationships: RelationshipDTO[];
+  pendingInvites: RelationshipDTO[];
+  trustScore: TrustScoreDTO | null;
+}
