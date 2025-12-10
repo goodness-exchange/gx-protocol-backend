@@ -26,6 +26,7 @@ export interface TransactionDTO {
   walletId: string;
   type: string;
   counterparty: string | null;
+  counterpartyName: string | null;
   amount: number;
   fee: number;
   remark: string | null;
@@ -70,6 +71,7 @@ class WalletService {
    * Get transaction history for a wallet
    *
    * CQRS Read Operation: Queries projected Transaction table
+   * Enriches transactions with counterparty names by looking up UserProfile
    */
   async getTransactionHistory(
     profileId: string,
@@ -91,12 +93,40 @@ class WalletService {
       skip: offset,
     });
 
+    // Collect unique counterparty IDs (Fabric User IDs) to look up names
+    const counterpartyIds = [...new Set(
+      transactions
+        .map((tx: any) => tx.counterparty)
+        .filter((cp: string | null) => cp && cp !== 'SYSTEM' && !cp.startsWith('SYSTEM_'))
+    )];
+
+    // Batch lookup counterparty names from UserProfile table
+    const counterpartyProfiles = await db.userProfile.findMany({
+      where: {
+        fabricUserId: { in: counterpartyIds },
+      },
+      select: {
+        fabricUserId: true,
+        fname: true,
+        lname: true,
+      },
+    });
+
+    // Create a map for quick lookup
+    const nameMap = new Map<string, string>();
+    counterpartyProfiles.forEach((profile: { fabricUserId: string | null; fname: string; lname: string }) => {
+      if (profile.fabricUserId) {
+        nameMap.set(profile.fabricUserId, `${profile.fname} ${profile.lname}`.trim());
+      }
+    });
+
     return transactions.map((tx: any) => ({
       offTxId: tx.offTxId,
       onChainTxId: tx.onChainTxId,
       walletId: tx.walletId,
       type: tx.type,
       counterparty: tx.counterparty,
+      counterpartyName: tx.counterparty ? nameMap.get(tx.counterparty) || null : null,
       amount: Number(tx.amount),
       fee: Number(tx.fee),
       remark: tx.remark,
