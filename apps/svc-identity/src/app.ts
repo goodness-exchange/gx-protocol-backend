@@ -21,6 +21,7 @@ import walletRoutes from './routes/wallet.routes';
 import beneficiariesRoutes from './routes/beneficiaries.routes';
 import transfersRoutes from './routes/transfers.routes';
 import notificationsRoutes from './routes/notifications.routes';
+import relationshipsRoutes from './routes/relationships.routes';
 
 /**
  * Creates and configures the Express application
@@ -110,6 +111,10 @@ export function createApp(): Application {
   app.use('/api/v1/transfers', transfersRoutes);
   app.use('/api/v1/commands', transfersRoutes); // Alias for command status polling
   app.use('/api/v1/notifications', notificationsRoutes);
+  app.use('/api/v1/relationships', relationshipsRoutes);
+
+  // Legacy alias for frontend compatibility (api/gxcoin -> api/v1)
+  app.use('/api/gxcoin/relationships', relationshipsRoutes);
 
   // ============================================
   // 404 Handler
