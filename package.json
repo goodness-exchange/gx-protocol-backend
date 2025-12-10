@@ -41,6 +41,7 @@
   },
   "packageManager": "npm@10.9.0",
   "dependencies": {
-    "@prisma/client": "^6.17.1"
+    "@prisma/client": "^6.17.1",
+    "resend": "^6.6.0"
   }
 }
