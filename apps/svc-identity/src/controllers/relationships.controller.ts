@@ -48,9 +48,20 @@ export async function getRelationships(
  * Create a new relationship request (invitation).
  * The target user must confirm before points are awarded.
  *
+ * ENTERPRISE FLOW:
+ * - If user exists: Sends in-app notification, returns userExists: true
+ * - If user doesn't exist: Sends invitation email, returns invitationSent: true
+ * - If cooldown active (7 days after rejection): Returns error with days remaining
+ *
  * Body:
  * - email: Email address of the person to invite
  * - relationType: Type of relationship (FATHER, MOTHER, SPOUSE, etc.)
+ *
+ * Response:
+ * - relationship: Created relationship object
+ * - userExists: true if target user is registered on platform
+ * - invitationSent: true if invitation email was queued
+ * - message: User-friendly message for UI display
  */
 export async function createRelationship(
   req: AuthenticatedRequest,
@@ -86,24 +97,79 @@ export async function createRelationship(
 
     logger.info({ profileId, email, relationType }, 'POST /relationships');
 
-    const relationship = await relationshipsService.createRelationship(profileId, {
+    const result = await relationshipsService.createRelationship(profileId, {
       email,
       relationType
     });
 
-    res.status(201).json({
-      message: 'Relationship invitation sent',
-      relationship
-    });
+    res.status(201).json(result);
   } catch (error: any) {
     logger.error({ error: error.message }, 'Failed to create relationship');
 
-    if (error.message.includes('already exists')) {
+    // Handle specific error cases
+    if (error.message.includes('already have a pending')) {
       res.status(409).json({ message: error.message });
+      return;
+    }
+    if (error.message.includes('already have a confirmed')) {
+      res.status(409).json({ message: error.message });
+      return;
+    }
+    if (error.message.includes('previously declined')) {
+      res.status(429).json({ message: error.message }); // Too Many Requests - cooldown
       return;
     }
     if (error.message.includes('yourself')) {
       res.status(400).json({ message: error.message });
+      return;
+    }
+
+    next(error);
+  }
+}
+
+/**
+ * GET /api/gxcoin/relationships/:relationshipId
+ *
+ * Get detailed information about a specific relationship request.
+ * Used for the approval modal - shows initiator details.
+ * Only the target user (invited person) can view.
+ */
+export async function getRelationshipDetail(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const profileId = req.user?.profileId;
+    if (!profileId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const { relationshipId } = req.params;
+    if (!relationshipId) {
+      res.status(400).json({ message: 'Relationship ID is required' });
+      return;
+    }
+
+    logger.debug({ profileId, relationshipId }, 'GET /relationships/:id');
+
+    const detail = await relationshipsService.getRelationshipDetail(
+      relationshipId,
+      profileId
+    );
+
+    res.json(detail);
+  } catch (error: any) {
+    logger.error({ error: error.message }, 'Failed to get relationship detail');
+
+    if (error.message.includes('not found')) {
+      res.status(404).json({ message: error.message });
+      return;
+    }
+    if (error.message.includes('permission')) {
+      res.status(403).json({ message: error.message });
       return;
     }
 
