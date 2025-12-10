@@ -711,14 +711,15 @@ class OutboxSubmitter {
       payload
     );
 
-    // Submit transaction using selected identity
-    // Chaincode uses OR endorsement policy: OR('Org1MSP.member','Org2MSP.member')
-    // This means only ONE organization needs to endorse the transaction
-    const result = await fabricClient.submitTransaction(
+    // Submit transaction using selected identity with explicit endorsing organizations
+    // The chaincode uses default endorsement policy which requires MAJORITY (both orgs)
+    // We explicitly specify both Org1MSP and Org2MSP to ensure proper endorsement
+    const result = await fabricClient.submitTransactionWithOptions({
       contractName,
       functionName,
-      ...args
-    );
+      args,
+      endorsingOrganizations: ['Org1MSP', 'Org2MSP'],
+    });
 
     this.log('info', 'Transaction submitted successfully', {
       commandType,
