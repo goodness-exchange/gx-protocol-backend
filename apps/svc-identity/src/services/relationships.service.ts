@@ -312,7 +312,7 @@ class RelationshipsService {
         data: {
           tenantId: 'default',
           profileId: targetUser.profileId,
-          type: 'RELATIONSHIP_REQUEST',
+          type: 'RELATIONSHIP_INVITED',
           title: 'New Relationship Request',
           message: `${initiator.firstName} ${initiator.lastName} wants to establish a ${relationType.toLowerCase().replace('_', ' ')} relationship with you. Open to view details and respond.`,
           payload: {
