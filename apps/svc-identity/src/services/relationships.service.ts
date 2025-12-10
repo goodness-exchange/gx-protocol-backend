@@ -9,6 +9,7 @@ import type {
   RelationType,
   RelationshipStatus
 } from '../types/dtos';
+import { emailService } from './email.service';
 
 /**
  * Relationships Service (KYR - Know Your Relationship)
@@ -326,25 +327,45 @@ class RelationshipsService {
       });
       message = 'Relationship request sent! They will receive a notification to confirm.';
     } else {
-      // User doesn't exist - queue invitation email
-      await db.outboxCommand.create({
-        data: {
-          tenantId: 'default',
-          commandType: 'SEND_INVITATION_EMAIL',
-          aggregateId: relationship.relationshipId,
-          payload: {
-            recipientEmail: normalizedEmail,
-            invitationToken,
-            referrerName: `${initiator.firstName} ${initiator.lastName}`,
-            referrerFabricId: initiator.fabricUserId,
-            relationType,
-            relationshipId: relationship.relationshipId
-          },
-          status: 'PENDING'
-        }
+      // User doesn't exist - send invitation email directly
+      const emailResult = await emailService.sendInvitationEmail({
+        recipientEmail: normalizedEmail,
+        referrerName: `${initiator.firstName} ${initiator.lastName}`,
+        relationType,
+        invitationToken
       });
-      invitationSent = true;
-      message = `User not registered. We've sent an invitation to ${normalizedEmail}. Try again once they join the platform.`;
+
+      if (emailResult.success) {
+        invitationSent = true;
+        message = `User not registered. We've sent an invitation to ${normalizedEmail}. Try again once they join the platform.`;
+
+        // Track the invitation in the database for future reference
+        await db.outboxCommand.create({
+          data: {
+            tenantId: 'default',
+            commandType: 'INVITATION_EMAIL_SENT',
+            aggregateId: relationship.relationshipId,
+            payload: {
+              recipientEmail: normalizedEmail,
+              invitationToken,
+              referrerName: `${initiator.firstName} ${initiator.lastName}`,
+              referrerFabricId: initiator.fabricUserId,
+              relationType,
+              relationshipId: relationship.relationshipId,
+              emailMessageId: emailResult.messageId
+            },
+            status: 'COMPLETED'
+          }
+        });
+      } else {
+        // Email failed - still create the relationship but note the failure
+        logger.error(
+          { error: emailResult.error, recipientEmail: normalizedEmail },
+          'Failed to send invitation email'
+        );
+        invitationSent = false;
+        message = `User not registered. We couldn't send the invitation email. Please try again later.`;
+      }
     }
 
     // Create OutboxCommand for Fabric submission
