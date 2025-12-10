@@ -641,6 +641,10 @@ class Projector {
         await this.handleInternalTransferEvent(payload, event);
         break;
 
+      case 'TransferWithFeesCompleted':
+        await this.handleTransferWithFeesCompleted(payload, event);
+        break;
+
       case 'GenesisDistributed':
         await this.handleGenesisDistributed(payload, event);
         break;
@@ -1099,6 +1103,179 @@ class Projector {
       toUserId,
       amount,
       type: payload.type,
+      blockNumber: event.blockNumber.toString(),
+    });
+  }
+
+  /**
+   * Handle TransferWithFeesCompleted event (from TransferWithFees chaincode function)
+   *
+   * ENTERPRISE FEE IMPLEMENTATION: This event is emitted when a user-to-user transfer
+   * is completed with transaction fees calculated and deducted.
+   *
+   * Event Structure (from chaincode):
+   * ```json
+   * {
+   *   "transactionId": "abc123...",
+   *   "fromID": "LK FF3 ABL912 0WLUY 6025",
+   *   "toID": "US A12 XYZ789 TEST1 3985",
+   *   "amount": 10000000000,           // Original amount in Qirat
+   *   "totalFee": 10000000,            // Total fee in Qirat
+   *   "senderFee": 5000000,            // Fee paid by sender
+   *   "receiverFee": 5000000,          // Fee deducted from receiver
+   *   "netReceived": 9995000000,       // Actual amount received
+   *   "remark": "Payment for services",
+   *   "feeExempt": false,              // Whether transfer was fee-exempt
+   *   "transactionType": "P2P",        // Transaction type
+   *   "scope": "LOCAL",                // Geographic scope
+   *   "feeBps": 10                     // Fee rate in basis points
+   * }
+   * ```
+   *
+   * Read Model Updates:
+   * - Update sender wallet balance (decrease by amount + senderFee)
+   * - Update receiver wallet balance (increase by netReceived)
+   * - Create transaction history for sender (SENT with fee info)
+   * - Create transaction history for receiver (RECEIVED)
+   * - Create fee transaction record (FEE type to SYSTEM_OPERATIONS_FUND)
+   */
+  private async handleTransferWithFeesCompleted(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    const fromUserId = payload.fromID;
+    const toUserId = payload.toID;
+    const amount = typeof payload.amount === 'string' ? parseFloat(payload.amount) : payload.amount;
+    const totalFee = typeof payload.totalFee === 'string' ? parseFloat(payload.totalFee) : (payload.totalFee || 0);
+    const senderFee = typeof payload.senderFee === 'string' ? parseFloat(payload.senderFee) : (payload.senderFee || 0);
+    const receiverFee = typeof payload.receiverFee === 'string' ? parseFloat(payload.receiverFee) : (payload.receiverFee || 0);
+    const netReceived = typeof payload.netReceived === 'string' ? parseFloat(payload.netReceived) : (payload.netReceived || amount - receiverFee);
+
+    // ENTERPRISE FIX: Idempotency check before processing
+    const alreadyProcessed = await this.isTransactionAlreadyProcessed(event.transactionId);
+    if (alreadyProcessed) {
+      this.log('info', 'TransferWithFeesCompleted already processed, skipping', {
+        txId: event.transactionId,
+        blockNumber: event.blockNumber.toString(),
+      });
+      return;
+    }
+
+    // Use transaction to ensure atomicity
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Find wallets by fabricUserId (look up via UserProfile)
+      const senderProfile = await tx.userProfile.findFirst({
+        where: { fabricUserId: fromUserId },
+      });
+      const receiverProfile = await tx.userProfile.findFirst({
+        where: { fabricUserId: toUserId },
+      });
+
+      const senderWallet = senderProfile
+        ? await tx.wallet.findFirst({ where: { profileId: senderProfile.profileId } })
+        : null;
+      const receiverWallet = receiverProfile
+        ? await tx.wallet.findFirst({ where: { profileId: receiverProfile.profileId } })
+        : null;
+
+      if (!senderWallet || !receiverWallet) {
+        this.log('warn', 'Wallet not found for transfer with fees', {
+          fromUserId,
+          toUserId,
+          senderFound: !!senderWallet,
+          receiverFound: !!receiverWallet,
+        });
+        return;
+      }
+
+      // Update sender balance (subtract amount + sender's fee portion)
+      const senderDeduction = amount + senderFee;
+      await tx.wallet.update({
+        where: { walletId: senderWallet.walletId },
+        data: {
+          cachedBalance: {
+            decrement: senderDeduction,
+          },
+          updatedAt: event.timestamp,
+        },
+      });
+
+      // Update receiver balance (add netReceived, which is amount - receiverFee)
+      await tx.wallet.update({
+        where: { walletId: receiverWallet.walletId },
+        data: {
+          cachedBalance: {
+            increment: netReceived,
+          },
+          updatedAt: event.timestamp,
+        },
+      });
+
+      // Create transaction history for sender (SENT)
+      await tx.transaction.create({
+        data: {
+          tenantId: this.config.tenantId,
+          onChainTxId: event.transactionId,
+          walletId: senderWallet.walletId,
+          type: 'SENT',
+          counterparty: toUserId,
+          amount: amount,
+          fee: totalFee, // Total fee for the transaction
+          remark: payload.remark || 'Transfer with fees',
+          timestamp: event.timestamp,
+          blockNumber: event.blockNumber,
+        },
+      });
+
+      // Create transaction history for receiver (RECEIVED)
+      await tx.transaction.create({
+        data: {
+          tenantId: this.config.tenantId,
+          onChainTxId: `${event.transactionId}-recv`, // Unique for receiver entry
+          walletId: receiverWallet.walletId,
+          type: 'RECEIVED',
+          counterparty: fromUserId,
+          amount: netReceived, // What the receiver actually got
+          fee: receiverFee, // Fee deducted from receiver's share
+          remark: payload.remark || 'Transfer received',
+          timestamp: event.timestamp,
+          blockNumber: event.blockNumber,
+        },
+      });
+
+      // Create fee transaction record (if fees were charged)
+      if (totalFee > 0) {
+        await tx.transaction.create({
+          data: {
+            tenantId: this.config.tenantId,
+            onChainTxId: `${event.transactionId}-fee`, // Unique for fee entry
+            walletId: senderWallet.walletId,
+            type: 'FEE',
+            counterparty: 'SYSTEM_OPERATIONS_FUND',
+            amount: totalFee,
+            fee: 0,
+            remark: `Transaction fee: ${payload.transactionType || 'P2P'} ${payload.scope || 'LOCAL'} (${payload.feeBps || 0} bps)`,
+            timestamp: event.timestamp,
+            blockNumber: event.blockNumber,
+          },
+        });
+      }
+    });
+
+    // Add to cache after successful processing
+    this.addToProcessedCache(event.transactionId);
+
+    this.log('info', 'TransferWithFeesCompleted processed', {
+      fromUserId,
+      toUserId,
+      amount,
+      totalFee,
+      senderFee,
+      receiverFee,
+      netReceived,
+      feeExempt: payload.feeExempt,
+      transactionType: payload.transactionType,
+      scope: payload.scope,
       blockNumber: event.blockNumber.toString(),
     });
   }
