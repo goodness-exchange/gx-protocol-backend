@@ -697,3 +697,227 @@ User A enters email in Add Relationship form
 3. Handle referral tracking when invited user registers
 4. Consider adding notification badge in navigation for pending invites
 5. Deploy and test full flow end-to-end
+
+---
+
+## Session 13: Enterprise Transaction Display - Full Name and Fabric ID
+
+### Summary
+Enhanced transaction display across frontend and backend to show full counterparty names (from UserProfile) with Fabric User IDs available in expanded details. Implemented enterprise-standard two-line transaction display pattern.
+
+---
+
+## Problem Statement
+
+**Issue:** Transaction history was showing Fabric User IDs (e.g., "US A12 XYZ789 TEST1 3985") instead of full names in the "From/To" fields.
+
+**User Request:**
+1. Show full name (first + last name) in the "From/To" display
+2. Keep Fabric User ID (wallet address) visible in expanded transaction details
+3. Show transaction remarks/reason as primary text
+
+---
+
+## Solution Implemented
+
+### Backend Enhancement (gx-protocol-backend)
+
+#### 1. TransactionDTO Update (`wallet.service.ts`)
+
+Added `counterpartyName` field to TransactionDTO:
+```typescript
+export interface TransactionDTO {
+  offTxId: string;
+  onChainTxId: string | null;
+  walletId: string;
+  type: string;
+  counterparty: string | null;      // Fabric User ID (wallet address)
+  counterpartyName: string | null;  // Full name from UserProfile
+  amount: number;
+  fee: number;
+  remark: string | null;
+  timestamp: Date;
+  blockNumber: string | null;
+}
+```
+
+#### 2. Name Lookup in getTransactionHistory()
+
+Enhanced `getTransactionHistory()` to batch lookup counterparty names:
+```typescript
+// Collect unique counterparty IDs (Fabric User IDs) to look up names
+const counterpartyIds = [...new Set(
+  transactions
+    .map((tx: any) => tx.counterparty)
+    .filter((cp: string | null) => cp && cp !== 'SYSTEM' && !cp.startsWith('SYSTEM_'))
+)];
+
+// Batch lookup counterparty names from UserProfile table
+const counterpartyProfiles = await db.userProfile.findMany({
+  where: { fabricUserId: { in: counterpartyIds } },
+  select: { fabricUserId: true, fname: true, lname: true },
+});
+
+// Create a map for quick lookup
+const nameMap = new Map<string, string>();
+counterpartyProfiles.forEach((profile) => {
+  if (profile.fabricUserId) {
+    nameMap.set(profile.fabricUserId, `${profile.fname} ${profile.lname}`.trim());
+  }
+});
+```
+
+**Performance Note:** Uses batch lookup with `IN` clause instead of N+1 queries.
+
+---
+
+### Frontend Enhancement (gx-wallet-frontend)
+
+#### 1. API Route Update (`app/api/wallet/transactions/route.ts`)
+
+Updated transaction mapping to use `counterpartyName`:
+```typescript
+const transactions = transactionsData.map((tx: any) => ({
+  id: tx.offTxId || tx.id,
+  type: tx.type,
+  status: 'completed',
+  amount: tx.amount,
+  createdAt: tx.timestamp,
+  description: tx.remark || '',
+  reason: tx.remark || '',  // For primary line display
+  fee: tx.fee?.toString() || '0',
+  // Fabric User ID (wallet address) for sender/receiver
+  fromAddress: tx.type === 'RECEIVED' ? tx.counterparty : undefined,
+  toAddress: tx.type === 'SENT' ? tx.counterparty : undefined,
+  toID: tx.type === 'SENT' ? tx.counterparty : undefined,
+  timestamp: tx.timestamp,
+  // Full name of the other party (looked up from UserProfile)
+  otherPartyName: tx.counterpartyName || undefined,
+}));
+```
+
+#### 2. Transaction Display Components (Previously Updated)
+
+Three components use the enterprise two-line display pattern:
+
+| Component | File |
+|-----------|------|
+| Dashboard Recent Activity | `components/dashboard/RecentTransactions.tsx` |
+| Send Page Activity | `components/send/RecentActivity.tsx` |
+| Transaction History Page | `app/(root)/(client)/transactions/page.tsx` |
+
+**Display Pattern:**
+```
+[Remarks/Reason or Transaction Type]    +/- Amount
+From/To: [Full Name]                    Date
+⏰ Time ago
+```
+
+**Helper Functions:**
+- `getTransactionPrimaryText(tx)` - Returns remarks or type-specific label
+- `getTransactionSecondaryText(tx)` - Returns "From: Name" or "To: Name"
+- `isOutgoingTransaction(type)` - Determines transaction direction
+- `isSpecialTxType(type)` - Identifies FEE, TAX, GENESIS, LOAN types
+
+---
+
+## Files Modified
+
+### Backend (gx-protocol-backend)
+| File | Changes |
+|------|---------|
+| `apps/svc-identity/src/services/wallet.service.ts` | Added counterpartyName field, batch lookup logic |
+
+### Frontend (gx-wallet-frontend)
+| File | Changes |
+|------|---------|
+| `app/api/wallet/transactions/route.ts` | Map counterpartyName, add toID and reason fields |
+
+---
+
+## Commits Made
+
+### Backend
+| Hash | Message |
+|------|---------|
+| a2fe162 | feat(wallet-service): add counterpartyName enrichment to transaction history |
+
+### Frontend
+| Hash | Message |
+|------|---------|
+| 440c2fc | fix(transactions-api): map counterpartyName and add toID for proper name display |
+
+---
+
+## Deployment
+
+### svc-identity v2.0.8
+- **Built:** Successfully compiled TypeScript
+- **Docker Image:** gx-protocol/svc-identity:2.0.8
+- **Deployed to:** backend-mainnet namespace
+- **Image Distribution:** Transferred to all 3 control-plane nodes via SSH pipe
+
+**Deployment Commands:**
+```bash
+# Build
+npx turbo run build --filter=svc-identity
+docker build -t gx-protocol/svc-identity:2.0.8 -f apps/svc-identity/Dockerfile .
+
+# Import to k3s on all nodes
+docker save gx-protocol/svc-identity:2.0.8 | sudo k3s ctr images import -
+for server in 217.196.51.190 72.61.81.3; do
+  docker save gx-protocol/svc-identity:2.0.8 | ssh root@$server "k3s ctr images import -"
+done
+
+# Deploy
+kubectl set image deployment/svc-identity svc-identity=gx-protocol/svc-identity:2.0.8 -n backend-mainnet
+```
+
+---
+
+## Expected Result
+
+### Before (Issue)
+```
+Money Sent                              -5.00 X
+From: US A12 XYZ789 TEST1 3985          Today
+⏰ 2h ago
+```
+
+### After (Fix)
+```
+Payment for services                    -5.00 X
+To: John Smith                          Today
+⏰ 2h ago
+```
+
+### Expanded Details (Transaction Page)
+Shows full Fabric User ID:
+```
+To Wallet ID: US A12 XYZ789 TEST1 3985  [Copy]
+```
+
+---
+
+## Technical Notes
+
+### Name Lookup Strategy
+- **System accounts excluded:** SYSTEM, SYSTEM_USER_GENESIS_POOL, etc.
+- **Missing profiles:** Returns null (frontend shows generic label)
+- **Batch query:** Single Prisma query for all unique counterparty IDs
+
+### Field Mapping
+| Backend Field | Frontend Field | Purpose |
+|---------------|----------------|---------|
+| counterparty | fromAddress/toAddress/toID | Fabric User ID |
+| counterpartyName | otherPartyName | Full name from UserProfile |
+| remark | reason/description | Transaction remarks |
+
+---
+
+## Next Steps
+
+1. ✅ Backend deployed with counterpartyName enrichment
+2. ✅ Frontend API route updated to map new field
+3. Verify display in production after all pods are updated
+4. Consider caching counterparty names for frequently transacted users
