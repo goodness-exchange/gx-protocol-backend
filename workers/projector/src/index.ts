@@ -1146,10 +1146,12 @@ class Projector {
     const fromUserId = payload.fromID;
     const toUserId = payload.toID;
     const amount = typeof payload.amount === 'string' ? parseFloat(payload.amount) : payload.amount;
-    const totalFee = typeof payload.totalFee === 'string' ? parseFloat(payload.totalFee) : (payload.totalFee || 0);
-    const senderFee = typeof payload.senderFee === 'string' ? parseFloat(payload.senderFee) : (payload.senderFee || 0);
-    const receiverFee = typeof payload.receiverFee === 'string' ? parseFloat(payload.receiverFee) : (payload.receiverFee || 0);
-    const netReceived = typeof payload.netReceived === 'string' ? parseFloat(payload.netReceived) : (payload.netReceived || amount - receiverFee);
+    // Note: Chaincode emits 'fee' field, not 'totalFee'. Handle both for compatibility.
+    const totalFee = typeof payload.fee === 'string' ? parseFloat(payload.fee) : (payload.fee || payload.totalFee || 0);
+    // Sender-pays-all model: sender pays 100% of fee, receiver pays 0
+    const senderFee = totalFee; // All fees paid by sender
+    const receiverFee = 0; // Receiver pays nothing
+    const netReceived = typeof payload.netReceived === 'string' ? parseFloat(payload.netReceived) : (payload.netReceived || amount);
 
     // ENTERPRISE FIX: Idempotency check before processing
     const alreadyProcessed = await this.isTransactionAlreadyProcessed(event.transactionId);
