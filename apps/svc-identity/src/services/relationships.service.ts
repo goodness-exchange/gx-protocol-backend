@@ -1,5 +1,6 @@
 import { logger } from '@gx/core-logger';
 import { db } from '@gx/core-db';
+import crypto from 'crypto';
 import type {
   CreateRelationshipRequestDTO,
   RelationshipDTO,
@@ -23,6 +24,12 @@ import type {
  * - Business: Max 10 points (Partner: 5, Director: 3, Associate: 2)
  * - Friends: Max 10 points (1 point per friend, max 10)
  * - Total: Max 100 points
+ *
+ * ENTERPRISE FEATURES:
+ * - Cooldown period after rejection (7 days)
+ * - Referral tracking with Fabric User ID for future rewards
+ * - Email invitations for non-registered users
+ * - In-app notifications for registered users
  */
 
 // Points awarded for each relationship type
@@ -42,6 +49,34 @@ const RELATIONSHIP_POINTS: Record<RelationType, number> = {
 const FAMILY_TYPES: RelationType[] = ['FATHER', 'MOTHER', 'SPOUSE', 'CHILD', 'SIBLING'];
 const BUSINESS_TYPES: RelationType[] = ['BUSINESS_PARTNER', 'DIRECTOR', 'WORKPLACE_ASSOCIATE'];
 const FRIEND_TYPES: RelationType[] = ['FRIEND'];
+
+// Cooldown period after rejection (7 days in milliseconds)
+const REJECTION_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Response type for relationship creation
+export interface CreateRelationshipResult {
+  relationship: RelationshipDTO;
+  userExists: boolean;
+  invitationSent: boolean;
+  message: string;
+}
+
+// Detailed relationship info for approval modal
+export interface RelationshipDetailDTO {
+  relationshipId: string;
+  relationType: RelationType;
+  status: RelationshipStatus;
+  createdAt: Date;
+  initiator: {
+    profileId: string;
+    firstName: string;
+    lastName: string;
+    email?: string;
+    fabricUserId?: string;
+    nationalityCountryCode?: string;
+    status?: string;
+  };
+}
 
 class RelationshipsService {
   /**
@@ -163,17 +198,22 @@ class RelationshipsService {
   /**
    * Create a relationship request (invitation)
    *
-   * This creates a PENDING relationship that the target user must confirm.
+   * ENTERPRISE FLOW:
+   * 1. Check if target user exists on platform
+   * 2. If NOT exists → Send invitation email with referrer tracking
+   * 3. If EXISTS → Send in-app notification
+   * 4. Check for cooldown if previously rejected
+   *
    * Uses CQRS pattern - writes to OutboxCommand for Fabric submission.
    *
    * @param initiatorProfileId - Profile ID of user sending the invitation
    * @param data - Relationship request data
-   * @returns Created relationship
+   * @returns Created relationship with status flags
    */
   async createRelationship(
     initiatorProfileId: string,
     data: CreateRelationshipRequestDTO
-  ): Promise<RelationshipDTO> {
+  ): Promise<CreateRelationshipResult> {
     const { email, relationType } = data;
     const normalizedEmail = email.toLowerCase();
 
@@ -198,23 +238,41 @@ class RelationshipsService {
       where: { email: normalizedEmail }
     });
 
-    // Check for existing relationship
+    // Check for existing relationship or cooldown period
     const existingRelationship = await db.familyRelationship.findFirst({
       where: {
         initiatorProfileId,
         OR: [
           { relatedProfileId: targetUser?.profileId },
           { relatedEmail: normalizedEmail }
-        ],
-        relationType
-      }
+        ]
+      },
+      orderBy: { createdAt: 'desc' }
     });
 
     if (existingRelationship) {
-      throw new Error('Relationship request already exists');
+      // Check if pending or confirmed - block duplicate
+      if (existingRelationship.status === 'PENDING') {
+        throw new Error('You already have a pending relationship request with this user');
+      }
+      if (existingRelationship.status === 'CONFIRMED') {
+        throw new Error('You already have a confirmed relationship with this user');
+      }
+
+      // Check cooldown period for rejected relationships
+      if (existingRelationship.status === 'REJECTED' && existingRelationship.rejectedAt) {
+        const timeSinceRejection = Date.now() - existingRelationship.rejectedAt.getTime();
+        if (timeSinceRejection < REJECTION_COOLDOWN_MS) {
+          const daysRemaining = Math.ceil((REJECTION_COOLDOWN_MS - timeSinceRejection) / (24 * 60 * 60 * 1000));
+          throw new Error(`This user previously declined your request. You can try again in ${daysRemaining} day(s).`);
+        }
+      }
     }
 
-    // Create relationship
+    // Generate invitation token for tracking (used for non-registered users)
+    const invitationToken = crypto.randomBytes(32).toString('hex');
+
+    // Create relationship record
     const relationship = await db.familyRelationship.create({
       data: {
         tenantId: 'default',
@@ -223,7 +281,14 @@ class RelationshipsService {
         relatedEmail: targetUser ? null : normalizedEmail, // Store email if off-platform
         relationType,
         status: 'PENDING',
-        pointsAwarded: 0
+        pointsAwarded: 0,
+        // Store referrer info for future rewards system
+        statusRemarks: targetUser ? null : JSON.stringify({
+          invitationToken,
+          referrerFabricId: initiator.fabricUserId,
+          referrerProfileId: initiatorProfileId,
+          invitedAt: new Date().toISOString()
+        })
       },
       include: {
         relatedProfile: targetUser ? {
@@ -237,23 +302,49 @@ class RelationshipsService {
       }
     });
 
-    // Create notification for target user if they're on platform
+    let invitationSent = false;
+    let message = '';
+
     if (targetUser) {
+      // User exists - send in-app notification
       await db.notification.create({
         data: {
           tenantId: 'default',
           profileId: targetUser.profileId,
           type: 'RELATIONSHIP_REQUEST',
           title: 'New Relationship Request',
-          message: `${initiator.firstName} ${initiator.lastName} has invited you to confirm your relationship as their ${relationType.toLowerCase().replace('_', ' ')}.`,
+          message: `${initiator.firstName} ${initiator.lastName} wants to establish a ${relationType.toLowerCase().replace('_', ' ')} relationship with you. Open to view details and respond.`,
           payload: {
             relationshipId: relationship.relationshipId,
+            initiatorProfileId: initiatorProfileId,
             initiatorName: `${initiator.firstName} ${initiator.lastName}`,
-            relationType
+            relationType,
+            actionUrl: '/settings/relationships'
           },
           isRead: false
         }
       });
+      message = 'Relationship request sent! They will receive a notification to confirm.';
+    } else {
+      // User doesn't exist - queue invitation email
+      await db.outboxCommand.create({
+        data: {
+          tenantId: 'default',
+          commandType: 'SEND_INVITATION_EMAIL',
+          aggregateId: relationship.relationshipId,
+          payload: {
+            recipientEmail: normalizedEmail,
+            invitationToken,
+            referrerName: `${initiator.firstName} ${initiator.lastName}`,
+            referrerFabricId: initiator.fabricUserId,
+            relationType,
+            relationshipId: relationship.relationshipId
+          },
+          status: 'PENDING'
+        }
+      });
+      invitationSent = true;
+      message = `User not registered. We've sent an invitation to ${normalizedEmail}. Try again once they join the platform.`;
     }
 
     // Create OutboxCommand for Fabric submission
@@ -266,31 +357,101 @@ class RelationshipsService {
           relationshipId: relationship.relationshipId,
           subjectId: initiator.fabricUserId || initiatorProfileId,
           objectId: targetUser?.fabricUserId || normalizedEmail,
-          relationType
+          relationType,
+          referrerFabricId: initiator.fabricUserId // Track for future rewards
         },
         status: 'PENDING'
       }
     });
 
     logger.info(
-      { relationshipId: relationship.relationshipId, targetUser: !!targetUser },
+      {
+        relationshipId: relationship.relationshipId,
+        targetUserExists: !!targetUser,
+        invitationSent
+      },
       'Relationship request created'
     );
+
+    return {
+      relationship: {
+        relationshipId: relationship.relationshipId,
+        relationType: relationship.relationType as RelationType,
+        status: relationship.status as RelationshipStatus,
+        relatedProfile: relationship.relatedProfile ? {
+          profileId: relationship.relatedProfile.profileId,
+          firstName: relationship.relatedProfile.firstName,
+          lastName: relationship.relatedProfile.lastName,
+          email: relationship.relatedProfile.email || undefined
+        } : null,
+        relatedEmail: relationship.relatedEmail,
+        pointsAwarded: relationship.pointsAwarded,
+        confirmedAt: relationship.confirmedAt,
+        createdAt: relationship.createdAt
+      },
+      userExists: !!targetUser,
+      invitationSent,
+      message
+    };
+  }
+
+  /**
+   * Get detailed relationship info for approval modal
+   *
+   * Returns full initiator details so target user can make informed decision.
+   *
+   * @param relationshipId - Relationship ID
+   * @param profileId - Profile ID of user viewing (must be the target)
+   * @returns Detailed relationship information
+   */
+  async getRelationshipDetail(
+    relationshipId: string,
+    profileId: string
+  ): Promise<RelationshipDetailDTO> {
+    const relationship = await db.familyRelationship.findUnique({
+      where: { relationshipId },
+      include: {
+        initiatorProfile: {
+          select: {
+            profileId: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            fabricUserId: true,
+            nationalityCountryCode: true,
+            status: true
+          }
+        }
+      }
+    });
+
+    if (!relationship) {
+      throw new Error('Relationship not found');
+    }
+
+    // Only the target user can view details
+    if (relationship.relatedProfileId !== profileId) {
+      throw new Error('You do not have permission to view this relationship');
+    }
+
+    if (!relationship.initiatorProfile) {
+      throw new Error('Initiator profile not found');
+    }
 
     return {
       relationshipId: relationship.relationshipId,
       relationType: relationship.relationType as RelationType,
       status: relationship.status as RelationshipStatus,
-      relatedProfile: relationship.relatedProfile ? {
-        profileId: relationship.relatedProfile.profileId,
-        firstName: relationship.relatedProfile.firstName,
-        lastName: relationship.relatedProfile.lastName,
-        email: relationship.relatedProfile.email || undefined
-      } : null,
-      relatedEmail: relationship.relatedEmail,
-      pointsAwarded: relationship.pointsAwarded,
-      confirmedAt: relationship.confirmedAt,
-      createdAt: relationship.createdAt
+      createdAt: relationship.createdAt,
+      initiator: {
+        profileId: relationship.initiatorProfile.profileId,
+        firstName: relationship.initiatorProfile.firstName,
+        lastName: relationship.initiatorProfile.lastName,
+        email: relationship.initiatorProfile.email || undefined,
+        fabricUserId: relationship.initiatorProfile.fabricUserId || undefined,
+        nationalityCountryCode: relationship.initiatorProfile.nationalityCountryCode || undefined,
+        status: relationship.initiatorProfile.status || undefined
+      }
     };
   }
 
