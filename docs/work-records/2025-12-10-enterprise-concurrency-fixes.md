@@ -319,10 +319,259 @@ Implemented a complete, fully operational send/transfer page in the frontend wit
 
 ---
 
+---
+
+## Session 10c: Transaction Fee Implementation
+
+### Problem Discovered
+
+Testing transfers between `user1@test.com` and `user2@test.com` revealed that **transaction fees were not being charged**. Investigation uncovered that:
+
+1. Backend uses `TransferInternal` chaincode function which is **fee-exempt by design**
+2. The regular `Transfer` function requires `submitter == fromID` (user signing their own transaction)
+3. Backend operates with a shared admin identity (`gx_partner_api`), making it unable to use `Transfer`
+
+### Root Cause
+
+```
+Backend → Fabric (via shared admin identity)
+       ↓
+     TransferInternal (fee-exempt)
+       ↓
+     No fees charged
+```
+
+The `TransferInternal` function was created for system operations (genesis distribution, loan disbursements, treasury operations) where fees should NOT be charged. User-to-user transfers through the backend were inadvertently using this fee-exempt path.
+
+### Solution: TransferWithFees Function
+
+Created a new chaincode function that enables admin-initiated transfers WITH fee calculation for non-system accounts.
+
+#### Fee Exemption Logic (`helpers.go`)
+
+```go
+// Fee-exempt accounts - no fees charged when either party is exempt
+func isFeeExemptAccount(accountID string) bool {
+    switch accountID {
+    case UserGenesisPoolAccountID:     // "SYSTEM_USER_GENESIS_POOL"
+    case GovtGenesisPoolAccountID:     // "SYSTEM_GOVT_GENESIS_POOL"
+    case CharitablePoolAccountID:      // "SYSTEM_CHARITABLE_POOL"
+    case LoanPoolAccountID:            // "SYSTEM_LOAN_POOL"
+    case GXPoolAccountID:              // "SYSTEM_GX_POOL"
+    case OperationsFundAccountID:      // "SYSTEM_OPERATIONS_FUND"
+    case SystemMinterAccountID:        // "SYSTEM_MINTER"
+        return true
+    }
+    // Country treasuries are also exempt
+    if len(accountID) > 9 && accountID[:9] == "treasury_" {
+        return true
+    }
+    return false
+}
+
+func shouldChargeTransferFee(fromID, toID string) bool {
+    return !isFeeExemptAccount(fromID) && !isFeeExemptAccount(toID)
+}
+```
+
+#### TransferWithFees Function (`tokenomics_contract.go`)
+
+```go
+type TransferWithFeesResult struct {
+    Success       bool   `json:"success"`
+    Amount        uint64 `json:"amount"`
+    TotalFee      uint64 `json:"totalFee"`
+    SenderFee     uint64 `json:"senderFee"`
+    ReceiverFee   uint64 `json:"receiverFee"`
+    NetReceived   uint64 `json:"netReceived"`
+    IsIdempotent  bool   `json:"isIdempotent"`
+    TransactionID string `json:"transactionId"`
+}
+
+func (s *TokenomicsContract) TransferWithFees(
+    ctx contractapi.TransactionContextInterface,
+    fromID, toID, amountStr, txType, remark string,
+    idempotencyKey ...string,
+) (*TransferWithFeesResult, error)
+```
+
+**Key Features**:
+- Uses existing `_calculateTransactionFee()` for progressive fee calculation
+- Splits P2P fees 50/50 between sender and receiver
+- Supports idempotency keys for exactly-once semantics
+- Emits `TransferWithFeesCompleted` event with fee breakdown
+- Falls back to fee-exempt transfer if either party is a system account
+
+#### Fee Structure (Existing Algorithm)
+
+| Transfer Type | Amount Range | Fee Rate |
+|--------------|--------------|----------|
+| P2P Local    | < 3 coins    | 0%       |
+| P2P Local    | 3-100 coins  | 0.05%    |
+| P2P Local    | > 100 coins  | 0.1%     |
+| P2P Cross-Country | All     | 0.15%    |
+| Business     | All          | 0.2%     |
+
+**Example**: 10,000 Qirat P2P transfer:
+- Total Fee: 10 Qirat (0.1%)
+- Sender Fee: 5 Qirat
+- Receiver Fee: 5 Qirat
+- Net Received: 9,995 Qirat
+
+### Backend Integration
+
+#### Outbox-Submitter (`workers/outbox-submitter/src/index.ts`)
+
+```typescript
+case 'TRANSFER_TOKENS':
+    return {
+        contractName: 'TokenomicsContract',
+        functionName: 'TransferWithFees',  // Changed from TransferInternal
+        args: [
+            payload.fromUserId as string,
+            payload.toUserId as string,
+            payload.amount.toString(),
+            '',  // txType hint - empty for auto-detect
+            payload.remark as string || 'User-initiated transfer',
+            payload.idempotencyKey as string || '',
+        ],
+    };
+```
+
+#### Projector (`workers/projector/src/index.ts`)
+
+Added `handleTransferWithFeesCompleted` event handler:
+
+```typescript
+private async handleTransferWithFeesCompleted(
+    payload: TransferWithFeesCompletedPayload,
+    event: FabricEvent
+): Promise<void> {
+    const { fromID, toID, amount, senderFee, receiverFee, netReceived, txID } = payload;
+
+    // Check idempotency
+    if (await this.isTransactionAlreadyProcessed(txID)) return;
+
+    // Record SENT transaction (gross amount)
+    await this.prisma.transaction.create({
+        data: {
+            type: 'SENT',
+            amount: BigInt(amount),
+            onChainTxId: txID,
+            // ...
+        }
+    });
+
+    // Record RECEIVED transaction (net amount)
+    await this.prisma.transaction.create({
+        data: {
+            type: 'RECEIVED',
+            amount: BigInt(netReceived),
+            onChainTxId: `${txID}_received`,
+            // ...
+        }
+    });
+
+    // Record FEE transaction if fees were charged
+    if (senderFee > 0 || receiverFee > 0) {
+        await this.prisma.transaction.create({
+            data: {
+                type: 'FEE',
+                amount: BigInt(senderFee + receiverFee),
+                onChainTxId: `${txID}_fee`,
+                // ...
+            }
+        });
+    }
+}
+```
+
+### Commits
+
+| Repository | Commit | Description |
+|------------|--------|-------------|
+| gx-coin-fabric | `58083c1` | feat(chaincode): add fee exemption helpers for system pools and treasuries |
+| gx-coin-fabric | `5852c21` | feat(chaincode): implement TransferWithFees for enterprise fee calculation |
+| gx-protocol-backend | `aee889c` | feat(outbox-submitter): switch TRANSFER_TOKENS to use TransferWithFees |
+| gx-protocol-backend | `753efbc` | feat(projector): add TransferWithFeesCompleted event handler for fee tracking |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `gx-coin-fabric/chaincode/helpers.go` | Added `isFeeExemptAccount()`, `shouldChargeTransferFee()` |
+| `gx-coin-fabric/chaincode/tokenomics_contract.go` | Added `TransferWithFeesResult` struct, `TransferWithFees()` function |
+| `gx-protocol-backend/workers/outbox-submitter/src/index.ts` | Changed TRANSFER_TOKENS to use TransferWithFees |
+| `gx-protocol-backend/workers/projector/src/index.ts` | Added `handleTransferWithFeesCompleted()` handler |
+
+### Transfer Types Now Supported
+
+| Transfer Type | Fee Status | Chaincode Function |
+|--------------|------------|-------------------|
+| User → User | **CHARGED** | `TransferWithFees` |
+| Org → User | **CHARGED** | `TransferWithFees` |
+| User → Org | **CHARGED** | `TransferWithFees` |
+| Org → Org | **CHARGED** | `TransferWithFees` |
+| Pool → User (Genesis) | EXEMPT | `TransferInternal` |
+| Pool → User (Loan) | EXEMPT | `TransferInternal` |
+| User → Treasury (Tax) | EXEMPT | `TransferInternal` |
+| Any → System Pool | EXEMPT | `TransferInternal` |
+
+### Architecture Decision: Admin-Initiated vs Client-Signed
+
+The user raised whether client-side signing (users signing with their own Fabric identity) is the industry standard. Analysis:
+
+**Client-Signed Transactions**:
+- Users have their own Fabric identity
+- Frontend holds private keys (or uses hardware wallet)
+- User signs each transaction
+
+**Admin-Initiated (Current Architecture)**:
+- Users authenticate via JWT to backend
+- Backend holds shared admin identity
+- Backend submits transactions on behalf of users
+
+**Decision**: Continue with admin-initiated architecture because:
+1. **User Experience**: No need for users to manage Fabric keys
+2. **Key Management**: Single secure admin key vs millions of user keys
+3. **Recovery**: Users can reset via email/phone, not lost private keys
+4. **Mobile Support**: No hardware wallet dependency
+5. **Compliance**: Backend can enforce rules before submission
+
+The `TransferWithFees` function properly enables fees while maintaining this architecture.
+
+### Deployment Notes
+
+**Chaincode Upgrade Required**:
+```bash
+cd gx-coin-fabric
+./scripts/k8s-upgrade-chaincode.sh <new_version> <new_sequence>
+```
+
+**Backend Deployment**:
+```bash
+# After chaincode upgrade completes
+kubectl rollout restart deployment outbox-submitter -n backend-mainnet
+kubectl rollout restart deployment projector -n backend-mainnet
+```
+
+### Testing Checklist
+
+- [ ] Deploy updated chaincode to testnet
+- [ ] Verify fee calculation for small transfer (< 3 coins) - should be 0
+- [ ] Verify fee calculation for medium transfer (3-100 coins) - should be 0.05%
+- [ ] Verify fee calculation for large transfer (> 100 coins) - should be 0.1%
+- [ ] Verify system pool transfers remain fee-exempt
+- [ ] Verify transaction history shows separate FEE record
+- [ ] Verify sender balance = original - amount - senderFee
+- [ ] Verify receiver balance = original + netReceived
+
+---
+
 ## Next Steps
 
-1. Deploy updated workers to testnet
-2. Upgrade chaincode on testnet with new version
-3. Monitor for any edge cases with new locking patterns
-4. Load test concurrent transfers to verify MVCC behavior
-5. Test end-to-end transfer flow in frontend
+1. Deploy updated chaincode to testnet with new version
+2. Upgrade backend workers on testnet
+3. Run comprehensive fee calculation tests
+4. Monitor for any edge cases with fee exemption logic
+5. Deploy to mainnet after testnet validation
