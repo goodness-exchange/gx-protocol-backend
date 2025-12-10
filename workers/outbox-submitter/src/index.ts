@@ -759,19 +759,29 @@ class OutboxSubmitter {
 
       // ========== TokenomicsContract ==========
       case 'TRANSFER_TOKENS':
-        // Note: Using TransferInternal which requires Admin role and is fee-exempt.
-        // The chaincode Transfer function requires submitter == fromID (user's own identity),
-        // but our backend uses a shared admin identity for all API operations.
-        // TransferInternal bypasses this check and allows admin-initiated transfers.
+        // ENTERPRISE FEE IMPLEMENTATION: Using TransferWithFees for user-to-user transfers
+        // This function calculates and deducts transaction fees based on:
+        // - Transaction type (P2P, Merchant, Government, B2B)
+        // - Geographic scope (Local vs Cross-Border)
+        // - Amount tiers (0-3 coins free, 3-100 coins, 100+ coins)
+        //
+        // Fee exemptions are automatically applied for:
+        // - System pools (SYSTEM_USER_GENESIS_POOL, SYSTEM_LOAN_POOL, etc.)
+        // - Country treasuries (treasury_*)
+        // - System minter (SYSTEM_MINTER)
+        //
+        // TransferWithFees requires Admin role and emits a TransferWithFeesCompleted event
+        // containing fee breakdown for the projector to record.
         return {
           contractName: 'TokenomicsContract',
-          functionName: 'TransferInternal',
+          functionName: 'TransferWithFees',
           args: [
             payload.fromUserId as string,
             payload.toUserId as string,
             payload.amount.toString(),
-            'P2P_TRANSFER', // Transaction type for audit trail
+            '', // txType hint - empty for auto-detect based on account types
             payload.remark as string || 'User-initiated transfer',
+            payload.idempotencyKey as string || '', // Optional idempotency key
           ],
         };
 
