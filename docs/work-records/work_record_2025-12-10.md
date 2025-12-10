@@ -492,3 +492,208 @@ Ready for integration with:
 4. **Performance**: React hooks optimization, loading states
 5. **Security**: JWT authentication, input validation
 6. **Immutability**: KYC data clearly marked as non-editable
+
+---
+
+## Session 12 Continued: Enterprise KYR Flow Enhancements
+
+### Summary
+Enhanced the KYR (Know Your Relationship) system with enterprise-grade features including invitation email tracking, rejection cooldown, and approval modal for better user experience.
+
+---
+
+## Work Completed
+
+### Backend Enhancements (gx-protocol-backend/svc-identity)
+
+#### 1. Relationships Service Enhancements (`services/relationships.service.ts`)
+
+**New Features:**
+- **User Existence Check**: Differentiates between registered and non-registered users
+- **Invitation Email Tracking**: Queues `SEND_INVITATION_EMAIL` OutboxCommand for non-registered users
+- **Referrer Tracking**: Stores referrer's Fabric ID for future rewards system
+- **7-Day Cooldown**: Blocks repeat requests after rejection for 7 days
+- **New Endpoint**: `getRelationshipDetail()` returns initiator details for approval modal
+
+**New Response Type:**
+```typescript
+interface CreateRelationshipResult {
+  relationship: RelationshipDTO;
+  userExists: boolean;      // true if target is registered
+  invitationSent: boolean;  // true if email invitation queued
+  message: string;          // user-friendly message
+}
+```
+
+**New Detail Type for Modal:**
+```typescript
+interface RelationshipDetailDTO {
+  relationshipId: string;
+  relationType: RelationType;
+  status: RelationshipStatus;
+  createdAt: Date;
+  initiator: {
+    profileId: string;
+    firstName: string;
+    lastName: string;
+    email?: string;
+    fabricUserId?: string;
+    nationalityCountryCode?: string;
+    status?: string;
+  };
+}
+```
+
+#### 2. Controller Updates (`controllers/relationships.controller.ts`)
+
+**Enhanced Error Handling:**
+- `409 Conflict`: Duplicate pending/confirmed relationship
+- `429 Too Many Requests`: Cooldown period active
+- `400 Bad Request`: Invalid input or self-relationship
+- `403 Forbidden`: Permission denied for relationship detail view
+
+**New Endpoint:**
+```
+GET /api/gxcoin/relationships/:relationshipId
+```
+Returns detailed relationship info for approval modal. Only accessible by target user.
+
+#### 3. Routes Update (`routes/relationships.routes.ts`)
+
+Added enterprise flow documentation and new route:
+```typescript
+router.get('/:relationshipId', getRelationshipDetail);
+```
+
+---
+
+### Frontend Enhancements (gx-wallet-frontend)
+
+#### 1. Enhanced Response Handling (`relationships/page.tsx`)
+
+**Toast Notifications Based on Response:**
+- **User Not Registered**: Info toast with "invitation sent" message
+- **User Registered**: Success toast with "notification sent" message
+- **Cooldown Active**: Warning toast with days remaining
+- **Duplicate Request**: Error toast explaining conflict
+
+#### 2. Approval Modal Component
+
+**New ApprovalModal Component Features:**
+- Fetches initiator details when opened
+- Shows avatar, name, email, country
+- Displays relationship type and potential points
+- Warning notice about verification importance
+- Confirm and Decline buttons with loading states
+
+#### 3. Updated RelationshipCard
+
+**Changes for Pending Invites:**
+- Now shows "View" button instead of inline confirm/reject
+- Clicking card opens approval modal
+- Added helper text: "Tap to view details and respond"
+
+---
+
+### Commits Made
+
+#### Backend (gx-protocol-backend)
+| Hash | Message |
+|------|---------|
+| 2aa8cff | feat(svc-identity/relationships): add enterprise KYR flow with invitation and cooldown |
+| 86be200 | feat(svc-identity/relationships): enhance controller for enterprise flow |
+| 300fa94 | feat(svc-identity/relationships): add detail endpoint and document enterprise flow |
+
+#### Frontend (gx-wallet-frontend)
+| Hash | Message |
+|------|---------|
+| 2964805 | fix(ui/select): replace CSS variables with explicit colors |
+| 19c87f5 | fix(ui/input): replace CSS variables with explicit colors |
+| f21199d | fix(ui/popover): replace CSS variables with explicit white background |
+| a392643 | fix(ui/label): add explicit text color for form labels |
+| 25a7456 | fix(settings/relationships): improve Add Relationship form styling |
+| 091b0a8 | feat(settings/relationships): add enterprise KYR flow with approval modal |
+
+---
+
+### UI Component Fixes (CSS Variable Issue)
+
+**Root Cause:** shadcn/ui components used `oklch` color format in CSS variables which wasn't rendering properly in some browsers.
+
+**Solution:** Replaced all CSS variable references with explicit Tailwind classes:
+
+| Component | Before | After |
+|-----------|--------|-------|
+| dialog.tsx | `bg-background` | `bg-white` |
+| select.tsx | `bg-popover text-popover-foreground` | `bg-white text-gray-900` |
+| input.tsx | `bg-transparent` | `bg-white` |
+| popover.tsx | `bg-popover` | `bg-white` |
+| label.tsx | (default text) | `text-gray-700` |
+
+---
+
+### Enterprise Flow Diagram
+
+```
+User A enters email in Add Relationship form
+                    ↓
+            ┌───────┴───────┐
+            │ Email exists? │
+            └───────┬───────┘
+         NO ↓              ↓ YES
+            │              │
+┌───────────┴────┐  ┌──────┴───────────┐
+│ Queue email    │  │ Send in-app      │
+│ invitation     │  │ notification     │
+│ with:          │  │ with:            │
+│ - referrer ID  │  │ - actionUrl      │
+│ - token        │  │ - relationshipId │
+└────────────────┘  └──────────┬───────┘
+                               ↓
+                    User B sees pending
+                    in KYR page
+                               ↓
+                    Clicks "View" button
+                               ↓
+                    Approval Modal opens
+                    - Shows initiator details
+                    - Country, email, name
+                    - Points if confirmed
+                               ↓
+                    ┌──────┴──────┐
+                 CONFIRM        DECLINE
+                    ↓              ↓
+            ┌───────┴───┐  ┌──────┴────────┐
+            │ Both get  │  │ 7-day cooldown│
+            │ trust pts │  │ before retry  │
+            │ +notify   │  │ +notify init  │
+            └───────────┘  └───────────────┘
+```
+
+---
+
+### Testing Notes
+
+1. **Create Relationship Flow:**
+   - Enter non-existent email → Should see "invitation sent" info toast
+   - Enter existing user email → Should see "notification sent" success toast
+   - Try duplicate → Should see 409 error
+
+2. **Approval Modal:**
+   - Click pending invite → Modal should open
+   - Verify initiator details display correctly
+   - Test Confirm/Decline buttons
+
+3. **Cooldown Period:**
+   - Reject a relationship
+   - Try to re-request immediately → Should see "X days remaining" warning
+
+---
+
+### Next Steps
+
+1. Implement email sending worker for `SEND_INVITATION_EMAIL` commands
+2. Add email templates for invitation emails
+3. Handle referral tracking when invited user registers
+4. Consider adding notification badge in navigation for pending invites
+5. Deploy and test full flow end-to-end
