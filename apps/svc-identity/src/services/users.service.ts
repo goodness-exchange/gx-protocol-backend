@@ -101,11 +101,22 @@ class UsersService {
 
     const user = await db.userProfile.findUnique({
       where: { profileId },
+      include: {
+        addresses: {
+          where: { isCurrent: true },
+          take: 1,
+        },
+        nationalityCountry: {
+          select: { countryName: true },
+        },
+      },
     });
 
     if (!user) {
       throw new Error('User not found');
     }
+
+    const currentAddress = user.addresses[0] || null;
 
     return {
       profileId: user.profileId,
@@ -117,12 +128,54 @@ class UsersService {
       identityNum: user.nationalIdNumber,
       status: user.status,
       nationalityCountryCode: user.nationalityCountryCode,
+      nationalityCountryName: user.nationalityCountry?.countryName || null,
       // Additional fields for KYC pre-fill
       dateOfBirth: user.dateOfBirth,
       gender: user.gender,
       placeOfBirth: user.placeOfBirth,
-      // Denial reason for re-submission
+      // National ID fields (KYR)
+      nationalIdNumber: user.nationalIdNumber,
+      nationalIdIssuedAt: user.nationalIdIssuedAt,
+      nationalIdExpiresAt: user.nationalIdExpiresAt,
+      // Passport fields (KYR)
+      passportNumber: user.passportNumber,
+      passportIssuingCountry: user.passportIssuingCountry,
+      passportIssuedAt: user.passportIssuedAt,
+      passportExpiresAt: user.passportExpiresAt,
+      // Employment fields (KYR)
+      employmentStatus: user.employmentStatus,
+      jobTitle: user.jobTitle,
+      companyName: user.companyName,
+      industry: user.industry,
+      workEmail: user.workEmail,
+      workPhoneNum: user.workPhoneNum,
+      // Compliance flags
+      isPEP: user.isPEP,
+      pepDetails: user.pepDetails,
+      // Address (current)
+      address: currentAddress ? {
+        addressLine1: currentAddress.addressLine1,
+        addressLine2: currentAddress.addressLine2,
+        city: currentAddress.city,
+        stateProvince: currentAddress.stateProvince,
+        postalCode: currentAddress.postalCode,
+        countryCode: currentAddress.countryCode,
+        isVerified: currentAddress.isVerified,
+        verifiedAt: currentAddress.verifiedAt,
+      } : null,
+      // Account status
+      isLocked: user.isLocked,
+      lockReason: user.lockReason,
+      lockedAt: user.lockedAt,
+      // Admin review tracking
+      reviewedBy: user.reviewedBy,
+      reviewedAt: user.reviewedAt,
       denialReason: user.denialReason,
+      // Blockchain identity
+      fabricUserId: user.fabricUserId,
+      onchainStatus: user.onchainStatus,
+      onchainRegisteredAt: user.onchainRegisteredAt,
+      // Timestamps
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
