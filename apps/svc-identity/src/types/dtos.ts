@@ -42,6 +42,17 @@ export interface RegisterUserRequestDTO {
   nationalityCountryCode?: string;
 }
 
+export interface AddressDTO {
+  addressLine1: string;
+  addressLine2?: string | null;
+  city: string;
+  stateProvince?: string | null;
+  postalCode?: string | null;
+  countryCode: string;
+  isVerified: boolean;
+  verifiedAt?: Date | null;
+}
+
 export interface UserProfileDTO {
   profileId: string;
   email: string | null;
@@ -50,13 +61,47 @@ export interface UserProfileDTO {
   lastName: string;
   phoneNum: string | null;
   identityNum: string | null;
-  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED' | 'SUSPENDED' | 'CLOSED';
+  status: string;
   nationalityCountryCode: string | null;
-  // Additional fields for KYC/KYR pre-fill
+  nationalityCountryName?: string | null;
+  // Personal details
   dateOfBirth?: Date | null;
   gender?: string | null;
   placeOfBirth?: string | null;
+  // National ID (KYR)
+  nationalIdNumber?: string | null;
+  nationalIdIssuedAt?: Date | null;
+  nationalIdExpiresAt?: Date | null;
+  // Passport (KYR)
+  passportNumber?: string | null;
+  passportIssuingCountry?: string | null;
+  passportIssuedAt?: Date | null;
+  passportExpiresAt?: Date | null;
+  // Employment (KYR)
+  employmentStatus?: string | null;
+  jobTitle?: string | null;
+  companyName?: string | null;
+  industry?: string | null;
+  workEmail?: string | null;
+  workPhoneNum?: string | null;
+  // Compliance flags
+  isPEP?: boolean;
+  pepDetails?: string | null;
+  // Current address
+  address?: AddressDTO | null;
+  // Account lock status
+  isLocked?: boolean;
+  lockReason?: string | null;
+  lockedAt?: Date | null;
+  // Admin review
+  reviewedBy?: string | null;
+  reviewedAt?: Date | null;
   denialReason?: string | null;
+  // Blockchain identity
+  fabricUserId?: string | null;
+  onchainStatus?: string | null;
+  onchainRegisteredAt?: Date | null;
+  // Timestamps
   createdAt: Date;
   updatedAt: Date;
 }
