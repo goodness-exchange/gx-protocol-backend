@@ -114,3 +114,89 @@ const totalFee = typeof payload.fee === 'string'
 - Projector: v2.0.8, processing events correctly
 - Fee Capture: Working for all new transactions
 - Sender-Pays-All Model: Verified working
+
+---
+
+## Session 14b: Currency Display Formatting (Q/GX)
+
+### Session Overview
+Implemented smart currency display formatting across the frontend to show amounts appropriately in Qirat (Q) or GX based on the value, and updated all currency labels from "X" to "GX".
+
+### Requirements
+- Amounts less than 1,000,000 Qirat (< 1 GX) should display as "XQ" (e.g., "10Q", "1,500Q")
+- Amounts at or above 1,000,000 Qirat (>= 1 GX) should display as "X GX" (e.g., "1 GX", "1.5 GX")
+- Replace all "X" currency references with "GX" throughout the frontend
+
+### Implementation
+
+#### 1. Created Centralized Utility Function
+**File:** `lib/utils.ts`
+
+Added `formatCurrency()` function that:
+- Takes amount in Qirat (number or string)
+- Returns formatted string with appropriate unit
+- Handles edge cases (undefined, NaN, zero)
+
+```typescript
+export function formatCurrency(amount: number | string | undefined): string {
+  const QIRAT_PER_GX = 1000000
+  if (numAmount < QIRAT_PER_GX) {
+    return `${Math.round(numAmount).toLocaleString()}Q`
+  }
+  const gxAmount = numAmount / QIRAT_PER_GX
+  return `${formatted} GX`
+}
+```
+
+#### 2. Updated Components
+
+| Component | Changes |
+|-----------|---------|
+| `lib/utils.ts` | Added shared `formatCurrency` utility function |
+| `FormattedBalance.tsx` | Changed "X" to "GX" in currency unit display |
+| `RecentTransactions.tsx` | Replaced local formatting with shared utility |
+| `RecentActivity.tsx` | Replaced local formatting with shared utility |
+| `NewTransaction.tsx` | Updated `formatXCoins` to use Q/GX logic |
+| `BalanceCard.tsx` | Dynamic Q/GX display for main balance |
+| `transactions/page.tsx` | Using shared `formatCurrency` utility |
+
+#### 3. BalanceCard Special Handling
+The balance card needed special treatment since it displays the value and unit separately:
+- Created `getBalanceValue()` - returns just the numeric portion
+- Created `getBalanceUnit()` - returns "Q" or "GX" based on amount
+
+### Display Examples
+
+| Amount (Qirat) | Before | After |
+|----------------|--------|-------|
+| 100 | 0.00 X | 100Q |
+| 1,500 | 0.00 X | 1,500Q |
+| 100,000 | 0.10 X | 100,000Q |
+| 999,999 | 1.00 X | 999,999Q |
+| 1,000,000 | 1.00 X | 1 GX |
+| 1,500,000 | 1.50 X | 1.5 GX |
+| 10,000,000 | 10.00 X | 10 GX |
+
+### Commits Made
+1. `feat(utils): add formatCurrency utility for smart Q/GX display`
+2. `fix(FormattedBalance): change currency unit from X to GX`
+3. `refactor(RecentTransactions): use shared formatCurrency utility`
+4. `refactor(RecentActivity): use shared formatCurrency utility`
+5. `fix(NewTransaction): update currency formatting to use Q/GX logic`
+6. `fix(BalanceCard): implement smart Q/GX balance display`
+7. `refactor(transactions): use shared formatCurrency utility`
+
+### Files Changed
+- 7 files modified
+- +78 lines, -52 lines (net +26 lines)
+
+### Session Metrics
+- **Duration**: ~15 minutes
+- **Components Updated**: 7
+- **Commits**: 7 (staged, file-by-file)
+
+### Current System State
+- All frontend currency displays use smart Q/GX formatting
+- Amounts < 1 GX show in Qirat format (e.g., "1,500Q")
+- Amounts >= 1 GX show in GX format (e.g., "1.5 GX")
+- "X" branding replaced with "GX" throughout
