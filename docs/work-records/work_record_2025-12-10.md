@@ -919,5 +919,176 @@ To Wallet ID: US A12 XYZ789 TEST1 3985  [Copy]
 
 1. ✅ Backend deployed with counterpartyName enrichment
 2. ✅ Frontend API route updated to map new field
-3. Verify display in production after all pods are updated
+3. ✅ Verify display in production after all pods are updated
 4. Consider caching counterparty names for frequently transacted users
+
+---
+
+## Session 14: Fix Prisma Field Names for CounterpartyName Lookup
+
+### Summary
+Fixed Prisma validation error in wallet service caused by incorrect field names when querying UserProfile table for counterparty name lookup.
+
+---
+
+## Problem Statement
+
+**Issue:** Transaction API returned 500 error with `PrismaClientValidationError` after deploying v2.0.8.
+
+**Root Cause:** The wallet service used incorrect field names `fname` and `lname` instead of the actual Prisma schema field names `firstName` and `lastName`.
+
+**Error Log:**
+```json
+{"level":50,"time":1765380864704,"pid":1,"hostname":"svc-identity-575d44d664-299bp","error":{"name":"PrismaClientValidationError","clientVersion":"6.17.1"},"profileId":"0afd6668-7d30-4187-a3cc-9052912f5c83","msg":"Failed to fetch transactions"}
+```
+
+---
+
+## Solution Implemented
+
+### Code Fix in `wallet.service.ts`
+
+**Before (Incorrect):**
+```typescript
+const counterpartyProfiles = await db.userProfile.findMany({
+  where: {
+    fabricUserId: { in: counterpartyIds },
+  },
+  select: {
+    fabricUserId: true,
+    fname: true,   // WRONG - field doesn't exist
+    lname: true,   // WRONG - field doesn't exist
+  },
+});
+
+counterpartyProfiles.forEach((profile: { fabricUserId: string | null; fname: string; lname: string }) => {
+  if (profile.fabricUserId) {
+    nameMap.set(profile.fabricUserId, `${profile.fname} ${profile.lname}`.trim());
+  }
+});
+```
+
+**After (Correct):**
+```typescript
+// Only query if we have counterparty IDs to look up
+const nameMap = new Map<string, string>();
+
+if (counterpartyIds.length > 0) {
+  const counterpartyProfiles = await db.userProfile.findMany({
+    where: {
+      fabricUserId: { in: counterpartyIds },
+    },
+    select: {
+      fabricUserId: true,
+      firstName: true,  // CORRECT - matches Prisma schema
+      lastName: true,   // CORRECT - matches Prisma schema
+    },
+  });
+
+  counterpartyProfiles.forEach((profile: { fabricUserId: string | null; firstName: string; lastName: string }) => {
+    if (profile.fabricUserId) {
+      nameMap.set(profile.fabricUserId, `${profile.firstName} ${profile.lastName}`.trim());
+    }
+  });
+}
+```
+
+**Additional Fix:** Added guard to skip Prisma query when `counterpartyIds` array is empty (prevents unnecessary database calls).
+
+---
+
+## Prisma Schema Reference
+
+```prisma
+model UserProfile {
+  profileId String @id @default(uuid())
+
+  // Basic identity (from registration)
+  firstName              String
+  middleName             String?
+  lastName               String
+  email                  String?           @unique
+  fabricUserId           String?           @unique
+  // ... other fields
+}
+```
+
+---
+
+## Deployment
+
+### svc-identity v2.0.9
+- **Built:** TypeScript compiled successfully
+- **Docker Image:** gx-protocol/svc-identity:2.0.9
+- **Deployed to:** backend-mainnet namespace
+- **Image Distribution:** Transferred to all 3 control-plane nodes
+
+**All 3 pods running v2.0.9:**
+```
+NAME                           READY   STATUS    NODE
+svc-identity-c585d8549-567hp   1/1     Running   srv1089618 (KL)
+svc-identity-c585d8549-m4467   1/1     Running   srv1089624 (Phoenix)
+svc-identity-c585d8549-sbcj8   1/1     Running   srv1092158 (Frankfurt)
+```
+
+---
+
+## Verification
+
+**API Test Result:**
+```bash
+curl -s "https://api.gxcoin.money/api/v1/wallets/{profileId}/transactions" | jq '.'
+```
+
+**Response shows counterpartyName correctly:**
+```json
+{
+  "transactions": [
+    {
+      "offTxId": "af6322bd-cd5c-4690-8f99-2264367923e9",
+      "type": "RECEIVED",
+      "counterparty": "US A12 XYZ789 TEST1 3985",
+      "counterpartyName": "usertwo test",
+      "amount": 5000000,
+      "remark": "Reverse transfer US to LK"
+    },
+    {
+      "offTxId": "29d5df55-60b0-46fa-99ba-9627b62c2083",
+      "type": "FEE",
+      "counterparty": "SYSTEM_OPERATIONS_FUND",
+      "counterpartyName": null,
+      "amount": 7500
+    }
+  ]
+}
+```
+
+**Name Resolution:**
+- Regular users: Full name displayed (e.g., "usertwo test")
+- System accounts: null (correctly excluded from lookup)
+
+---
+
+## Commits Made
+
+| Hash | Message |
+|------|---------|
+| 2fd40a8 | fix(wallet-service): correct Prisma field names for counterparty name lookup |
+
+---
+
+## Lessons Learned
+
+1. **Always verify field names against Prisma schema** - don't assume field names from memory
+2. **Add guard clauses** for empty arrays before database queries
+3. **Check production logs immediately** after deployment to catch runtime errors
+
+---
+
+## Files Modified
+
+| File | Changes |
+|------|---------|
+| `apps/svc-identity/src/services/wallet.service.ts` | Fixed firstName/lastName field names, added empty array guard |
+
+---
