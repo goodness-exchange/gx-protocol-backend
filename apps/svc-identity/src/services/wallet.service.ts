@@ -101,24 +101,28 @@ class WalletService {
     )];
 
     // Batch lookup counterparty names from UserProfile table
-    const counterpartyProfiles = await db.userProfile.findMany({
-      where: {
-        fabricUserId: { in: counterpartyIds },
-      },
-      select: {
-        fabricUserId: true,
-        fname: true,
-        lname: true,
-      },
-    });
-
-    // Create a map for quick lookup
+    // Only query if we have counterparty IDs to look up
     const nameMap = new Map<string, string>();
-    counterpartyProfiles.forEach((profile: { fabricUserId: string | null; fname: string; lname: string }) => {
-      if (profile.fabricUserId) {
-        nameMap.set(profile.fabricUserId, `${profile.fname} ${profile.lname}`.trim());
-      }
-    });
+
+    if (counterpartyIds.length > 0) {
+      const counterpartyProfiles = await db.userProfile.findMany({
+        where: {
+          fabricUserId: { in: counterpartyIds },
+        },
+        select: {
+          fabricUserId: true,
+          firstName: true,
+          lastName: true,
+        },
+      });
+
+      // Create a map for quick lookup
+      counterpartyProfiles.forEach((profile: { fabricUserId: string | null; firstName: string; lastName: string }) => {
+        if (profile.fabricUserId) {
+          nameMap.set(profile.fabricUserId, `${profile.firstName} ${profile.lastName}`.trim());
+        }
+      });
+    }
 
     return transactions.map((tx: any) => ({
       offTxId: tx.offTxId,
