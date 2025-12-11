@@ -200,3 +200,392 @@ The balance card needed special treatment since it displays the value and unit s
 - Amounts < 1 GX show in Qirat format (e.g., "1,500Q")
 - Amounts >= 1 GX show in GX format (e.g., "1.5 GX")
 - "X" branding replaced with "GX" throughout
+
+---
+
+## Session 15: Profile Page Enterprise Implementation & KYR Mobile Improvements
+
+### Session Overview
+Implemented a comprehensive, enterprise-grade profile settings page displaying verified KYC/KYR data in read-only format, and made mobile-first improvements to the KYR relationships page.
+
+### Requirements
+1. Profile page at `/settings/profile` to display all verified user registration and KYC data
+2. Data should be read-only (already verified)
+3. Enterprise standards with mobile-first responsive design
+4. PEP (Politically Exposed Person) status should NOT be displayed
+5. KYR page mobile improvements and error handling fixes
+
+### Implementation
+
+#### 1. Backend Updates - User Profile Service
+
+**File:** `apps/svc-identity/src/services/users.service.ts`
+
+Extended `getUserProfile` to return comprehensive KYC data:
+- Added Prisma includes for related address and country data
+- Returns all KYC fields: national ID, passport, employment, address, blockchain identity
+
+```typescript
+const user = await db.userProfile.findUnique({
+  where: { profileId },
+  include: {
+    addresses: {
+      where: { isCurrent: true },
+      take: 1,
+    },
+    nationalityCountry: {
+      select: { countryName: true },
+    },
+  },
+});
+```
+
+**File:** `apps/svc-identity/src/types/dtos.ts`
+
+- Added `AddressDTO` interface for address data structure
+- Extended `UserProfileDTO` with 40+ fields covering all KYC data
+
+#### 2. Frontend Type Updates
+
+**File:** `types/index.ts`
+
+- Added `UserAddress` interface
+- Extended `UserProfile` with comprehensive KYC fields:
+  - Personal details (middleName, gender, dateOfBirth, placeOfBirth)
+  - National ID (nationalIdNumber, nationalIdIssuedAt, nationalIdExpiresAt)
+  - Passport (passportNumber, passportIssuingCountry, passportIssuedAt, passportExpiresAt)
+  - Employment (employmentStatus, jobTitle, companyName, industry, workEmail, workPhoneNum)
+  - Address (full UserAddress object)
+  - Blockchain identity (fabricUserId, onchainStatus, onchainRegisteredAt)
+  - Account status (isLocked, lockReason, lockedAt)
+  - Admin review (reviewedBy, reviewedAt, denialReason)
+
+#### 3. Profile Page Implementation
+
+**File:** `app/(root)/(client)/settings/profile/page.tsx`
+
+Complete redesign with 7 collapsible sections:
+
+| Section | Content |
+|---------|---------|
+| Personal Information | Name, DOB, gender, nationality, place of birth |
+| National ID | ID number, issue/expiry dates (masked) |
+| Passport | Passport number, issuing country, dates (masked) |
+| Current Address | Full address with verification status |
+| Employment | Status, job title, company, industry, work contact |
+| Blockchain Identity | Fabric User ID, on-chain status, registration date |
+| Account Status | Account creation/update, status badge, lock info |
+
+**Key UI Features:**
+- Collapsible sections with expand/collapse animation
+- Mobile-first design: `pb-20 sm:pb-8`, `text-[10px] sm:text-xs` sizing
+- Data masking for sensitive fields (last 4 characters visible)
+- Verification badges (green checkmarks for verified data)
+- Status badges with color coding
+
+**Components Created:**
+- `Section`: Collapsible container with header and expand state
+- `InfoField`: Label/value display with optional masking
+
+#### 4. KYR Relationships Page Improvements
+
+**File:** `app/(root)/(client)/settings/relationships/page.tsx`
+
+**Error Handling Fixes:**
+1. Added content-type checking before JSON parsing to prevent doctype errors:
+```typescript
+const contentType = response.headers.get('content-type')
+if (!contentType || !contentType.includes('application/json')) {
+  if (response.status === 404) {
+    toast.error('Relationships feature is not yet available', {
+      description: 'This feature will be enabled soon.'
+    })
+  } else {
+    toast.error('Server error. Please try again later.')
+  }
+  return
+}
+```
+
+2. Network error handling for "Failed to fetch":
+```typescript
+} catch (err: any) {
+  if (err.message === 'Failed to fetch') {
+    toast.error('Unable to connect to server', {
+      description: 'Please check your connection and try again.'
+    })
+  }
+}
+```
+
+**Mobile Improvements:**
+- Consistent styling with profile page
+- Mobile-friendly touch targets
+- Responsive grid layouts
+
+#### 5. Icons Update
+
+**File:** `lib/icons.ts`
+
+- Added `Building2` icon export for employment section
+
+### User Feedback & Fixes
+
+| Feedback | Resolution |
+|----------|------------|
+| "PEP status shouldn't be there" | Did not include isPEP/pepDetails in frontend display |
+| "Failed to fetch" on profile | Backend deployment was pending - resolved after deploy |
+| "Doctype error" on KYR form submit | Added content-type header check |
+| "Failed to fetch" on KYR | Added network error handling with user-friendly toast |
+
+### Deployment
+
+**Backend Deployment:**
+1. Built all packages with Turborepo (17 tasks successful)
+2. Created Docker image `gx-protocol/svc-identity:2.0.7`
+3. Imported image to K3s on all 3 control-plane nodes:
+   - srv1089618 (Kuala Lumpur)
+   - srv1089624 (Phoenix)
+   - srv1092158 (Frankfurt) - required additional image transfer
+4. Updated Kubernetes deployment
+5. Verified rollout with 3/3 pods running
+
+**Frontend Deployment:**
+- Pushed to `dev` branch for frontend CI/CD
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `apps/svc-identity/src/services/users.service.ts` | Extended profile query with Prisma includes |
+| `apps/svc-identity/src/types/dtos.ts` | Added AddressDTO, extended UserProfileDTO |
+| `types/index.ts` | Added UserAddress, extended UserProfile |
+| `app/(root)/(client)/settings/profile/page.tsx` | Complete enterprise redesign |
+| `app/(root)/(client)/settings/relationships/page.tsx` | Error handling & mobile improvements |
+| `lib/icons.ts` | Added Building2 icon |
+
+### Session Metrics
+- **Duration**: ~30 minutes (continued from previous session)
+- **Backend Image**: svc-identity v2.0.7
+- **Components Updated**: 6
+- **Profile Sections**: 7 collapsible sections
+- **Error Handlers Added**: 2 (content-type check, network error)
+
+### Current System State
+- svc-identity v2.0.7 deployed on all 3 mainnet nodes
+- Profile page displaying comprehensive KYC data in read-only format
+- KYR page with improved error handling
+- PEP status correctly excluded from user-facing displays
+
+---
+
+## Session 16: Frontend BFF Pattern Implementation & Kubernetes Ingress Fix
+
+### Session Overview
+Continued from previous context - fixed CORS issues by implementing BFF (Backend For Frontend) pattern for relationships API, fixed profile page data mapping, and resolved critical 404 errors by updating Kubernetes Ingress configuration.
+
+### Problems Identified
+
+1. **Profile Page Data Issues**
+   - Full name showing "Unknown"
+   - Missing username, phone number, place of birth, nationality
+   - **Root Cause**: Field name mismatch between backend and frontend
+     - Backend returns: `firstName`, `lastName`, `phoneNum`, `nationalityCountryCode`
+     - Frontend expects: `fname`, `lname`, `phone`, `country`
+
+2. **Data Masking Issue**
+   - Phone number and sensitive fields were masked
+   - User wanted all data visible (it's their own data)
+
+3. **KYR Page 404 Errors**
+   - POST to `/api/relationships` returning 404
+   - **Root Cause**: Kubernetes Ingress missing route for `/api/v1/relationships`
+
+### Solutions Implemented
+
+#### 1. Profile Page Field Mapping Fix
+
+**File:** `gx-wallet-frontend/app/api/users/me/route.ts`
+
+Added field transformation layer:
+```typescript
+const userData = {
+  id: rawData.profileId,
+  profileId: rawData.profileId,
+  email: rawData.email,
+  fname: rawData.firstName,      // Map firstName -> fname
+  lname: rawData.lastName,       // Map lastName -> lname
+  firstName: rawData.firstName,
+  lastName: rawData.lastName,
+  phone: rawData.phoneNum,       // Map phoneNum -> phone
+  phoneNum: rawData.phoneNum,
+  country: rawData.nationalityCountryCode,  // Map nationalityCountryCode -> country
+  countryName: rawData.nationalityCountryName,
+  username: rawData.username || rawData.email?.split('@')[0],
+  // ... all other fields
+};
+```
+
+#### 2. Removed Data Masking
+
+**File:** `gx-wallet-frontend/app/(root)/(client)/settings/profile/page.tsx`
+
+Removed `sensitive` prop from InfoField components:
+- Phone Number field
+- National ID Number field
+- Passport Number field
+- Work Phone field
+
+#### 3. Username Removal from Hero Card
+
+**File:** `gx-wallet-frontend/app/(root)/(client)/settings/profile/page.tsx`
+
+Removed only the `@username` line, kept Fabric ID badge as requested.
+
+#### 4. BFF Routes for Relationships
+
+Created new API routes to proxy requests through Next.js server:
+
+| File | Purpose |
+|------|---------|
+| `app/api/relationships/route.ts` | GET list, POST create |
+| `app/api/relationships/[id]/route.ts` | GET detail by ID |
+| `app/api/relationships/[id]/confirm/route.ts` | POST confirm |
+| `app/api/relationships/[id]/reject/route.ts` | POST reject |
+
+**Example BFF Route:**
+```typescript
+// app/api/relationships/route.ts
+export async function POST(request: Request) {
+  const session = await getServerSession(authOptions)
+  const accessToken = session?.user?.accessToken
+
+  const body = await request.json()
+  const response = await identityClient.post('/relationships', body, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+
+  return NextResponse.json({ success: true, data: response.data })
+}
+```
+
+#### 5. Kubernetes Ingress Fix (Critical)
+
+**Problem**: The Kubernetes Ingress was missing routes for several svc-identity endpoints, causing 404 errors from nginx.
+
+**Command Used:**
+```bash
+kubectl patch ingress gx-backend-ingress -n backend-mainnet --type='json' -p='[
+  {"op": "add", "path": "/spec/rules/0/http/paths/-", "value": {
+    "backend": {"service": {"name": "svc-identity", "port": {"number": 3001}}},
+    "path": "/api/v1/relationships",
+    "pathType": "Prefix"
+  }},
+  {"op": "add", "path": "/spec/rules/0/http/paths/-", "value": {
+    "backend": {"service": {"name": "svc-identity", "port": {"number": 3001}}},
+    "path": "/api/v1/notifications",
+    "pathType": "Prefix"
+  }},
+  {"op": "add", "path": "/spec/rules/0/http/paths/-", "value": {
+    "backend": {"service": {"name": "svc-identity", "port": {"number": 3001}}},
+    "path": "/api/v1/beneficiaries",
+    "pathType": "Prefix"
+  }},
+  {"op": "add", "path": "/spec/rules/0/http/paths/-", "value": {
+    "backend": {"service": {"name": "svc-identity", "port": {"number": 3001}}},
+    "path": "/api/v1/transfers",
+    "pathType": "Prefix"
+  }},
+  {"op": "add", "path": "/spec/rules/0/http/paths/-", "value": {
+    "backend": {"service": {"name": "svc-identity", "port": {"number": 3001}}},
+    "path": "/api/v1/commands",
+    "pathType": "Prefix"
+  }},
+  {"op": "add", "path": "/spec/rules/0/http/paths/-", "value": {
+    "backend": {"service": {"name": "svc-identity", "port": {"number": 3001}}},
+    "path": "/api/v1/registration",
+    "pathType": "Prefix"
+  }},
+  {"op": "add", "path": "/spec/rules/0/http/paths/-", "value": {
+    "backend": {"service": {"name": "svc-identity", "port": {"number": 3001}}},
+    "path": "/api/v1/documents",
+    "pathType": "Prefix"
+  }},
+  {"op": "add", "path": "/spec/rules/0/http/paths/-", "value": {
+    "backend": {"service": {"name": "svc-identity", "port": {"number": 3001}}},
+    "path": "/api/v1/validation",
+    "pathType": "Prefix"
+  }}
+]'
+```
+
+**Routes Added to Ingress:**
+| Path | Service | Port |
+|------|---------|------|
+| `/api/v1/relationships` | svc-identity | 3001 |
+| `/api/v1/notifications` | svc-identity | 3001 |
+| `/api/v1/beneficiaries` | svc-identity | 3001 |
+| `/api/v1/transfers` | svc-identity | 3001 |
+| `/api/v1/commands` | svc-identity | 3001 |
+| `/api/v1/registration` | svc-identity | 3001 |
+| `/api/v1/documents` | svc-identity | 3001 |
+| `/api/v1/validation` | svc-identity | 3001 |
+
+### Verification
+
+**Before Ingress Fix:**
+```bash
+curl -s https://api.gxcoin.money/api/v1/relationships
+# <html><head><title>404 Not Found</title></head>...nginx...
+```
+
+**After Ingress Fix:**
+```bash
+curl -s https://api.gxcoin.money/api/v1/relationships
+# {"error":"Unauthorized","message":"No authorization header provided"}
+```
+
+### Debugging Process
+
+1. **Initial Investigation**: Server logs showed `identityClient.post('/relationships')` returning 404
+2. **Port-Forward Test**: Direct test to pod showed endpoint working
+   ```bash
+   kubectl port-forward -n backend-mainnet svc/svc-identity 3001:3001
+   curl http://localhost:3001/api/v1/relationships
+   # {"error":"Unauthorized"} - Working!
+   ```
+3. **Ingress Analysis**: Examined ingress config, found missing paths
+4. **Applied Fix**: Patched ingress with missing routes
+5. **Verified**: Public API now returns proper response
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `gx-wallet-frontend/app/api/users/me/route.ts` | Added field name transformation |
+| `gx-wallet-frontend/app/(root)/(client)/settings/profile/page.tsx` | Removed username, removed masking |
+| `gx-wallet-frontend/app/api/relationships/route.ts` | Created BFF route |
+| `gx-wallet-frontend/app/api/relationships/[id]/route.ts` | Created BFF route |
+| `gx-wallet-frontend/app/api/relationships/[id]/confirm/route.ts` | Created BFF route |
+| `gx-wallet-frontend/app/api/relationships/[id]/reject/route.ts` | Created BFF route |
+| Kubernetes Ingress `gx-backend-ingress` | Added 8 missing path rules |
+
+### Lessons Learned
+
+1. **Ingress Configuration**: When adding new backend endpoints, always update Kubernetes Ingress
+2. **BFF Pattern**: Routing through Next.js API routes avoids CORS issues entirely
+3. **Field Mapping**: Frontend and backend field names should be documented/standardized
+4. **Debug Path**: Test directly against pods before assuming code is broken
+
+### Session Metrics
+- **Duration**: ~30 minutes
+- **Root Causes Fixed**: 3 (field mapping, data masking, ingress routes)
+- **BFF Routes Created**: 4
+- **Ingress Paths Added**: 8
+- **Services Affected**: svc-identity, frontend
+
+### Current System State
+- Frontend dev server running at http://localhost:3000
+- All svc-identity endpoints now accessible via public API
+- Profile page displaying correct data without masking
+- KYR relationships page should now function correctly
