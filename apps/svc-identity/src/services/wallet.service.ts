@@ -94,11 +94,21 @@ class WalletService {
     });
 
     // Collect unique counterparty IDs (Fabric User IDs) to look up names
+    // Filter out system accounts which have friendly names defined below
     const counterpartyIds = [...new Set(
       transactions
         .map((tx: any) => tx.counterparty)
-        .filter((cp: string | null) => cp && cp !== 'SYSTEM' && !cp.startsWith('SYSTEM_'))
+        .filter((cp: string | null) => cp && !cp.startsWith('SYSTEM_') && cp !== 'SYSTEM')
     )];
+
+    // System account friendly names
+    const systemAccountNames: Record<string, string> = {
+      'SYSTEM_OPERATIONS_FUND': 'System Operations Fund',
+      'SYSTEM_TREASURY': 'GX Treasury',
+      'SYSTEM_HOARDING_TAX': 'Hoarding Tax Pool',
+      'SYSTEM_LOAN_POOL': 'Interest-Free Loan Pool',
+      'SYSTEM': 'System',
+    };
 
     // Batch lookup counterparty names from UserProfile table
     // Only query if we have counterparty IDs to look up
@@ -124,19 +134,31 @@ class WalletService {
       });
     }
 
-    return transactions.map((tx: any) => ({
-      offTxId: tx.offTxId,
-      onChainTxId: tx.onChainTxId,
-      walletId: tx.walletId,
-      type: tx.type,
-      counterparty: tx.counterparty,
-      counterpartyName: tx.counterparty ? nameMap.get(tx.counterparty) || null : null,
-      amount: Number(tx.amount),
-      fee: Number(tx.fee),
-      remark: tx.remark,
-      timestamp: tx.timestamp,
-      blockNumber: tx.blockNumber?.toString() || null,
-    })) as TransactionDTO[];
+    return transactions.map((tx: any) => {
+      // Get counterparty name: system account name, user profile name, or null
+      let counterpartyName: string | null = null;
+      if (tx.counterparty) {
+        if (systemAccountNames[tx.counterparty]) {
+          counterpartyName = systemAccountNames[tx.counterparty];
+        } else {
+          counterpartyName = nameMap.get(tx.counterparty) || null;
+        }
+      }
+
+      return {
+        offTxId: tx.offTxId,
+        onChainTxId: tx.onChainTxId,
+        walletId: tx.walletId,
+        type: tx.type,
+        counterparty: tx.counterparty,
+        counterpartyName,
+        amount: Number(tx.amount),
+        fee: Number(tx.fee),
+        remark: tx.remark,
+        timestamp: tx.timestamp,
+        blockNumber: tx.blockNumber?.toString() || null,
+      };
+    }) as TransactionDTO[];
   }
 
   /**
