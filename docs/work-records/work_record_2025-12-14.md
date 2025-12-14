@@ -101,6 +101,42 @@ RUN cp -r /app/packages/core-db/node_modules/.prisma /app/node_modules/
 ssh root@217.196.51.190 "dnf install -y mod_ssl && systemctl start httpd && systemctl enable httpd"
 ```
 
+### 8. Enterprise Grafana Dashboard Redesign
+
+**Requirement:** Redesign mainnet Grafana dashboard to enterprise standards matching testnet setup
+
+**Analysis:**
+Compared testnet vs mainnet dashboards:
+- **Testnet:** 6 sections with Logs & Events integration
+- **Mainnet:** 4 sections, missing logs integration
+
+**Features Added:**
+Created comprehensive enterprise dashboard with 32 panels across 6 sections:
+
+| Section | Description |
+|---------|-------------|
+| 🏢 MAINNET PRODUCTION - CRITICAL STATUS | Orderers, Peers, Block Height, Raft Leaders, Backend Pods, SLA Gauge |
+| 📊 BLOCKCHAIN METRICS | Block Height Over Time, Transaction Rate, Raft Cluster Size, Leader Changes, Block Commit Latency |
+| 🔗 NETWORK & COMMUNICATION | Active gRPC Connections, Gossip Peers Known, Gossip Message Rate |
+| ⚡ CHAINCODE & COUCHDB PERFORMANCE | Chaincode Execution Time, CouchDB Operations Rate |
+| 💻 RESOURCE UTILIZATION (USE Method) | CPU/Memory by Pod, Node CPU/Memory/Disk Utilization |
+| 📝 LOGS & EVENTS (Loki) | Peer Logs, Orderer Logs, Chaincode Logs, Backend Services Logs, Error Logs |
+
+**Monitoring PVC Fix:**
+Fixed stuck PVCs (grafana-pvc, loki-pvc) that were in Terminating state:
+```bash
+kubectl patch pvc grafana-pvc -n monitoring -p '{"metadata":{"finalizers":null}}' --type=merge
+kubectl patch pvc loki-pvc -n monitoring -p '{"metadata":{"finalizers":null}}' --type=merge
+```
+
+**Deployment Updates:**
+Added node selectors to Grafana and Loki deployments for VPS-4:
+```yaml
+spec:
+  nodeSelector:
+    monitoring: "true"
+```
+
 ---
 
 ## Challenges Encountered
@@ -185,6 +221,8 @@ curl -s https://api.gxcoin.money/api/v1/relationships
 2. **K3s Image Import:** Use `k3s ctr images import` for local images; set `imagePullPolicy: Never`
 3. **Monorepo Prisma:** Always copy Prisma client to root `node_modules/` in Docker builds
 4. **httpd SSL:** AlmaLinux requires `mod_ssl` package for HTTPS proxy configuration
+5. **Grafana Enterprise Dashboards:** Include logs integration (Loki) for complete observability
+6. **K8s PVC Finalizers:** Stuck PVCs in Terminating state can be fixed by patching out finalizers
 
 ---
 
@@ -194,6 +232,8 @@ curl -s https://api.gxcoin.money/api/v1/relationships
 **Nodes Updated:** 4
 **Services Deployed:** 9
 **Monitoring Fixed:** Yes
+**Enterprise Dashboard:** Deployed (32 panels, 6 sections)
+**Logs Integration:** Loki enabled for all namespaces
 **API Status:** Operational
 
 **All systems operational and ready for use.**
