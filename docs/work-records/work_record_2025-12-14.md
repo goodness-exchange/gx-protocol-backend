@@ -154,7 +154,41 @@ Total panels: 32
 Sections: 6 (including LOGS & EVENTS with Loki integration)
 ```
 
-### 9. Secure Monitoring Domain Setup
+### 9. Database Schema Fix - Missing Address Table
+
+**Issue:** Profile fetch API returning P2021 error
+```
+"error":{"code":"P2021","meta":{"modelName":"UserProfile","table":"public.Address"}}
+```
+
+**Root Cause:** Address model was added to Prisma schema but migration was never created/applied
+
+**Fix Applied:**
+Created migration `20251214_add_address_table` with:
+- AddressType enum (CURRENT, PREVIOUS, MAILING, WORK)
+- Address table with all fields for KYR address history tracking
+- Indexes for tenant/profile lookups
+- Foreign key to UserProfile with cascade delete
+
+```sql
+CREATE TYPE "AddressType" AS ENUM ('CURRENT', 'PREVIOUS', 'MAILING', 'WORK');
+CREATE TABLE "Address" (
+    "addressId" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "profileId" TEXT NOT NULL,
+    "addressType" "AddressType" NOT NULL DEFAULT 'CURRENT',
+    ...
+);
+```
+
+**Verification:**
+```bash
+# Profile fetch now working
+curl https://api.gxcoin.money/api/v1/users/{profileId}
+# Returns complete user profile with all KYC fields
+```
+
+### 10. Secure Monitoring Domain Setup
 
 **Requirement:** Host Grafana on secure domain (monitoring.gxcoin.money) with firewall protection
 
@@ -219,6 +253,13 @@ iptables -A INPUT -p tcp --dport 30300 -j REJECT
 **Error:** Dashboard title and content unchanged after ConfigMap replacement
 **Solution:** Delete Grafana PVC to force fresh database initialization from ConfigMap
 
+### 5. Missing Address Table in Database
+
+**Problem:** Profile fetch API failing with Prisma P2021 error
+**Error:** `table "public.Address" not found in database`
+**Root Cause:** Address model was added to Prisma schema but migration was never created
+**Solution:** Created and applied migration `20251214_add_address_table` to production database
+
 ---
 
 ## Final System Status
@@ -274,6 +315,11 @@ curl -s https://api.gxcoin.money/api/v1/relationships
 1. **fix(svc-tax):** add Prisma client copy to root node_modules for monorepo compatibility
    - Added `cp -r /app/packages/core-db/node_modules/.prisma /app/node_modules/` to Dockerfile
 
+2. **feat(db):** add Address table migration for user address history
+   - Created migration `20251214_add_address_table`
+   - AddressType enum and Address table with KYR tracking fields
+   - Applied to production database to fix P2021 errors
+
 ---
 
 ## Key Learnings
@@ -284,6 +330,7 @@ curl -s https://api.gxcoin.money/api/v1/relationships
 4. **httpd SSL:** AlmaLinux requires `mod_ssl` package for HTTPS proxy configuration
 5. **Grafana Enterprise Dashboards:** Include logs integration (Loki) for complete observability
 6. **K8s PVC Finalizers:** Stuck PVCs in Terminating state can be fixed by patching out finalizers
+7. **Prisma Schema Sync:** Always verify migrations exist for all models in schema; P2021 errors indicate missing tables
 
 ---
 
