@@ -137,6 +137,23 @@ spec:
     monitoring: "true"
 ```
 
+**Grafana Database Reset:**
+Grafana's SQLite database was caching the old dashboard and ignoring ConfigMap updates. Required full reset:
+```bash
+kubectl delete deployment grafana -n monitoring
+kubectl delete pvc grafana-pvc -n monitoring --force
+kubectl apply -f /home/sugxcoin/prod-blockchain/gx-coin-fabric/k8s/monitoring/grafana/deployment.yaml
+```
+
+**Final Dashboard Verification:**
+```
+Title: GX Coin - Mainnet Production Environment
+UID: gxcoin-mainnet-env
+Tags: ['fabric', 'blockchain', 'mainnet', 'production', 'enterprise', 'logs']
+Total panels: 32
+Sections: 6 (including LOGS & EVENTS with Loki integration)
+```
+
 ---
 
 ## Challenges Encountered
@@ -157,6 +174,12 @@ spec:
 
 **Problem:** Prisma client generated in `packages/core-db/node_modules/.prisma` not accessible from root
 **Solution:** Added copy step in Dockerfile to mirror Prisma client to root `node_modules/`
+
+### 4. Grafana Dashboard Caching
+
+**Problem:** Grafana ignoring ConfigMap dashboard updates due to SQLite database caching
+**Error:** Dashboard title and content unchanged after ConfigMap replacement
+**Solution:** Delete Grafana PVC to force fresh database initialization from ConfigMap
 
 ---
 
