@@ -154,6 +154,44 @@ Total panels: 32
 Sections: 6 (including LOGS & EVENTS with Loki integration)
 ```
 
+### 9. Secure Monitoring Domain Setup
+
+**Requirement:** Host Grafana on secure domain (monitoring.gxcoin.money) with firewall protection
+
+**Infrastructure Deployed on VPS-4 (72.61.116.210):**
+- Installed httpd with mod_ssl
+- Generated self-signed SSL certificates for Cloudflare Full mode
+- Configured reverse proxy to Grafana NodePort 30300
+
+**httpd Configuration:**
+```apache
+<VirtualHost *:443>
+    ServerName monitoring.gxcoin.money
+    SSLEngine on
+    ProxyPass / http://127.0.0.1:30300/
+    ProxyPassReverse / http://127.0.0.1:30300/
+</VirtualHost>
+```
+
+**Firewall Rules Applied (all 4 nodes):**
+```bash
+# Allow only localhost and cluster IPs to port 30300
+iptables -I INPUT -p tcp --dport 30300 -s 127.0.0.1 -j ACCEPT
+iptables -I INPUT -p tcp --dport 30300 -s 10.42.0.0/16 -j ACCEPT
+iptables -I INPUT -p tcp --dport 30300 -s 10.43.0.0/16 -j ACCEPT
+iptables -A INPUT -p tcp --dport 30300 -j REJECT
+```
+
+**DNS Configuration (Cloudflare):**
+- Type: A
+- Name: monitoring
+- Content: 72.61.116.210
+- Proxy: Enabled (orange cloud)
+- SSL Mode: Full
+
+**Access URL:** https://monitoring.gxcoin.money
+**Credentials:** admin / gxcoin2025
+
 ---
 
 ## Challenges Encountered
