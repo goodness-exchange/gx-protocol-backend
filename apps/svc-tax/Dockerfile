@@ -61,6 +61,13 @@ COPY --from=builder /app/packages/ ./packages/
 COPY --from=builder /app/db/prisma ./db/prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/packages/core-db/node_modules/.prisma ./packages/core-db/node_modules/.prisma
+
+# Regenerate Prisma client to ensure it's properly initialized
+RUN npx prisma generate --schema=./db/prisma/schema.prisma
+
+# Copy generated Prisma client to root node_modules (monorepo fix)
+RUN cp -r /app/packages/core-db/node_modules/.prisma /app/node_modules/
 
 # Create non-root user
 RUN (addgroup -g 1001 gxprotocol || true) && \
