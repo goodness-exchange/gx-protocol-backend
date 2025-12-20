@@ -1496,3 +1496,302 @@ model SystemParameter {
   @@id([tenantId, paramKey])
   @@index([tenantId])
 }
+
+// =============================================================================
+// SECTION 15: ADMIN RBAC SYSTEM
+// Hierarchical role-based access control for admin panel
+// =============================================================================
+
+/// AdminRole: Hierarchical roles with SUPER_OWNER at top
+enum AdminRole {
+  SUPER_OWNER // Project owner - ultimate authority
+  SUPER_ADMIN // Full admin access (future)
+  ADMIN       // Standard admin (Manazir)
+  MODERATOR   // Read + limited write (future)
+  DEVELOPER   // Development access (future)
+  AUDITOR     // Read-only audit access (future)
+}
+
+/// MfaMethod: Supported MFA methods
+enum MfaMethod {
+  TOTP        // Time-based OTP (Google Authenticator)
+  SMS_OTP     // SMS-based OTP (future)
+  EMAIL_OTP   // Email-based OTP (fallback)
+  HARDWARE    // Hardware keys like YubiKey (future)
+}
+
+/// PermissionCategory: Groups permissions for easier management
+enum PermissionCategory {
+  SYSTEM        // System-level operations (pause, resume)
+  USER          // User management (approve, freeze)
+  FINANCIAL     // Financial operations (treasury, transfers)
+  DEPLOYMENT    // Code deployment (devnet, testnet, mainnet)
+  AUDIT         // Audit log access
+  CONFIG        // Configuration management
+}
+
+/// RiskLevel: Used for determining MFA/approval requirements
+enum RiskLevel {
+  LOW           // No additional verification
+  MEDIUM        // MFA required
+  HIGH          // MFA + logging
+  CRITICAL      // MFA + approval workflow
+}
+
+/// ApprovalType: Types of actions requiring approval
+enum ApprovalType {
+  DEPLOYMENT_PROMOTION  // devnet->testnet, testnet->mainnet
+  USER_FREEZE           // Freezing user accounts
+  TREASURY_OPERATION    // Treasury activations, withdrawals
+  SYSTEM_PAUSE          // Pausing the system
+  CONFIG_CHANGE         // Changing system parameters
+  ADMIN_ROLE_CHANGE     // Promoting/demoting admins
+}
+
+/// AdminApprovalStatus: Status of approval requests (renamed to avoid conflict)
+enum AdminApprovalStatus {
+  PENDING       // Awaiting approval
+  APPROVED      // Approved by SUPER_OWNER
+  REJECTED      // Rejected with reason
+  EXPIRED       // Approval token expired
+  CANCELLED     // Cancelled by requester
+}
+
+/// AdminUser: Admin accounts with role-based permissions
+model AdminUser {
+  id                  String          @id @default(uuid())
+  email               String          @unique
+  username            String          @unique
+  displayName         String
+  passwordHash        String
+
+  // MFA Configuration
+  mfaEnabled          Boolean         @default(false)
+  mfaPrimaryMethod    MfaMethod?
+  totpSecret          String?         // Encrypted TOTP secret
+  mfaBackupCodes      String[]        // Encrypted backup codes
+
+  // Role & Permissions
+  role                AdminRole
+  customPermissions   String[]        // Additional permission codes
+
+  // Status
+  isActive            Boolean         @default(true)
+  lastLoginAt         DateTime?       @db.Timestamptz(3)
+  lastLoginIp         String?
+  loginFailedAttempts Int             @default(0)
+  lockedUntil         DateTime?       @db.Timestamptz(3)
+
+  // Security
+  passwordChangedAt   DateTime        @default(now()) @db.Timestamptz(3)
+  requirePasswordChange Boolean       @default(false)
+
+  // Audit
+  createdBy           String?         // AdminUser.id who created this
+  createdAt           DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
+  deletedAt           DateTime?       @db.Timestamptz(3)
+
+  // Relations
+  sessions            AdminSession[]
+  auditLogs           AdminAuditLog[]
+  approvalRequests    ApprovalRequest[] @relation("Requester")
+  approvalDecisions   ApprovalRequest[] @relation("Approver")
+
+  @@index([email])
+  @@index([username])
+  @@index([role])
+  @@index([isActive])
+}
+
+/// Permission: Granular permissions for role-based access
+model Permission {
+  id              String              @id @default(uuid())
+  code            String              @unique    // e.g., "deployment:promote:testnet"
+  name            String                         // Human-readable name
+  description     String?
+  category        PermissionCategory
+
+  // Risk assessment
+  riskLevel       RiskLevel           @default(LOW)
+  requiresMfa     Boolean             @default(false)
+  requiresApproval Boolean            @default(false)
+
+  // Audit
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  rolePermissions RolePermission[]
+
+  @@index([category])
+  @@index([riskLevel])
+}
+
+/// RolePermission: Maps permissions to roles (allows inheritance)
+model RolePermission {
+  id              String              @id @default(uuid())
+  role            AdminRole
+  permissionId    String
+
+  // Override defaults
+  canDelegate     Boolean             @default(false) // Can grant to others
+
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+
+  permission      Permission          @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([role, permissionId])
+  @@index([role])
+}
+
+/// ApprovalRequest: Workflow for critical operations requiring SUPER_OWNER approval
+model ApprovalRequest {
+  id                String              @id @default(uuid())
+  requestType       ApprovalType
+  requesterId       String              // AdminUser.id
+
+  // Request details
+  action            String              // e.g., "promote:testnet:mainnet"
+  targetResource    String?             // Resource being affected
+  payload           Json?               // Additional context
+  reason            String              // Why this action is needed
+
+  // Approval token (cryptographically secure, time-limited)
+  approvalToken     String?             @unique
+  tokenExpiresAt    DateTime?           @db.Timestamptz(3)
+
+  // Status tracking
+  status            AdminApprovalStatus @default(PENDING)
+  approverId        String?             // AdminUser.id of approver
+  approvedAt        DateTime?           @db.Timestamptz(3)
+  rejectedAt        DateTime?           @db.Timestamptz(3)
+  rejectionReason   String?
+
+  // Execution tracking
+  executedAt        DateTime?           @db.Timestamptz(3)
+  executionResult   Json?               // Result of the executed action
+
+  // Audit
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  requester         AdminUser           @relation("Requester", fields: [requesterId], references: [id])
+  approver          AdminUser?          @relation("Approver", fields: [approverId], references: [id])
+
+  @@index([requesterId])
+  @@index([approverId])
+  @@index([status])
+  @@index([requestType, status])
+  @@index([tokenExpiresAt])
+}
+
+/// AdminSession: Tracks admin login sessions with idle timeout
+model AdminSession {
+  id                String              @id @default(uuid())
+  adminId           String
+
+  // Token management
+  tokenHash         String              @unique  // SHA256 of JWT
+  refreshTokenHash  String?             @unique
+
+  // Session info
+  ipAddress         String
+  userAgent         String
+  deviceFingerprint String?
+
+  // Activity tracking (for idle timeout)
+  lastActivityAt    DateTime            @default(now()) @db.Timestamptz(3)
+  idleTimeoutMins   Int                 // 30 for ADMIN, 60 for SUPER_OWNER
+
+  // Session lifecycle
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
+  expiresAt         DateTime            @db.Timestamptz(3)
+  revokedAt         DateTime?           @db.Timestamptz(3)
+  revokeReason      String?
+
+  // MFA state for session
+  mfaVerifiedAt     DateTime?           @db.Timestamptz(3)
+
+  admin             AdminUser           @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([lastActivityAt])
+  @@index([expiresAt])
+}
+
+/// AdminAuditLog: Immutable audit trail for all admin actions
+model AdminAuditLog {
+  id                String              @id @default(uuid())
+  adminId           String
+
+  // Event details
+  action            String              // e.g., "user:approve", "deployment:promote"
+  category          PermissionCategory
+  resourceType      String?             // e.g., "UserProfile", "Deployment"
+  resourceId        String?
+
+  // Context
+  ipAddress         String
+  userAgent         String
+  sessionId         String?
+
+  // Data
+  previousValue     Json?               // Before state
+  newValue          Json?               // After state
+  metadata          Json?               // Additional context
+
+  // Request tracking
+  requestId         String?             // For tracing
+  approvalRequestId String?             // If action required approval
+
+  // Security - Tamper detection
+  eventHash         String              // SHA256(id + action + timestamp + previousHash)
+  previousHash      String?             // Chain to previous audit entry
+
+  // Timestamp
+  timestamp         DateTime            @default(now()) @db.Timestamptz(3)
+
+  admin             AdminUser           @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([action])
+  @@index([category])
+  @@index([resourceType, resourceId])
+  @@index([timestamp])
+  @@index([requestId])
+}
+
+/// RbacConfig: Global RBAC configuration settings
+model RbacConfig {
+  id                        String    @id @default("default")
+
+  // Session timeouts (in minutes)
+  adminIdleTimeoutMins      Int       @default(30)
+  superOwnerIdleTimeoutMins Int       @default(60)
+  maxSessionDurationHours   Int       @default(24)
+
+  // Approval settings
+  approvalTokenValidityMins Int       @default(30)    // 30 mins for banking ops
+  maxPendingApprovals       Int       @default(10)    // Per requester
+
+  // Password policy
+  minPasswordLength         Int       @default(12)
+  requireUppercase          Boolean   @default(true)
+  requireLowercase          Boolean   @default(true)
+  requireNumbers            Boolean   @default(true)
+  requireSpecialChars       Boolean   @default(true)
+  passwordExpiryDays        Int       @default(90)
+
+  // Lockout policy
+  maxLoginAttempts          Int       @default(5)
+  lockoutDurationMins       Int       @default(30)
+
+  // MFA settings
+  requireMfaForAllAdmins    Boolean   @default(false)
+  mfaTotpIssuer             String    @default("GXCoin Admin")
+
+  updatedAt                 DateTime  @updatedAt @db.Timestamptz(3)
+  updatedBy                 String?   // AdminUser.id
+}
