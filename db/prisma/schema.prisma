@@ -306,6 +306,13 @@ enum NotificationType {
   WALLET_DEBITED
   SYSTEM_ANNOUNCEMENT
   SECURITY_ALERT
+  // Admin approval workflow notifications
+  ADMIN_APPROVAL_REQUESTED
+  ADMIN_APPROVAL_APPROVED
+  ADMIN_APPROVAL_REJECTED
+  ADMIN_APPROVAL_CANCELLED
+  ADMIN_APPROVAL_EXPIRED
+  ADMIN_APPROVAL_EXECUTED
 }
 
 enum NotificationStatus {
@@ -1597,6 +1604,8 @@ model AdminUser {
   auditLogs           AdminAuditLog[]
   approvalRequests    ApprovalRequest[] @relation("Requester")
   approvalDecisions   ApprovalRequest[] @relation("Approver")
+  notifications       AdminNotification[]
+  webhooks            AdminWebhook[]
 
   @@index([email])
   @@index([username])
@@ -1719,6 +1728,110 @@ model AdminSession {
   @@index([adminId])
   @@index([lastActivityAt])
   @@index([expiresAt])
+}
+
+/// AdminNotification: Notifications for admin users
+model AdminNotification {
+  id              String              @id @default(uuid())
+  recipientId     String              // AdminUser.id
+  type            NotificationType
+
+  // Content
+  title           String
+  message         String
+
+  // Action context
+  actionUrl       String?             // Deep link within admin UI
+  resourceType    String?             // e.g., "ApprovalRequest"
+  resourceId      String?             // ID of related resource
+
+  // Status
+  status          NotificationStatus  @default(UNREAD)
+  readAt          DateTime?           @db.Timestamptz(3)
+
+  // Delivery tracking
+  sentViaEmail    Boolean             @default(false)
+  emailSentAt     DateTime?           @db.Timestamptz(3)
+  sentViaWebhook  Boolean             @default(false)
+  webhookSentAt   DateTime?           @db.Timestamptz(3)
+
+  // Timestamps
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  expiresAt       DateTime?           @db.Timestamptz(3)
+
+  // Relations
+  recipient       AdminUser           @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+/// AdminWebhook: Webhook endpoints for admin notifications
+model AdminWebhook {
+  id              String              @id @default(uuid())
+  name            String              // Display name
+  url             String              // Webhook endpoint URL
+  secret          String              // HMAC signing secret
+
+  // Event subscriptions (JSON array of event types)
+  events          String[]            // e.g., ["ADMIN_APPROVAL_REQUESTED", "ADMIN_APPROVAL_APPROVED"]
+
+  // Status
+  isActive        Boolean             @default(true)
+
+  // Metadata
+  createdById     String              // AdminUser.id who created this
+  headers         Json?               // Custom headers to include
+
+  // Health tracking
+  lastTriggeredAt DateTime?           @db.Timestamptz(3)
+  lastSuccessAt   DateTime?           @db.Timestamptz(3)
+  lastFailureAt   DateTime?           @db.Timestamptz(3)
+  failureCount    Int                 @default(0)
+
+  // Timestamps
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  createdBy       AdminUser           @relation(fields: [createdById], references: [id])
+  deliveries      WebhookDelivery[]
+
+  @@index([isActive])
+  @@index([createdById])
+}
+
+/// WebhookDelivery: Tracks individual webhook delivery attempts
+model WebhookDelivery {
+  id              String              @id @default(uuid())
+  webhookId       String
+
+  // Event data
+  eventType       String
+  payload         Json
+
+  // Delivery attempt
+  status          String              @default("PENDING") // PENDING, SUCCESS, FAILED
+  httpStatus      Int?
+  response        String?             @db.Text
+  error           String?
+
+  // Retry tracking
+  attempts        Int                 @default(0)
+  nextRetryAt     DateTime?           @db.Timestamptz(3)
+
+  // Timestamps
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  deliveredAt     DateTime?           @db.Timestamptz(3)
+
+  // Relations
+  webhook         AdminWebhook        @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([status])
+  @@index([nextRetryAt])
 }
 
 /// AdminAuditLog: Immutable audit trail for all admin actions
