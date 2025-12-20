@@ -5,6 +5,7 @@ import { logger } from '@gx/core-logger';
 import { errorHandler, requestLogger, metricsMiddleware } from '@gx/core-http';
 import { adminConfig } from './config';
 import adminRoutes from './routes/admin.routes';
+import adminAuthRoutes from './routes/admin-auth.routes';
 import healthRoutes from './routes/health.routes';
 
 export function createApp(): Application {
@@ -16,6 +17,7 @@ export function createApp(): Application {
   app.use(requestLogger);
   app.use(metricsMiddleware);
   app.use('/', healthRoutes);
+  app.use('/api/v1/admin/auth', adminAuthRoutes);
   app.use('/api/v1/admin', adminRoutes);
   app.use((req, res) => {
     res.status(404).json({ error: 'Not Found', message: `Route ${req.method} ${req.path} not found`, path: req.path });
