@@ -9,6 +9,15 @@ const configSchema = z.object({
   jwtSecret: z.string().min(32),
   logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   projectionLagThresholdMs: z.coerce.number().default(5000),
+  // Email configuration
+  resendApiKey: z.string().optional(),
+  emailEnabled: z.boolean().default(false),
+  emailFromAddress: z.string().email().default('noreply@gxcoin.money'),
+  emailFromName: z.string().default('GX Coin Admin'),
+  adminDashboardUrl: z.string().url().default('https://admin.gxcoin.money'),
+  // Webhook configuration
+  webhookTimeoutMs: z.coerce.number().default(10000),
+  webhookMaxRetries: z.coerce.number().default(3),
 });
 
 export type AdminConfig = z.infer<typeof configSchema>;
@@ -21,4 +30,13 @@ export const adminConfig: AdminConfig = configSchema.parse({
   jwtSecret: dotenvConfig.JWT_SECRET || process.env.JWT_SECRET,
   logLevel: dotenvConfig.LOG_LEVEL || process.env.LOG_LEVEL || 'info',
   projectionLagThresholdMs: Number(process.env.PROJECTION_LAG_THRESHOLD_MS) || 5000,
+  // Email configuration
+  resendApiKey: process.env.RESEND_API_KEY,
+  emailEnabled: process.env.EMAIL_ENABLED === 'true',
+  emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'noreply@gxcoin.money',
+  emailFromName: process.env.EMAIL_FROM_NAME || 'GX Coin Admin',
+  adminDashboardUrl: process.env.ADMIN_DASHBOARD_URL || 'https://admin.gxcoin.money',
+  // Webhook configuration
+  webhookTimeoutMs: Number(process.env.WEBHOOK_TIMEOUT_MS) || 10000,
+  webhookMaxRetries: Number(process.env.WEBHOOK_MAX_RETRIES) || 3,
 });
