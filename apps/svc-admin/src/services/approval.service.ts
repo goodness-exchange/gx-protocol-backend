@@ -13,8 +13,8 @@ import {
   ApprovalExecutionResult,
   ApprovalErrorCode,
 } from '../types/approval.types';
-// Config imported for potential future use
-// import { adminConfig } from '../config';
+import { notificationService } from './notification.service';
+import type { ApprovalNotificationData } from '../types/notification.types';
 
 // ============================================================================
 // Type Definitions for Prisma Results
@@ -124,6 +124,37 @@ class ApprovalService {
       requestType: data.requestType,
       action: data.action,
     });
+
+    // Get requester email for notification
+    const requesterWithEmail = await db.adminUser.findUnique({
+      where: { id: requesterId },
+      select: { id: true, email: true, username: true, displayName: true, role: true },
+    });
+
+    // Send notifications
+    if (requesterWithEmail) {
+      const notificationData: ApprovalNotificationData = {
+        approvalId: approval.id,
+        requestType: data.requestType,
+        action: data.action,
+        reason: data.reason,
+        requester: {
+          id: requesterWithEmail.id,
+          username: requesterWithEmail.username,
+          displayName: requesterWithEmail.displayName,
+          email: requesterWithEmail.email,
+          role: requesterWithEmail.role,
+        },
+        targetResource: data.targetResource,
+        payload: data.payload,
+        tokenExpiresAt: tokenExpiresAt,
+      };
+
+      // Fire and forget - don't block on notification delivery
+      notificationService.notifyApprovalCreated(notificationData).catch((err) => {
+        logger.error({ error: err, approvalId: approval.id }, 'Failed to send approval created notification');
+      });
+    }
 
     logger.info({ approvalId: approval.id }, 'Approval request created');
 
@@ -356,6 +387,52 @@ class ApprovalService {
       reason: vote.reason,
     });
 
+    // Get full user details for notification
+    const [requesterWithEmail, approverWithEmail] = await Promise.all([
+      db.adminUser.findUnique({
+        where: { id: approval.requesterId },
+        select: { id: true, email: true, username: true, displayName: true, role: true },
+      }),
+      db.adminUser.findUnique({
+        where: { id: approverId },
+        select: { id: true, email: true, username: true, displayName: true, role: true },
+      }),
+    ]);
+
+    // Send notifications
+    if (requesterWithEmail && approverWithEmail) {
+      const notificationData: ApprovalNotificationData = {
+        approvalId: approval.id,
+        requestType: approval.requestType,
+        action: approval.action,
+        reason: approval.reason,
+        requester: {
+          id: requesterWithEmail.id,
+          username: requesterWithEmail.username,
+          displayName: requesterWithEmail.displayName,
+          email: requesterWithEmail.email,
+          role: requesterWithEmail.role,
+        },
+        approver: {
+          id: approverWithEmail.id,
+          username: approverWithEmail.username,
+          displayName: approverWithEmail.displayName,
+          email: approverWithEmail.email,
+          role: approverWithEmail.role,
+        },
+        rejectionReason: vote.reason,
+      };
+
+      // Fire and forget - don't block on notification delivery
+      const notifyPromise = vote.decision === 'APPROVE'
+        ? notificationService.notifyApprovalApproved(notificationData)
+        : notificationService.notifyApprovalRejected(notificationData);
+
+      notifyPromise.catch((err) => {
+        logger.error({ error: err, approvalId }, `Failed to send approval ${vote.decision.toLowerCase()} notification`);
+      });
+    }
+
     logger.info(
       { approvalId, approverId, decision: vote.decision },
       `Approval request ${vote.decision.toLowerCase()}d`
@@ -408,6 +485,33 @@ class ApprovalService {
       requestType: approval.requestType,
       action: approval.action,
     });
+
+    // Get requester for notification
+    const requesterWithEmail = await db.adminUser.findUnique({
+      where: { id: requesterId },
+      select: { id: true, email: true, username: true, displayName: true, role: true },
+    });
+
+    // Send notification
+    if (requesterWithEmail) {
+      const notificationData: ApprovalNotificationData = {
+        approvalId: approval.id,
+        requestType: approval.requestType,
+        action: approval.action,
+        reason: approval.reason,
+        requester: {
+          id: requesterWithEmail.id,
+          username: requesterWithEmail.username,
+          displayName: requesterWithEmail.displayName,
+          email: requesterWithEmail.email,
+          role: requesterWithEmail.role,
+        },
+      };
+
+      notificationService.notifyApprovalCancelled(notificationData).catch((err) => {
+        logger.error({ error: err, approvalId }, 'Failed to send approval cancelled notification');
+      });
+    }
 
     logger.info({ approvalId }, 'Approval request cancelled');
   }
@@ -522,6 +626,33 @@ class ApprovalService {
       action: approval.action,
       success: result.success,
     });
+
+    // Get requester for notification
+    const requesterWithEmail = await db.adminUser.findUnique({
+      where: { id: approval.requesterId },
+      select: { id: true, email: true, username: true, displayName: true, role: true },
+    });
+
+    // Send notification
+    if (requesterWithEmail && result.success) {
+      const notificationData: ApprovalNotificationData = {
+        approvalId: approval.id,
+        requestType: approval.requestType,
+        action: approval.action,
+        reason: approval.reason,
+        requester: {
+          id: requesterWithEmail.id,
+          username: requesterWithEmail.username,
+          displayName: requesterWithEmail.displayName,
+          email: requesterWithEmail.email,
+          role: requesterWithEmail.role,
+        },
+      };
+
+      notificationService.notifyApprovalExecuted(notificationData).catch((err) => {
+        logger.error({ error: err, approvalId }, 'Failed to send approval executed notification');
+      });
+    }
 
     logger.info({ approvalId, success: result.success }, 'Approval action executed');
 
