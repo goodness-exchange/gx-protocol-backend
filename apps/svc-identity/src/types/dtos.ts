@@ -277,3 +277,81 @@ export interface RelationshipsResponseDTO {
   pendingInvites: RelationshipDTO[];
   trustScore: TrustScoreDTO | null;
 }
+
+// ============================================
+// Q Send (QR Payment Request) DTOs
+// ============================================
+
+export type QSendStatus = 'ACTIVE' | 'PAID' | 'EXPIRED' | 'CANCELLED';
+
+export interface CreateQSendRequestDTO {
+  amount: number;
+  description?: string;
+  reference?: string;
+  validitySeconds?: number;  // Default 300 (5 minutes)
+}
+
+export interface QSendRequestDTO {
+  id: string;
+  requestCode: string;
+  qrData: string;          // Base64 encoded QR payload
+  amount: number;
+  description: string | null;
+  reference: string | null;
+  status: QSendStatus;
+  createdAt: Date;
+  expiresAt: Date;
+  validitySeconds: number;
+  remainingSeconds: number; // Calculated field
+  // Creator info
+  creatorProfileId: string;
+  creatorName: string;
+  creatorFabricId: string;
+  // Payer info (when paid)
+  payerProfileId: string | null;
+  payerName: string | null;
+  paidAt: Date | null;
+  onChainTxId: string | null;
+}
+
+export interface QSendPayRequestDTO {
+  requestCode: string;     // The QS-XXXXXXXX code from QR
+}
+
+export interface QSendPayResponseDTO {
+  status: 'pending' | 'confirmed' | 'failed';
+  commandId: string;
+  message: string;
+  request: QSendRequestDTO;
+}
+
+export interface QSendVerifyRequestDTO {
+  qrData: string;          // The scanned QR data
+}
+
+export interface QSendVerifyResponseDTO {
+  valid: boolean;
+  request: QSendRequestDTO | null;
+  error?: string;
+}
+
+export interface QSendDashboardDTO {
+  stats: {
+    totalRequests: number;
+    activeRequests: number;
+    paidRequests: number;
+    expiredRequests: number;
+    cancelledRequests: number;
+    totalAmountRequested: number;
+    totalAmountReceived: number;
+  };
+  recentRequests: QSendRequestDTO[];
+}
+
+export interface QSendListQueryDTO {
+  status?: QSendStatus;
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+  offset?: number;
+}

@@ -80,6 +80,9 @@ enum CommandType {
 
   // TaxAndFeeContract
   APPLY_VELOCITY_TAX
+
+  // Q Send Commands
+  Q_SEND_PAY           // Pay a Q Send payment request
 }
 
 enum UserProfileStatus {
@@ -313,6 +316,12 @@ enum NotificationType {
   ADMIN_APPROVAL_CANCELLED
   ADMIN_APPROVAL_EXPIRED
   ADMIN_APPROVAL_EXECUTED
+
+  // Q Send notifications
+  QSEND_REQUEST_CREATED     // Notification when someone creates a request for you
+  QSEND_PAYMENT_RECEIVED    // Creator notified when payment is received
+  QSEND_PAYMENT_SENT        // Payer notified when payment is completed
+  QSEND_REQUEST_EXPIRED     // Creator notified when request expires unpaid
 }
 
 enum NotificationStatus {
@@ -540,6 +549,10 @@ model UserProfile {
 
   // NEW: Transaction Limits
   transactionLimits TransactionLimit[]
+
+  // Q Send: QR-based payment requests
+  qsendCreated  QSendRequest[] @relation("QSendCreator")  // Payment requests I created
+  qsendPaid     QSendRequest[] @relation("QSendPayer")    // Payment requests I paid
 
   // Relations to Country
   nationalityCountry Country? @relation(fields: [nationalityCountryCode], references: [countryCode])
@@ -1907,4 +1920,110 @@ model RbacConfig {
 
   updatedAt                 DateTime  @updatedAt @db.Timestamptz(3)
   updatedBy                 String?   // AdminUser.id
+}
+
+// =============================================================================
+// SECTION 16: Q SEND - QR-BASED PAYMENT REQUEST SYSTEM
+// Dynamic payment requests with 5-minute validity (OTP-like)
+// =============================================================================
+
+/// QSendStatus: Lifecycle states for Q Send payment requests
+enum QSendStatus {
+  ACTIVE          // QR code is valid and awaiting payment
+  PAID            // Payment has been completed
+  EXPIRED         // 5-minute validity period has passed
+  CANCELLED       // Request was cancelled by the creator
+}
+
+/// QSendRequest: Dynamic QR-based payment request
+/// Creator generates a request, shares QR code, and payer scans to pay
+model QSendRequest {
+  id                String          @id @default(uuid())
+  tenantId          String
+
+  // Request Identification
+  requestCode       String          @unique  // Short unique code (e.g., "QS-A1B2C3D4")
+  qrData            String          // Encoded QR payload (JSON with all request details)
+  qrHash            String          // SHA256 of qrData for integrity verification
+
+  // Creator (who wants to receive payment)
+  creatorProfileId  String          // UserProfile.id of requester
+  creatorWalletId   String          // Wallet to receive funds
+
+  // Payment Details
+  amount            Decimal         @db.Decimal(36, 9)  // Fixed amount in GX Coins
+  description       String?         // Purpose/reason for payment (max 200 chars)
+  reference         String?         // Optional external reference (invoice #, order #)
+
+  // Validity Period (OTP-like 5-minute window)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  expiresAt         DateTime        @db.Timestamptz(3)  // createdAt + 5 minutes
+  validitySeconds   Int             @default(300)       // Default 5 mins (300 seconds)
+
+  // Status Tracking
+  status            QSendStatus     @default(ACTIVE)
+  statusChangedAt   DateTime?       @db.Timestamptz(3)
+
+  // Payer Information (filled when scanned/paid)
+  payerProfileId    String?         // UserProfile.id of payer (set when paid)
+  payerWalletId     String?         // Wallet used for payment
+
+  // Payment Completion
+  paidAt            DateTime?       @db.Timestamptz(3)
+  outboxCommandId   String?         // Reference to OutboxCommand for the transfer
+  onChainTxId       String?         // Fabric transaction ID
+
+  // Receipt/Acknowledgement
+  receiptSentAt     DateTime?       @db.Timestamptz(3)  // When receipt was sent to payer
+  receiptData       Json?           // Receipt details (amount, time, parties, etc.)
+
+  // Metadata
+  ipAddress         String?         // IP where QR was generated
+  userAgent         String?         // Device/browser info
+  scannedCount      Int             @default(0)  // Number of times QR was scanned
+  lastScannedAt     DateTime?       @db.Timestamptz(3)
+
+  // Relations
+  creator           UserProfile     @relation("QSendCreator", fields: [creatorProfileId], references: [profileId], onDelete: Cascade)
+  payer             UserProfile?    @relation("QSendPayer", fields: [payerProfileId], references: [profileId], onDelete: SetNull)
+
+  @@index([tenantId, creatorProfileId])
+  @@index([tenantId, status])
+  @@index([tenantId, expiresAt])
+  @@index([requestCode])
+  @@index([qrHash])
+  @@index([createdAt])
+  @@index([status, expiresAt])
+}
+
+/// QSendDashboardView: Aggregated statistics for Q Send dashboard
+/// This is a materialized view pattern - updated periodically or on-demand
+model QSendStats {
+  id                String          @id @default(uuid())
+  tenantId          String
+  profileId         String          // UserProfile.id
+
+  // Period (for historical tracking)
+  periodStart       DateTime        @db.Date
+  periodEnd         DateTime        @db.Date
+  periodType        String          // "daily", "weekly", "monthly", "all_time"
+
+  // Request Statistics
+  totalRequests     Int             @default(0)
+  activeRequests    Int             @default(0)
+  paidRequests      Int             @default(0)
+  expiredRequests   Int             @default(0)
+  cancelledRequests Int             @default(0)
+
+  // Payment Statistics
+  totalAmountRequested  Decimal     @default(0) @db.Decimal(36, 9)
+  totalAmountReceived   Decimal     @default(0) @db.Decimal(36, 9)
+  avgPaymentTime        Int?        // Average seconds from creation to payment
+
+  // Timestamps
+  calculatedAt      DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, profileId, periodType, periodStart])
+  @@index([tenantId, profileId])
+  @@index([periodType])
 }
