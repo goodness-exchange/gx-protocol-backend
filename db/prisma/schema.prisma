@@ -554,6 +554,15 @@ model UserProfile {
   qsendCreated  QSendRequest[] @relation("QSendCreator")  // Payment requests I created
   qsendPaid     QSendRequest[] @relation("QSendPayer")    // Payment requests I paid
 
+  // Phase 1: Enhanced wallet features
+  accountContexts     AccountContext[]
+  transactionCategories TransactionCategory[]
+  contactGroups       ContactGroup[]
+  coinRequestsSent    CoinRequest[] @relation("CoinRequester")
+  coinRequestsReceived CoinRequest[] @relation("CoinRequestee")
+  dailyAnalytics      DailyAnalytics[]
+  monthlyAnalytics    MonthlyAnalytics[]
+
   // Relations to Country
   nationalityCountry Country? @relation(fields: [nationalityCountryCode], references: [countryCode])
 
@@ -753,6 +762,13 @@ model Wallet {
   // NEW: Hoarding Tax
   hoardingTaxSnapshots HoardingTaxSnapshot[]
 
+  // Phase 1: Enhanced wallet features
+  subAccounts       SubAccount[]
+  allocationRules   AllocationRule[]
+  budgetPeriods     BudgetPeriod[]
+  dailyAnalytics    DailyAnalytics[]
+  monthlyAnalytics  MonthlyAnalytics[]
+
   @@unique([tenantId, primaryAccountId])
   @@index([tenantId, profileId])
   @@index([tenantId, deletedAt])
@@ -775,6 +791,11 @@ model Transaction {
 
   // NEW: Risk Scoring
   riskScore TransactionRiskScore?
+
+  // Phase 1: Enhanced transaction features
+  tags              TransactionTag[]
+  receipt           TransactionReceipt?
+  subAccountTransactions SubAccountTransaction[]
 
   @@unique([tenantId, onChainTxId])
   @@index([tenantId, walletId, timestamp])
@@ -821,6 +842,9 @@ model Contact {
   owner          UserProfile  @relation("OwnedContacts", fields: [ownerProfileId], references: [profileId], onDelete: Cascade)
   contactProfile UserProfile? @relation("ContactedBy", fields: [contactProfileId], references: [profileId], onDelete: SetNull)
 
+  // Phase 1: Contact groups
+  groupMemberships ContactGroupMember[]
+
   @@unique([tenantId, ownerProfileId, contactProfileId])
   @@index([tenantId, ownerProfileId])
   @@index([tenantId, status])
@@ -847,6 +871,9 @@ model BusinessAccount {
   signatories      BusinessSignatory[]
   signatoryRules   SignatoryRule[]
   pendingApprovals TransactionApproval[]
+
+  // Phase 1: Context switching
+  accountContexts  AccountContext[]
 
   @@unique([tenantId, orgProfileId])
   @@index([tenantId])
@@ -2026,4 +2053,623 @@ model QSendStats {
   @@unique([tenantId, profileId, periodType, periodStart])
   @@index([tenantId, profileId])
   @@index([periodType])
+}
+
+// =============================================================================
+// SECTION 17: PHASE 1 - WALLET ENHANCEMENT FEATURES
+// Context Switching, Sub-Accounts, Categories, Receipts, Contact Groups, Analytics
+// =============================================================================
+
+/// ContextType: Distinguishes between personal and business wallet contexts
+enum ContextType {
+  PERSONAL
+  BUSINESS
+}
+
+/// AccountContext: Enables SSO switching between personal and business wallets
+/// Users can have one personal context and multiple business contexts
+model AccountContext {
+  id              String          @id @default(uuid())
+  tenantId        String
+  profileId       String          // UserProfile.id
+
+  // Context identification
+  type            ContextType
+  businessAccountId String?       // null for PERSONAL, BusinessAccount.id for BUSINESS
+  name            String          // Display name: "Personal Wallet" or business name
+  icon            String?         // Custom icon identifier
+
+  // State
+  isDefault       Boolean         @default(false)
+  isActive        Boolean         @default(true)
+  lastAccessedAt  DateTime?       @db.Timestamptz(3)
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  userProfile     UserProfile     @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  businessAccount BusinessAccount? @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+
+  @@unique([tenantId, profileId, type, businessAccountId])
+  @@index([tenantId, profileId])
+  @@index([tenantId, profileId, isDefault])
+}
+
+/// SubAccountType: Types of sub-accounts for budgeting
+enum SubAccountType {
+  // Personal sub-accounts
+  SAVINGS
+  EMERGENCY_FUND
+  MORTGAGE
+  RENT
+  UTILITIES
+  GROCERIES
+  ENTERTAINMENT
+  HEALTHCARE
+  EDUCATION
+  VACATION
+  CUSTOM_PERSONAL
+
+  // Business sub-accounts
+  PAYROLL
+  OPERATING_EXPENSES
+  TAX_RESERVE
+  MARKETING
+  EQUIPMENT
+  INVENTORY
+  DEPARTMENT
+  PROJECT
+  CUSTOM_BUSINESS
+}
+
+/// SubAccount: Virtual divisions of a wallet for budgeting
+/// Balances are tracked off-chain while main wallet holds actual funds on blockchain
+model SubAccount {
+  id              String          @id @default(uuid())
+  tenantId        String
+  walletId        String          // Parent wallet
+  contextId       String?         // Optional link to AccountContext
+
+  // Display
+  name            String
+  description     String?
+  type            SubAccountType
+  icon            String?
+  color           String?         // Hex color code
+
+  // Balance tracking (virtual, not on-chain)
+  currentBalance  Decimal         @default(0) @db.Decimal(36, 9)
+  reservedBalance Decimal         @default(0) @db.Decimal(36, 9)  // Pending allocations
+
+  // Budget configuration
+  monthlyBudget   Decimal?        @db.Decimal(36, 9)
+  monthlySpent    Decimal         @default(0) @db.Decimal(36, 9)
+  monthlyResetDay Int             @default(1)  // 1-28
+
+  // Goal tracking
+  goalAmount      Decimal?        @db.Decimal(36, 9)
+  goalDeadline    DateTime?       @db.Timestamptz(3)
+  goalName        String?
+
+  // State
+  isActive        Boolean         @default(true)
+  sortOrder       Int             @default(0)
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  wallet          Wallet          @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
+  allocations     AllocationRule[]
+  transactions    SubAccountTransaction[]
+  budgetPeriods   BudgetPeriod[]
+
+  @@unique([tenantId, walletId, name])
+  @@index([tenantId, walletId])
+  @@index([tenantId, walletId, isActive])
+}
+
+/// AllocationRuleType: How allocation amounts are calculated
+enum AllocationRuleType {
+  PERCENTAGE      // Percentage of incoming amount
+  FIXED_AMOUNT    // Fixed amount per trigger
+  REMAINDER       // Whatever is left after other rules
+}
+
+/// AllocationTrigger: When allocations should execute
+enum AllocationTrigger {
+  ON_RECEIVE      // When wallet receives funds
+  ON_SCHEDULE     // Scheduled (daily/weekly/monthly)
+  MANUAL          // Manual trigger only
+}
+
+/// AllocationFrequency: Frequency for scheduled allocations
+enum AllocationFrequency {
+  DAILY
+  WEEKLY
+  BI_WEEKLY
+  MONTHLY
+  QUARTERLY
+}
+
+/// AllocationRule: Automatic fund distribution to sub-accounts
+model AllocationRule {
+  id              String              @id @default(uuid())
+  tenantId        String
+  walletId        String
+  subAccountId    String
+
+  // Rule name
+  name            String
+  description     String?
+
+  // Rule configuration
+  ruleType        AllocationRuleType
+  percentage      Decimal?            @db.Decimal(5, 2)  // For PERCENTAGE type (0-100)
+  fixedAmount     Decimal?            @db.Decimal(36, 9) // For FIXED_AMOUNT type
+
+  // Trigger configuration
+  triggerType     AllocationTrigger
+  minTriggerAmount Decimal?           @db.Decimal(36, 9) // Minimum amount to trigger
+
+  // Scheduling (for ON_SCHEDULE trigger)
+  frequency       AllocationFrequency?
+  dayOfMonth      Int?                // 1-28 for monthly
+  dayOfWeek       Int?                // 0-6 for weekly (0=Sunday)
+  nextScheduledAt DateTime?           @db.Timestamptz(3)
+  lastExecutedAt  DateTime?           @db.Timestamptz(3)
+
+  // State
+  isActive        Boolean             @default(true)
+  priority        Int                 @default(0)  // Higher priority executes first
+
+  // Timestamps
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  wallet          Wallet              @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
+  subAccount      SubAccount          @relation(fields: [subAccountId], references: [id], onDelete: Cascade)
+  executions      AllocationExecution[]
+
+  @@unique([tenantId, walletId, name])
+  @@index([tenantId, walletId])
+  @@index([tenantId, isActive])
+  @@index([triggerType, isActive])
+  @@index([nextScheduledAt])
+}
+
+/// AllocationExecution: Log of allocation rule executions
+model AllocationExecution {
+  id              String          @id @default(uuid())
+  tenantId        String
+  ruleId          String
+  subAccountId    String
+
+  // Execution details
+  amount          Decimal         @db.Decimal(36, 9)
+  triggerAmount   Decimal?        @db.Decimal(36, 9)  // Amount that triggered allocation
+  triggeredBy     String?         // "ON_RECEIVE", "SCHEDULED", "MANUAL"
+
+  // Source transaction (for ON_RECEIVE)
+  sourceTransactionId String?
+
+  // Status
+  status          String          @default("COMPLETED")  // COMPLETED, FAILED, REVERSED
+  errorMessage    String?
+
+  // Timestamps
+  executedAt      DateTime        @default(now()) @db.Timestamptz(3)
+
+  // Relations
+  rule            AllocationRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ruleId])
+  @@index([tenantId, subAccountId])
+  @@index([executedAt])
+}
+
+/// SubAccountTxType: Types of sub-account transactions
+enum SubAccountTxType {
+  ALLOCATION       // Auto or manual allocation from main wallet
+  TRANSFER_IN      // Transfer from another sub-account
+  TRANSFER_OUT     // Transfer to another sub-account
+  SPEND            // Payment from sub-account
+  RETURN_TO_MAIN   // Return funds to main wallet
+  ADJUSTMENT       // Manual adjustment
+}
+
+/// SubAccountTransaction: Tracks movements within sub-accounts
+model SubAccountTransaction {
+  id              String          @id @default(uuid())
+  tenantId        String
+  subAccountId    String
+  mainTransactionId String?       // Link to main Transaction if applicable
+
+  // Transaction details
+  type            SubAccountTxType
+  amount          Decimal         @db.Decimal(36, 9)
+  balanceBefore   Decimal         @db.Decimal(36, 9)
+  balanceAfter    Decimal         @db.Decimal(36, 9)
+
+  // For transfers between sub-accounts
+  counterpartSubAccountId String?
+  isCredit        Boolean         // true = money in, false = money out
+
+  // Description
+  description     String?
+  reference       String?
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+
+  // Relations
+  subAccount      SubAccount      @relation(fields: [subAccountId], references: [id], onDelete: Cascade)
+  mainTransaction Transaction?    @relation(fields: [mainTransactionId], references: [offTxId], onDelete: SetNull)
+
+  @@index([tenantId, subAccountId])
+  @@index([tenantId, subAccountId, createdAt])
+  @@index([mainTransactionId])
+}
+
+/// BudgetPeriodType: Types of budget periods
+enum BudgetPeriodType {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  CUSTOM
+}
+
+/// BudgetStatus: Status of a budget period
+enum BudgetStatus {
+  ON_TRACK         // Spending within limits
+  WARNING          // Above alert threshold
+  EXCEEDED         // Over budget
+  COMPLETED        // Period ended
+}
+
+/// BudgetPeriod: Tracks budget performance over a period
+model BudgetPeriod {
+  id              String          @id @default(uuid())
+  tenantId        String
+  walletId        String
+  subAccountId    String?         // null for overall wallet budget
+
+  // Period definition
+  periodType      BudgetPeriodType
+  startDate       DateTime        @db.Timestamptz(3)
+  endDate         DateTime        @db.Timestamptz(3)
+
+  // Budget amounts
+  budgetAmount    Decimal         @db.Decimal(36, 9)
+  spentAmount     Decimal         @default(0) @db.Decimal(36, 9)
+  remainingAmount Decimal         @db.Decimal(36, 9)
+
+  // Status
+  status          BudgetStatus    @default(ON_TRACK)
+  alertThreshold  Decimal         @default(80) @db.Decimal(5, 2)  // Percentage
+  alertSent       Boolean         @default(false)
+  alertSentAt     DateTime?       @db.Timestamptz(3)
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  wallet          Wallet          @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
+  subAccount      SubAccount?     @relation(fields: [subAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, walletId, subAccountId, periodType, startDate])
+  @@index([tenantId, walletId])
+  @@index([tenantId, status])
+  @@index([endDate])
+}
+
+/// TransactionCategory: User-defined categories for transaction tagging
+model TransactionCategory {
+  id              String          @id @default(uuid())
+  tenantId        String
+  profileId       String          // Owner of this category
+
+  // Category details
+  name            String
+  description     String?
+  color           String          @default("#6366F1")  // Hex color
+  icon            String?         // Icon identifier
+
+  // Type
+  isSystem        Boolean         @default(false)  // System-defined (non-deletable)
+  isIncome        Boolean         @default(false)  // Income vs expense category
+
+  // State
+  isActive        Boolean         @default(true)
+  sortOrder       Int             @default(0)
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  userProfile     UserProfile     @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  tags            TransactionTag[]
+
+  @@unique([tenantId, profileId, name])
+  @@index([tenantId, profileId])
+  @@index([tenantId, profileId, isActive])
+}
+
+/// TransactionTag: Links transactions to categories
+model TransactionTag {
+  id              String              @id @default(uuid())
+  tenantId        String
+  transactionId   String
+  categoryId      String
+
+  // Optional notes
+  notes           String?
+
+  // Timestamps
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+
+  // Relations
+  transaction     Transaction         @relation(fields: [transactionId], references: [offTxId], onDelete: Cascade)
+  category        TransactionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, transactionId, categoryId])
+  @@index([tenantId, transactionId])
+  @@index([tenantId, categoryId])
+}
+
+/// TransactionReceipt: Downloadable receipts for transactions
+model TransactionReceipt {
+  id              String          @id @default(uuid())
+  tenantId        String
+  transactionId   String          @unique
+
+  // Receipt identification
+  receiptNumber   String          @unique  // Format: RCP-YYYYMMDD-XXXXX
+  receiptHash     String          // SHA256 for integrity
+
+  // Receipt data (snapshot at generation time)
+  data            Json            // Full transaction details
+
+  // File storage
+  pdfUrl          String?         // S3/storage URL
+  pdfGeneratedAt  DateTime?       @db.Timestamptz(3)
+
+  // Sharing
+  shareableLink   String?         @unique  // Short link for sharing
+  shareExpiresAt  DateTime?       @db.Timestamptz(3)
+  downloadCount   Int             @default(0)
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  transaction     Transaction     @relation(fields: [transactionId], references: [offTxId], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([receiptNumber])
+}
+
+/// ContactGroupType: Types of contact groups
+enum ContactGroupType {
+  FAMILY            // Auto-created from relationships
+  CLOSE_FRIENDS
+  PROFESSIONAL
+  CUSTOM
+}
+
+/// ContactGroup: Groups for organizing contacts
+model ContactGroup {
+  id              String          @id @default(uuid())
+  tenantId        String
+  profileId       String          // Owner
+
+  // Group details
+  name            String
+  description     String?
+  type            ContactGroupType
+  color           String?
+  icon            String?
+
+  // State
+  isSystem        Boolean         @default(false)  // Auto-created groups
+  sortOrder       Int             @default(0)
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  userProfile     UserProfile     @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  members         ContactGroupMember[]
+
+  @@unique([tenantId, profileId, name])
+  @@index([tenantId, profileId])
+  @@index([tenantId, profileId, type])
+}
+
+/// ContactGroupMember: Links contacts to groups
+model ContactGroupMember {
+  id              String          @id @default(uuid())
+  tenantId        String
+  groupId         String
+  contactId       String
+
+  // Timestamps
+  addedAt         DateTime        @default(now()) @db.Timestamptz(3)
+
+  // Relations
+  group           ContactGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  contact         Contact         @relation(fields: [contactId], references: [contactId], onDelete: Cascade)
+
+  @@unique([tenantId, groupId, contactId])
+  @@index([tenantId, groupId])
+  @@index([tenantId, contactId])
+}
+
+/// CoinRequestStatus: Status of coin request
+enum CoinRequestStatus {
+  PENDING
+  FULFILLED
+  EXPIRED
+  CANCELLED
+  DECLINED
+}
+
+/// CoinRequest: Request coins from another user (enhanced payment request)
+model CoinRequest {
+  id              String              @id @default(uuid())
+  tenantId        String
+
+  // Request identification
+  requestCode     String              @unique  // Short code: REQ-XXXXXX
+
+  // Parties
+  requesterId     String              // Who is asking for coins
+  requesterWalletId String
+  requesteeId     String?             // Specific person (null = open request)
+  requesteeEmail  String?             // Or by email
+  requesteePhone  String?             // Or by phone
+
+  // Request details
+  amount          Decimal             @db.Decimal(36, 9)
+  currency        String              @default("GXC")
+  reason          String?             // Why requesting
+  reference       String?             // External reference
+
+  // QR Code
+  qrData          String              // Encoded QR payload
+  qrHash          String              // Integrity hash
+
+  // Validity
+  expiresAt       DateTime            @db.Timestamptz(3)
+  validityHours   Int                 @default(24)
+
+  // Status
+  status          CoinRequestStatus   @default(PENDING)
+  statusChangedAt DateTime?           @db.Timestamptz(3)
+
+  // Fulfillment
+  fulfilledBy     String?             // Who paid
+  fulfilledAt     DateTime?           @db.Timestamptz(3)
+  transactionId   String?             // Resulting transaction
+
+  // Decline
+  declinedAt      DateTime?           @db.Timestamptz(3)
+  declineReason   String?
+
+  // Timestamps
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  requester       UserProfile         @relation("CoinRequester", fields: [requesterId], references: [profileId], onDelete: Cascade)
+  requestee       UserProfile?        @relation("CoinRequestee", fields: [requesteeId], references: [profileId], onDelete: SetNull)
+
+  @@index([tenantId, requesterId])
+  @@index([tenantId, requesteeId])
+  @@index([tenantId, status])
+  @@index([requestCode])
+  @@index([expiresAt])
+}
+
+/// DailyAnalytics: Daily aggregated analytics per wallet
+model DailyAnalytics {
+  id              String          @id @default(uuid())
+  tenantId        String
+  profileId       String
+  walletId        String
+
+  // Date
+  date            DateTime        @db.Date
+
+  // Transaction metrics
+  totalSent       Decimal         @default(0) @db.Decimal(36, 9)
+  totalReceived   Decimal         @default(0) @db.Decimal(36, 9)
+  netFlow         Decimal         @default(0) @db.Decimal(36, 9)
+  sendCount       Int             @default(0)
+  receiveCount    Int             @default(0)
+
+  // Fees
+  totalFees       Decimal         @default(0) @db.Decimal(36, 9)
+
+  // Balance snapshot
+  openingBalance  Decimal         @db.Decimal(36, 9)
+  closingBalance  Decimal         @db.Decimal(36, 9)
+
+  // Category breakdown (JSON for flexibility)
+  categoryBreakdown Json?         // { "categoryId": { "sent": 100, "received": 50 } }
+
+  // Sub-account summary
+  subAccountSummary Json?         // { "subAccountId": { "allocated": 100, "spent": 50 } }
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  userProfile     UserProfile     @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  wallet          Wallet          @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
+
+  @@unique([tenantId, profileId, walletId, date])
+  @@index([tenantId, profileId, date])
+  @@index([tenantId, walletId, date])
+}
+
+/// MonthlyAnalytics: Monthly aggregated analytics per wallet
+model MonthlyAnalytics {
+  id              String          @id @default(uuid())
+  tenantId        String
+  profileId       String
+  walletId        String
+
+  // Period
+  year            Int
+  month           Int             // 1-12
+
+  // Transaction metrics
+  totalSent       Decimal         @default(0) @db.Decimal(36, 9)
+  totalReceived   Decimal         @default(0) @db.Decimal(36, 9)
+  netFlow         Decimal         @default(0) @db.Decimal(36, 9)
+  sendCount       Int             @default(0)
+  receiveCount    Int             @default(0)
+
+  // Fees
+  totalFees       Decimal         @default(0) @db.Decimal(36, 9)
+
+  // Balance
+  avgDailyBalance Decimal         @default(0) @db.Decimal(36, 9)
+  minBalance      Decimal         @db.Decimal(36, 9)
+  maxBalance      Decimal         @db.Decimal(36, 9)
+
+  // Trends (compared to previous month)
+  sentTrend       Decimal?        @db.Decimal(10, 2)    // Percentage change
+  receiveTrend    Decimal?        @db.Decimal(10, 2)
+
+  // Breakdowns
+  categoryBreakdown Json?
+  subAccountSummary Json?
+
+  // Budget tracking
+  budgetAmount    Decimal?        @db.Decimal(36, 9)
+  budgetUsed      Decimal?        @db.Decimal(10, 2)    // Percentage
+
+  // Timestamps
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  userProfile     UserProfile     @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  wallet          Wallet          @relation(fields: [walletId], references: [walletId], onDelete: Cascade)
+
+  @@unique([tenantId, profileId, walletId, year, month])
+  @@index([tenantId, profileId, year, month])
+  @@index([tenantId, walletId, year, month])
 }
