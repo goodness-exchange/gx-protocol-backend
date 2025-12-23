@@ -249,6 +249,15 @@ enum SignatoryRole {
   AUTHORIZED_SIGNATORY
   ACCOUNTANT
   VIEWER
+  INITIATOR           // Can initiate but not approve
+  APPROVER            // Can approve transactions
+}
+
+/// EntityType: Types of organizational entities
+enum EntityType {
+  BUSINESS            // For-profit business
+  GOVERNMENT          // Government agency/department
+  NOT_FOR_PROFIT      // Non-profit organization/charity
 }
 
 enum ApprovalStatus {
@@ -567,6 +576,11 @@ model UserProfile {
   // Phase 3: Business & Enterprise Features
   employeeRecords     Employee[]
 
+  // Phase 4: Government & NPO Account Signatory Relations
+  governmentSignatories GovernmentSignatory[]
+  npoSignatories        NPOSignatory[]
+  npoDonations          NPODonation[]         // Donations made by this user
+
   // Relations to Country
   nationalityCountry Country? @relation(fields: [nationalityCountryCode], references: [countryCode])
 
@@ -660,6 +674,9 @@ model OrganizationProfile {
   address                 String?
   status                  OrgProfileStatus @default(PENDING_VERIFICATION)
 
+  // Phase 4: Entity type classification
+  entityType              EntityType       @default(BUSINESS)
+
   // Soft delete support
   deletedAt DateTime? @db.Timestamptz(3)
 
@@ -669,11 +686,14 @@ model OrganizationProfile {
   country   Country                @relation(fields: [jurisdictionCountryCode], references: [countryCode])
   userLinks UserOrganizationLink[]
 
-  // NEW: Business Account Support
-  businessAccounts BusinessAccount[]
+  // Entity Account Support (Business, Government, Not-for-Profit)
+  businessAccounts     BusinessAccount[]
+  governmentAccounts   GovernmentAccount[]
+  notForProfitAccounts NotForProfitAccount[]
 
   @@index([tenantId, status])
   @@index([tenantId, deletedAt])
+  @@index([tenantId, entityType])
 }
 
 // =============================================================================
@@ -762,6 +782,10 @@ model Wallet {
 
   // NEW: Business Account Support
   businessAccount BusinessAccount?
+
+  // Phase 4: Government & NPO Account Support
+  governmentAccount   GovernmentAccount?
+  notForProfitAccount NotForProfitAccount?
 
   // NEW: Hoarding Tax
   hoardingTaxSnapshots HoardingTaxSnapshot[]
@@ -2074,10 +2098,12 @@ model QSendStats {
 enum ContextType {
   PERSONAL
   BUSINESS
+  GOVERNMENT      // Government agency/department account
+  NOT_FOR_PROFIT  // Non-profit organization/charity account
 }
 
-/// AccountContext: Enables SSO switching between personal and business wallets
-/// Users can have one personal context and multiple business contexts
+/// AccountContext: Enables SSO switching between personal, business, government, and NPO wallets
+/// Users can have one personal context and multiple entity contexts (business, government, NPO)
 model AccountContext {
   id              String          @id @default(uuid())
   tenantId        String
@@ -2085,8 +2111,10 @@ model AccountContext {
 
   // Context identification
   type            ContextType
-  businessAccountId String?       // null for PERSONAL, BusinessAccount.id for BUSINESS
-  name            String          // Display name: "Personal Wallet" or business name
+  businessAccountId     String?   // For type=BUSINESS
+  governmentAccountId   String?   // For type=GOVERNMENT
+  npoAccountId          String?   // For type=NOT_FOR_PROFIT
+  name            String          // Display name: "Personal Wallet" or entity name
   icon            String?         // Custom icon identifier
 
   // State
@@ -2099,12 +2127,18 @@ model AccountContext {
   updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
 
   // Relations
-  userProfile     UserProfile     @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
-  businessAccount BusinessAccount? @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+  userProfile       UserProfile          @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  businessAccount   BusinessAccount?     @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+  governmentAccount GovernmentAccount?   @relation(fields: [governmentAccountId], references: [governmentAccountId], onDelete: Cascade)
+  npoAccount        NotForProfitAccount? @relation(fields: [npoAccountId], references: [npoAccountId], onDelete: Cascade)
 
-  @@unique([tenantId, profileId, type, businessAccountId])
+  // Unique constraint: One context per type per entity per user
+  // For PERSONAL: businessAccountId, governmentAccountId, npoAccountId are all null
+  // For others: exactly one of the IDs should be set
+  @@unique([tenantId, profileId, type, businessAccountId, governmentAccountId, npoAccountId])
   @@index([tenantId, profileId])
   @@index([tenantId, profileId, isDefault])
+  @@index([tenantId, type])
 }
 
 /// SubAccountType: Types of sub-accounts for budgeting
@@ -3045,4 +3079,395 @@ model BusinessReport {
   @@index([tenantId, businessAccountId])
   @@index([tenantId, businessAccountId, reportType])
   @@index([tenantId, businessAccountId, periodStart, periodEnd])
+}
+
+// =============================================================================
+// PHASE 4: GOVERNMENT & NOT-FOR-PROFIT ACCOUNTS
+// =============================================================================
+
+/// GovernmentAccount: Account for government agencies and departments
+model GovernmentAccount {
+  governmentAccountId String @id @default(uuid())
+  tenantId            String
+  orgProfileId        String // Links to OrganizationProfile with entityType=GOVERNMENT
+  walletId            String @unique
+
+  // Government-specific fields
+  departmentCode      String?          // Government department code
+  agencyLevel         GovernmentLevel  @default(LOCAL)
+  fiscalYearStart     Int              @default(1)  // Month (1-12)
+
+  // Multi-sig configuration
+  defaultRequiredApprovals Int @default(2) // Government typically requires more approvals
+
+  // Audit requirements
+  requiresAuditTrail  Boolean @default(true)
+  retentionYears      Int     @default(7)   // Document retention period
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  organization     OrganizationProfile     @relation(fields: [orgProfileId], references: [orgProfileId], onDelete: Cascade)
+  wallet           Wallet                  @relation(fields: [walletId], references: [walletId])
+  signatories      GovernmentSignatory[]
+  signatoryRules   GovernmentSignatoryRule[]
+  pendingApprovals GovernmentApproval[]
+  accountContexts  AccountContext[]
+  subAccounts      GovernmentSubAccount[]
+
+  @@unique([tenantId, orgProfileId])
+  @@index([tenantId])
+  @@index([tenantId, agencyLevel])
+}
+
+/// GovernmentLevel: Level of government agency
+enum GovernmentLevel {
+  FEDERAL
+  STATE
+  LOCAL
+  MUNICIPAL
+  SPECIAL_DISTRICT
+}
+
+/// GovernmentSignatory: Users who can act on government accounts
+model GovernmentSignatory {
+  signatoryId         String        @id @default(uuid())
+  tenantId            String
+  governmentAccountId String
+  profileId           String        // Must reference existing UserProfile (personal account)
+  role                SignatoryRole
+
+  // Permissions
+  canInitiateTransactions Boolean  @default(false)
+  canApproveTransactions  Boolean  @default(false)
+  maxTransactionLimit     Decimal? @db.Decimal(36, 9)
+
+  // Government-specific
+  positionTitle       String?       // Official position/title
+  employeeId          String?       // Government employee ID
+
+  // Status
+  invitedAt   DateTime  @default(now()) @db.Timestamptz(3)
+  confirmedAt DateTime? @db.Timestamptz(3)
+  revokedAt   DateTime? @db.Timestamptz(3)
+
+  governmentAccount GovernmentAccount @relation(fields: [governmentAccountId], references: [governmentAccountId], onDelete: Cascade)
+  userProfile       UserProfile       @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  approvalVotes     GovernmentApprovalVote[]
+
+  @@unique([tenantId, governmentAccountId, profileId])
+  @@index([tenantId, profileId])
+  @@index([tenantId, governmentAccountId])
+}
+
+/// GovernmentSignatoryRule: Approval rules for government accounts
+model GovernmentSignatoryRule {
+  ruleId              String @id @default(uuid())
+  tenantId            String
+  governmentAccountId String
+
+  // Rule definition
+  minAmount         Decimal? @db.Decimal(36, 9)
+  maxAmount         Decimal? @db.Decimal(36, 9)
+  requiredApprovals Int
+
+  // Optional constraints
+  transactionType OffChainTxType?
+  dailyLimit      Decimal?        @db.Decimal(36, 9)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  governmentAccount GovernmentAccount @relation(fields: [governmentAccountId], references: [governmentAccountId], onDelete: Cascade)
+
+  @@index([tenantId, governmentAccountId])
+  @@index([tenantId, isActive])
+}
+
+/// GovernmentApproval: Pending approvals for government transactions
+model GovernmentApproval {
+  approvalId          String @id @default(uuid())
+  tenantId            String
+  governmentAccountId String
+  outboxCommandId     String
+
+  requiredApprovals Int
+  receivedApprovals Int @default(0)
+
+  status    ApprovalStatus @default(PENDING)
+  expiresAt DateTime       @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  governmentAccount GovernmentAccount        @relation(fields: [governmentAccountId], references: [governmentAccountId], onDelete: Cascade)
+  votes             GovernmentApprovalVote[]
+
+  @@index([tenantId, governmentAccountId])
+  @@index([tenantId, status])
+}
+
+/// GovernmentApprovalVote: Individual votes on government approvals
+model GovernmentApprovalVote {
+  voteId      String @id @default(uuid())
+  tenantId    String
+  approvalId  String
+  signatoryId String
+
+  approved Boolean
+  remarks  String?
+  votedAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  approval  GovernmentApproval  @relation(fields: [approvalId], references: [approvalId], onDelete: Cascade)
+  signatory GovernmentSignatory @relation(fields: [signatoryId], references: [signatoryId], onDelete: Cascade)
+
+  @@unique([tenantId, approvalId, signatoryId])
+  @@index([tenantId, signatoryId])
+}
+
+/// GovernmentSubAccount: Budget allocations for government departments
+model GovernmentSubAccount {
+  id                  String @id @default(uuid())
+  tenantId            String
+  governmentAccountId String
+  name                String
+  description         String?
+  budgetCode          String?      // Government budget classification code
+
+  // Budget allocation
+  allocatedBudget   Decimal @db.Decimal(36, 9)
+  currentBalance    Decimal @default(0) @db.Decimal(36, 9)
+
+  // Fiscal period
+  fiscalYear        Int
+  fiscalPeriod      String?       // Q1, Q2, etc.
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  governmentAccount GovernmentAccount @relation(fields: [governmentAccountId], references: [governmentAccountId], onDelete: Cascade)
+
+  @@unique([tenantId, governmentAccountId, name, fiscalYear])
+  @@index([tenantId, governmentAccountId])
+}
+
+// =============================================================================
+// NOT-FOR-PROFIT ACCOUNTS
+// =============================================================================
+
+/// NotForProfitAccount: Account for non-profit organizations and charities
+model NotForProfitAccount {
+  npoAccountId String @id @default(uuid())
+  tenantId     String
+  orgProfileId String // Links to OrganizationProfile with entityType=NOT_FOR_PROFIT
+  walletId     String @unique
+
+  // NPO-specific fields
+  taxExemptStatus     String?           // e.g., "501(c)(3)"
+  taxExemptNumber     String?           // Tax exemption registration number
+  missionStatement    String?
+  category            NPOCategory       @default(OTHER)
+
+  // Compliance
+  annualReportDue     DateTime?         @db.Date
+  lastAuditDate       DateTime?         @db.Date
+
+  // Multi-sig configuration
+  defaultRequiredApprovals Int @default(2)
+
+  // Transparency requirements
+  publicDonorList     Boolean @default(false)
+  requiresDonorReceipts Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  organization     OrganizationProfile   @relation(fields: [orgProfileId], references: [orgProfileId], onDelete: Cascade)
+  wallet           Wallet                @relation(fields: [walletId], references: [walletId])
+  signatories      NPOSignatory[]
+  signatoryRules   NPOSignatoryRule[]
+  pendingApprovals NPOApproval[]
+  accountContexts  AccountContext[]
+  programs         NPOProgram[]
+  donations        NPODonation[]
+
+  @@unique([tenantId, orgProfileId])
+  @@index([tenantId])
+  @@index([tenantId, category])
+}
+
+/// NPOCategory: Categories of non-profit organizations
+enum NPOCategory {
+  CHARITY
+  EDUCATION
+  HEALTHCARE
+  ENVIRONMENTAL
+  RELIGIOUS
+  ARTS_CULTURE
+  HUMANITARIAN
+  COMMUNITY
+  RESEARCH
+  ADVOCACY
+  OTHER
+}
+
+/// NPOSignatory: Users who can act on NPO accounts
+model NPOSignatory {
+  signatoryId   String        @id @default(uuid())
+  tenantId      String
+  npoAccountId  String
+  profileId     String        // Must reference existing UserProfile (personal account)
+  role          SignatoryRole
+
+  // Permissions
+  canInitiateTransactions Boolean  @default(false)
+  canApproveTransactions  Boolean  @default(false)
+  maxTransactionLimit     Decimal? @db.Decimal(36, 9)
+
+  // NPO-specific
+  boardMember     Boolean @default(false)
+  volunteerStatus Boolean @default(false)
+
+  // Status
+  invitedAt   DateTime  @default(now()) @db.Timestamptz(3)
+  confirmedAt DateTime? @db.Timestamptz(3)
+  revokedAt   DateTime? @db.Timestamptz(3)
+
+  npoAccount    NotForProfitAccount @relation(fields: [npoAccountId], references: [npoAccountId], onDelete: Cascade)
+  userProfile   UserProfile         @relation(fields: [profileId], references: [profileId], onDelete: Cascade)
+  approvalVotes NPOApprovalVote[]
+
+  @@unique([tenantId, npoAccountId, profileId])
+  @@index([tenantId, profileId])
+  @@index([tenantId, npoAccountId])
+}
+
+/// NPOSignatoryRule: Approval rules for NPO accounts
+model NPOSignatoryRule {
+  ruleId       String @id @default(uuid())
+  tenantId     String
+  npoAccountId String
+
+  minAmount         Decimal? @db.Decimal(36, 9)
+  maxAmount         Decimal? @db.Decimal(36, 9)
+  requiredApprovals Int
+
+  transactionType OffChainTxType?
+  dailyLimit      Decimal?        @db.Decimal(36, 9)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  npoAccount NotForProfitAccount @relation(fields: [npoAccountId], references: [npoAccountId], onDelete: Cascade)
+
+  @@index([tenantId, npoAccountId])
+  @@index([tenantId, isActive])
+}
+
+/// NPOApproval: Pending approvals for NPO transactions
+model NPOApproval {
+  approvalId      String @id @default(uuid())
+  tenantId        String
+  npoAccountId    String
+  outboxCommandId String
+
+  requiredApprovals Int
+  receivedApprovals Int @default(0)
+
+  status    ApprovalStatus @default(PENDING)
+  expiresAt DateTime       @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  npoAccount NotForProfitAccount @relation(fields: [npoAccountId], references: [npoAccountId], onDelete: Cascade)
+  votes      NPOApprovalVote[]
+
+  @@index([tenantId, npoAccountId])
+  @@index([tenantId, status])
+}
+
+/// NPOApprovalVote: Individual votes on NPO approvals
+model NPOApprovalVote {
+  voteId      String @id @default(uuid())
+  tenantId    String
+  approvalId  String
+  signatoryId String
+
+  approved Boolean
+  remarks  String?
+  votedAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  approval  NPOApproval  @relation(fields: [approvalId], references: [approvalId], onDelete: Cascade)
+  signatory NPOSignatory @relation(fields: [signatoryId], references: [signatoryId], onDelete: Cascade)
+
+  @@unique([tenantId, approvalId, signatoryId])
+  @@index([tenantId, signatoryId])
+}
+
+/// NPOProgram: Programs/projects run by NPOs for fund allocation
+model NPOProgram {
+  programId    String @id @default(uuid())
+  tenantId     String
+  npoAccountId String
+  name         String
+  description  String?
+
+  // Budget
+  budgetAmount    Decimal  @db.Decimal(36, 9)
+  spentAmount     Decimal  @default(0) @db.Decimal(36, 9)
+  remainingAmount Decimal  @db.Decimal(36, 9)
+
+  // Timeline
+  startDate   DateTime  @db.Date
+  endDate     DateTime? @db.Date
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  npoAccount NotForProfitAccount @relation(fields: [npoAccountId], references: [npoAccountId], onDelete: Cascade)
+
+  @@unique([tenantId, npoAccountId, name])
+  @@index([tenantId, npoAccountId])
+}
+
+/// NPODonation: Track donations received by NPOs
+model NPODonation {
+  donationId   String @id @default(uuid())
+  tenantId     String
+  npoAccountId String
+
+  // Donor info (can be anonymous)
+  donorProfileId String?       // If donor has GX account
+  donorName      String?       // For external/anonymous donors
+  isAnonymous    Boolean       @default(false)
+
+  // Donation details
+  amount       Decimal  @db.Decimal(36, 9)
+  currency     String   @default("GXC")
+  transactionId String? // GX Transaction ID
+
+  // Tax receipt
+  receiptIssued   Boolean   @default(false)
+  receiptNumber   String?
+  receiptIssuedAt DateTime? @db.Timestamptz(3)
+
+  // Purpose
+  programId     String?       // If designated for specific program
+  designation   String?       // e.g., "General Fund", "Building Fund"
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  npoAccount   NotForProfitAccount @relation(fields: [npoAccountId], references: [npoAccountId], onDelete: Cascade)
+  donorProfile UserProfile?        @relation(fields: [donorProfileId], references: [profileId])
+
+  @@index([tenantId, npoAccountId])
+  @@index([tenantId, donorProfileId])
+  @@index([tenantId, createdAt])
 }
