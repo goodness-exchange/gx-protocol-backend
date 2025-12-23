@@ -16,9 +16,9 @@ import { logger } from '@gx/core-logger';
  * - timestamp: When the transaction occurred
  */
 
-// Transaction types that count as income
-const INCOME_TYPES = ['RECEIVED', 'MINT', 'GENESIS', 'TAX_REFUND', 'LOAN_DISBURSEMENT'];
-// Transaction types that count as expenses
+// Transaction types that count as income (must match OffChainTxType enum)
+const INCOME_TYPES = ['RECEIVED', 'MINT', 'LOAN_DISBURSEMENT'];
+// Transaction types that count as expenses (must match OffChainTxType enum)
 const EXPENSE_TYPES = ['SENT', 'FEE', 'TAX', 'LOAN_REPAYMENT'];
 
 export interface DateRange {
