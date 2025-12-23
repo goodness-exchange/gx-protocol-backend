@@ -1,8 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { db } from '@gx/core-db';
 import { Decimal } from '@prisma/client/runtime/library';
 import { logger } from '@gx/core-logger';
-
-const prisma = new PrismaClient();
 
 /**
  * Analytics Service
@@ -10,7 +8,18 @@ const prisma = new PrismaClient();
  * Provides transaction analytics, spending summaries, and trend analysis.
  * Aggregates data for daily and monthly analytics tables and provides
  * real-time analytics queries.
+ *
+ * Transaction Schema Notes:
+ * - walletId: The wallet that owns this transaction record
+ * - type: SENT = outgoing (expense), RECEIVED = incoming (income)
+ * - counterparty: The other party's wallet ID
+ * - timestamp: When the transaction occurred
  */
+
+// Transaction types that count as income
+const INCOME_TYPES = ['RECEIVED', 'MINT', 'GENESIS', 'TAX_REFUND', 'LOAN_DISBURSEMENT'];
+// Transaction types that count as expenses
+const EXPENSE_TYPES = ['SENT', 'FEE', 'TAX', 'LOAN_REPAYMENT'];
 
 export interface DateRange {
   startDate: Date;
@@ -59,6 +68,8 @@ export interface AnalyticsSummary {
 }
 
 class AnalyticsService {
+  private readonly tenantId = 'default';
+
   /**
    * Get analytics summary for a user within a date range
    */
@@ -68,8 +79,8 @@ class AnalyticsService {
     endDate: Date
   ): Promise<AnalyticsSummary> {
     // Get user's wallet
-    const wallet = await prisma.wallet.findFirst({
-      where: { profileId },
+    const wallet = await db.wallet.findFirst({
+      where: { profileId, deletedAt: null },
     });
 
     if (!wallet) {
@@ -77,13 +88,10 @@ class AnalyticsService {
     }
 
     // Get transactions within date range
-    const transactions = await prisma.transaction.findMany({
+    const transactions = await db.transaction.findMany({
       where: {
-        OR: [
-          { senderWalletId: wallet.id },
-          { recipientWalletId: wallet.id },
-        ],
-        createdAt: {
+        walletId: wallet.walletId,
+        timestamp: {
           gte: startDate,
           lte: endDate,
         },
@@ -95,6 +103,7 @@ class AnalyticsService {
           },
         },
       },
+      orderBy: { timestamp: 'asc' },
     });
 
     // Calculate totals
@@ -106,7 +115,8 @@ class AnalyticsService {
     const dailyData: Map<string, { income: Decimal; expense: Decimal; count: number }> = new Map();
 
     for (const tx of transactions) {
-      const isIncome = tx.recipientWalletId === wallet.id;
+      const isIncome = INCOME_TYPES.includes(tx.type);
+      const isExpense = EXPENSE_TYPES.includes(tx.type);
       const amount = tx.amount;
 
       if (isIncome) {
@@ -114,27 +124,31 @@ class AnalyticsService {
         if (amount.gt(largestIncome)) {
           largestIncome = amount;
         }
-      } else {
+      } else if (isExpense) {
         totalExpense = totalExpense.add(amount);
         if (amount.gt(largestExpense)) {
           largestExpense = amount;
         }
       }
 
-      // Aggregate by category
-      for (const tag of tx.tags) {
-        const existing = categoryTotals.get(tag.categoryId) || {
-          amount: new Decimal(0),
-          count: 0,
-          category: tag.category,
-        };
-        existing.amount = existing.amount.add(amount);
-        existing.count += 1;
-        categoryTotals.set(tag.categoryId, existing);
+      // Aggregate by category (for expenses)
+      if (isExpense && tx.tags) {
+        for (const tag of tx.tags) {
+          if (tag.category) {
+            const existing = categoryTotals.get(tag.categoryId) || {
+              amount: new Decimal(0),
+              count: 0,
+              category: tag.category,
+            };
+            existing.amount = existing.amount.add(amount);
+            existing.count += 1;
+            categoryTotals.set(tag.categoryId, existing);
+          }
+        }
       }
 
       // Aggregate daily
-      const dateKey = tx.createdAt.toISOString().split('T')[0];
+      const dateKey = tx.timestamp.toISOString().split('T')[0];
       const dailyEntry = dailyData.get(dateKey) || {
         income: new Decimal(0),
         expense: new Decimal(0),
@@ -142,7 +156,7 @@ class AnalyticsService {
       };
       if (isIncome) {
         dailyEntry.income = dailyEntry.income.add(amount);
-      } else {
+      } else if (isExpense) {
         dailyEntry.expense = dailyEntry.expense.add(amount);
       }
       dailyEntry.count += 1;
@@ -150,7 +164,6 @@ class AnalyticsService {
     }
 
     // Calculate totals and percentages
-    const totalSpending = totalExpense;
     const topCategories: SpendingByCategory[] = Array.from(categoryTotals.entries())
       .map(([categoryId, data]) => ({
         categoryId,
@@ -159,8 +172,8 @@ class AnalyticsService {
         categoryIcon: data.category.icon || 'tag',
         totalAmount: data.amount.toString(),
         transactionCount: data.count,
-        percentageOfTotal: totalSpending.gt(0)
-          ? parseFloat(data.amount.div(totalSpending).mul(100).toFixed(2))
+        percentageOfTotal: totalExpense.gt(0)
+          ? parseFloat(data.amount.div(totalExpense).mul(100).toFixed(2))
           : 0,
       }))
       .sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount))
@@ -205,8 +218,8 @@ class AnalyticsService {
     startDate: Date,
     endDate: Date
   ): Promise<SpendingByCategory[]> {
-    const wallet = await prisma.wallet.findFirst({
-      where: { profileId },
+    const wallet = await db.wallet.findFirst({
+      where: { profileId, deletedAt: null },
     });
 
     if (!wallet) {
@@ -214,10 +227,11 @@ class AnalyticsService {
     }
 
     // Get outgoing transactions with category tags
-    const transactions = await prisma.transaction.findMany({
+    const transactions = await db.transaction.findMany({
       where: {
-        senderWalletId: wallet.id,
-        createdAt: {
+        walletId: wallet.walletId,
+        type: { in: EXPENSE_TYPES as any },
+        timestamp: {
           gte: startDate,
           lte: endDate,
         },
@@ -237,15 +251,19 @@ class AnalyticsService {
     for (const tx of transactions) {
       totalSpending = totalSpending.add(tx.amount);
 
-      for (const tag of tx.tags) {
-        const existing = categoryTotals.get(tag.categoryId) || {
-          amount: new Decimal(0),
-          count: 0,
-          category: tag.category,
-        };
-        existing.amount = existing.amount.add(tx.amount);
-        existing.count += 1;
-        categoryTotals.set(tag.categoryId, existing);
+      if (tx.tags) {
+        for (const tag of tx.tags) {
+          if (tag.category) {
+            const existing = categoryTotals.get(tag.categoryId) || {
+              amount: new Decimal(0),
+              count: 0,
+              category: tag.category,
+            };
+            existing.amount = existing.amount.add(tx.amount);
+            existing.count += 1;
+            categoryTotals.set(tag.categoryId, existing);
+          }
+        }
       }
     }
 
@@ -272,8 +290,8 @@ class AnalyticsService {
     startDate: Date,
     endDate: Date
   ): Promise<SpendingByCategory[]> {
-    const wallet = await prisma.wallet.findFirst({
-      where: { profileId },
+    const wallet = await db.wallet.findFirst({
+      where: { profileId, deletedAt: null },
     });
 
     if (!wallet) {
@@ -281,10 +299,11 @@ class AnalyticsService {
     }
 
     // Get incoming transactions with category tags
-    const transactions = await prisma.transaction.findMany({
+    const transactions = await db.transaction.findMany({
       where: {
-        recipientWalletId: wallet.id,
-        createdAt: {
+        walletId: wallet.walletId,
+        type: { in: INCOME_TYPES as any },
+        timestamp: {
           gte: startDate,
           lte: endDate,
         },
@@ -304,15 +323,19 @@ class AnalyticsService {
     for (const tx of transactions) {
       totalIncome = totalIncome.add(tx.amount);
 
-      for (const tag of tx.tags) {
-        const existing = categoryTotals.get(tag.categoryId) || {
-          amount: new Decimal(0),
-          count: 0,
-          category: tag.category,
-        };
-        existing.amount = existing.amount.add(tx.amount);
-        existing.count += 1;
-        categoryTotals.set(tag.categoryId, existing);
+      if (tx.tags) {
+        for (const tag of tx.tags) {
+          if (tag.category) {
+            const existing = categoryTotals.get(tag.categoryId) || {
+              amount: new Decimal(0),
+              count: 0,
+              category: tag.category,
+            };
+            existing.amount = existing.amount.add(tx.amount);
+            existing.count += 1;
+            categoryTotals.set(tag.categoryId, existing);
+          }
+        }
       }
     }
 
@@ -339,21 +362,18 @@ class AnalyticsService {
     startDate: Date,
     endDate: Date
   ): Promise<DailyTrend[]> {
-    const wallet = await prisma.wallet.findFirst({
-      where: { profileId },
+    const wallet = await db.wallet.findFirst({
+      where: { profileId, deletedAt: null },
     });
 
     if (!wallet) {
       throw new Error('Wallet not found');
     }
 
-    const transactions = await prisma.transaction.findMany({
+    const transactions = await db.transaction.findMany({
       where: {
-        OR: [
-          { senderWalletId: wallet.id },
-          { recipientWalletId: wallet.id },
-        ],
-        createdAt: {
+        walletId: wallet.walletId,
+        timestamp: {
           gte: startDate,
           lte: endDate,
         },
@@ -375,16 +395,19 @@ class AnalyticsService {
     }
 
     for (const tx of transactions) {
-      const isIncome = tx.recipientWalletId === wallet.id;
-      const dateKey = tx.createdAt.toISOString().split('T')[0];
-      const dailyEntry = dailyData.get(dateKey)!;
+      const isIncome = INCOME_TYPES.includes(tx.type);
+      const isExpense = EXPENSE_TYPES.includes(tx.type);
+      const dateKey = tx.timestamp.toISOString().split('T')[0];
+      const dailyEntry = dailyData.get(dateKey);
 
-      if (isIncome) {
-        dailyEntry.income = dailyEntry.income.add(tx.amount);
-      } else {
-        dailyEntry.expense = dailyEntry.expense.add(tx.amount);
+      if (dailyEntry) {
+        if (isIncome) {
+          dailyEntry.income = dailyEntry.income.add(tx.amount);
+        } else if (isExpense) {
+          dailyEntry.expense = dailyEntry.expense.add(tx.amount);
+        }
+        dailyEntry.count += 1;
       }
-      dailyEntry.count += 1;
     }
 
     return Array.from(dailyData.entries())
@@ -405,8 +428,8 @@ class AnalyticsService {
     profileId: string,
     months: number = 12
   ): Promise<MonthlyTrend[]> {
-    const wallet = await prisma.wallet.findFirst({
-      where: { profileId },
+    const wallet = await db.wallet.findFirst({
+      where: { profileId, deletedAt: null },
     });
 
     if (!wallet) {
@@ -417,13 +440,10 @@ class AnalyticsService {
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - months);
 
-    const transactions = await prisma.transaction.findMany({
+    const transactions = await db.transaction.findMany({
       where: {
-        OR: [
-          { senderWalletId: wallet.id },
-          { recipientWalletId: wallet.id },
-        ],
-        createdAt: {
+        walletId: wallet.walletId,
+        timestamp: {
           gte: startDate,
           lte: endDate,
         },
@@ -445,14 +465,15 @@ class AnalyticsService {
     }
 
     for (const tx of transactions) {
-      const isIncome = tx.recipientWalletId === wallet.id;
-      const monthKey = `${tx.createdAt.getFullYear()}-${String(tx.createdAt.getMonth() + 1).padStart(2, '0')}`;
+      const isIncome = INCOME_TYPES.includes(tx.type);
+      const isExpense = EXPENSE_TYPES.includes(tx.type);
+      const monthKey = `${tx.timestamp.getFullYear()}-${String(tx.timestamp.getMonth() + 1).padStart(2, '0')}`;
       const monthEntry = monthlyData.get(monthKey);
 
       if (monthEntry) {
         if (isIncome) {
           monthEntry.income = monthEntry.income.add(tx.amount);
-        } else {
+        } else if (isExpense) {
           monthEntry.expense = monthEntry.expense.add(tx.amount);
         }
         monthEntry.count += 1;
@@ -491,19 +512,21 @@ class AnalyticsService {
       type: string;
       currentBalance: string;
       monthlyBudget: string | null;
+      monthlySpent: string;
       goalAmount: string | null;
       goalProgress: number;
       budgetUsage: number;
-      lastAllocation: Date | null;
     }>;
     totalAllocated: string;
     totalUnallocated: string;
+    walletBalance: string;
   }> {
     // Verify wallet belongs to user
-    const wallet = await prisma.wallet.findFirst({
+    const wallet = await db.wallet.findFirst({
       where: {
-        id: walletId,
+        walletId,
         profileId,
+        deletedAt: null,
       },
     });
 
@@ -511,17 +534,12 @@ class AnalyticsService {
       throw new Error('Wallet not found');
     }
 
-    const subAccounts = await prisma.subAccount.findMany({
+    const subAccounts = await db.subAccount.findMany({
       where: {
         walletId,
         isActive: true,
       },
-      include: {
-        allocations: {
-          orderBy: { executedAt: 'desc' },
-          take: 1,
-        },
-      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
 
     let totalAllocated = new Decimal(0);
@@ -530,11 +548,11 @@ class AnalyticsService {
       totalAllocated = totalAllocated.add(sa.currentBalance);
 
       const goalProgress = sa.goalAmount && sa.goalAmount.gt(0)
-        ? parseFloat(sa.currentBalance.div(sa.goalAmount).mul(100).toFixed(2))
+        ? Math.min(parseFloat(sa.currentBalance.div(sa.goalAmount).mul(100).toFixed(2)), 100)
         : 0;
 
       const budgetUsage = sa.monthlyBudget && sa.monthlyBudget.gt(0)
-        ? parseFloat(sa.currentBalance.div(sa.monthlyBudget).mul(100).toFixed(2))
+        ? parseFloat(sa.monthlySpent.div(sa.monthlyBudget).mul(100).toFixed(2))
         : 0;
 
       return {
@@ -543,19 +561,21 @@ class AnalyticsService {
         type: sa.type,
         currentBalance: sa.currentBalance.toString(),
         monthlyBudget: sa.monthlyBudget?.toString() || null,
+        monthlySpent: sa.monthlySpent.toString(),
         goalAmount: sa.goalAmount?.toString() || null,
         goalProgress,
         budgetUsage,
-        lastAllocation: sa.allocations[0]?.executedAt || null,
       };
     });
 
-    const totalUnallocated = wallet.balance.sub(totalAllocated);
+    const walletBalance = Number(wallet.cachedBalance);
+    const totalUnallocated = new Decimal(walletBalance).sub(totalAllocated);
 
     return {
       subAccounts: subAccountsWithAnalytics,
       totalAllocated: totalAllocated.toString(),
       totalUnallocated: totalUnallocated.toString(),
+      walletBalance: walletBalance.toString(),
     };
   }
 
@@ -566,8 +586,8 @@ class AnalyticsService {
     profileId: string,
     date: Date
   ): Promise<void> {
-    const wallet = await prisma.wallet.findFirst({
-      where: { profileId },
+    const wallet = await db.wallet.findFirst({
+      where: { profileId, deletedAt: null },
     });
 
     if (!wallet) {
@@ -579,78 +599,72 @@ class AnalyticsService {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const transactions = await prisma.transaction.findMany({
+    const transactions = await db.transaction.findMany({
       where: {
-        OR: [
-          { senderWalletId: wallet.id },
-          { recipientWalletId: wallet.id },
-        ],
-        createdAt: {
+        walletId: wallet.walletId,
+        timestamp: {
           gte: startOfDay,
           lte: endOfDay,
         },
       },
     });
 
-    let totalIncome = new Decimal(0);
-    let totalExpense = new Decimal(0);
-    let largestTx = new Decimal(0);
-    let smallestTx: Decimal | null = null;
-    const uniqueContacts = new Set<string>();
+    let totalSent = new Decimal(0);
+    let totalReceived = new Decimal(0);
+    let totalFees = new Decimal(0);
+    let sendCount = 0;
+    let receiveCount = 0;
 
     for (const tx of transactions) {
-      const isIncome = tx.recipientWalletId === wallet.id;
-      const amount = tx.amount;
-
-      if (isIncome) {
-        totalIncome = totalIncome.add(amount);
-        if (tx.senderWalletId) uniqueContacts.add(tx.senderWalletId);
-      } else {
-        totalExpense = totalExpense.add(amount);
-        if (tx.recipientWalletId) uniqueContacts.add(tx.recipientWalletId);
+      if (INCOME_TYPES.includes(tx.type)) {
+        totalReceived = totalReceived.add(tx.amount);
+        receiveCount += 1;
+      } else if (EXPENSE_TYPES.includes(tx.type)) {
+        if (tx.type === 'FEE') {
+          totalFees = totalFees.add(tx.amount);
+        } else {
+          totalSent = totalSent.add(tx.amount);
+        }
+        sendCount += 1;
       }
-
-      if (amount.gt(largestTx)) largestTx = amount;
-      if (smallestTx === null || amount.lt(smallestTx)) smallestTx = amount;
     }
 
-    const transactionCount = transactions.length;
-    const averageTxSize = transactionCount > 0
-      ? totalIncome.add(totalExpense).div(transactionCount)
-      : new Decimal(0);
+    const netFlow = totalReceived.sub(totalSent).sub(totalFees);
 
     // Upsert daily analytics
-    await prisma.dailyAnalytics.upsert({
+    await db.dailyAnalytics.upsert({
       where: {
-        tenantId_profileId_date: {
-          tenantId: wallet.tenantId,
-          profileId,
+        tenantId_walletId_date: {
+          tenantId: this.tenantId,
+          walletId: wallet.walletId,
           date: startOfDay,
         },
       },
       update: {
-        totalIncome,
-        totalExpense,
-        netFlow: totalIncome.sub(totalExpense),
-        transactionCount,
-        averageTransactionSize: averageTxSize,
-        largestTransaction: largestTx,
-        smallestTransaction: smallestTx || new Decimal(0),
-        uniqueContacts: uniqueContacts.size,
+        profileId,
+        totalSent,
+        totalReceived,
+        netFlow,
+        sendCount,
+        receiveCount,
+        totalFees,
+        openingBalance: wallet.cachedBalance,
+        closingBalance: wallet.cachedBalance,
         updatedAt: new Date(),
       },
       create: {
-        tenantId: wallet.tenantId,
+        tenantId: this.tenantId,
         profileId,
+        walletId: wallet.walletId,
         date: startOfDay,
-        totalIncome,
-        totalExpense,
-        netFlow: totalIncome.sub(totalExpense),
-        transactionCount,
-        averageTransactionSize: averageTxSize,
-        largestTransaction: largestTx,
-        smallestTransaction: smallestTx || new Decimal(0),
-        uniqueContacts: uniqueContacts.size,
+        totalSent,
+        totalReceived,
+        netFlow,
+        sendCount,
+        receiveCount,
+        totalFees,
+        openingBalance: wallet.cachedBalance,
+        closingBalance: wallet.cachedBalance,
       },
     });
 
@@ -665,8 +679,8 @@ class AnalyticsService {
     year: number,
     month: number
   ): Promise<void> {
-    const wallet = await prisma.wallet.findFirst({
-      where: { profileId },
+    const wallet = await db.wallet.findFirst({
+      where: { profileId, deletedAt: null },
     });
 
     if (!wallet) {
@@ -676,106 +690,97 @@ class AnalyticsService {
     const startOfMonth = new Date(year, month - 1, 1);
     const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
 
-    const transactions = await prisma.transaction.findMany({
+    const transactions = await db.transaction.findMany({
       where: {
-        OR: [
-          { senderWalletId: wallet.id },
-          { recipientWalletId: wallet.id },
-        ],
-        createdAt: {
+        walletId: wallet.walletId,
+        timestamp: {
           gte: startOfMonth,
           lte: endOfMonth,
         },
       },
     });
 
-    let totalIncome = new Decimal(0);
-    let totalExpense = new Decimal(0);
-    let largestTx = new Decimal(0);
-    let smallestTx: Decimal | null = null;
-    const uniqueContacts = new Set<string>();
-    const activeDays = new Set<string>();
+    let totalSent = new Decimal(0);
+    let totalReceived = new Decimal(0);
+    let totalFees = new Decimal(0);
+    let sendCount = 0;
+    let receiveCount = 0;
+    let largestSent = new Decimal(0);
+    let largestReceived = new Decimal(0);
+    const uniqueCounterparties = new Set<string>();
 
     for (const tx of transactions) {
-      const isIncome = tx.recipientWalletId === wallet.id;
-      const amount = tx.amount;
+      uniqueCounterparties.add(tx.counterparty);
 
-      if (isIncome) {
-        totalIncome = totalIncome.add(amount);
-        if (tx.senderWalletId) uniqueContacts.add(tx.senderWalletId);
-      } else {
-        totalExpense = totalExpense.add(amount);
-        if (tx.recipientWalletId) uniqueContacts.add(tx.recipientWalletId);
+      if (INCOME_TYPES.includes(tx.type)) {
+        totalReceived = totalReceived.add(tx.amount);
+        receiveCount += 1;
+        if (tx.amount.gt(largestReceived)) {
+          largestReceived = tx.amount;
+        }
+      } else if (EXPENSE_TYPES.includes(tx.type)) {
+        if (tx.type === 'FEE') {
+          totalFees = totalFees.add(tx.amount);
+        } else {
+          totalSent = totalSent.add(tx.amount);
+          if (tx.amount.gt(largestSent)) {
+            largestSent = tx.amount;
+          }
+        }
+        sendCount += 1;
       }
-
-      if (amount.gt(largestTx)) largestTx = amount;
-      if (smallestTx === null || amount.lt(smallestTx)) smallestTx = amount;
-      activeDays.add(tx.createdAt.toISOString().split('T')[0]);
     }
 
-    const transactionCount = transactions.length;
-    const averageTxSize = transactionCount > 0
-      ? totalIncome.add(totalExpense).div(transactionCount)
+    const netFlow = totalReceived.sub(totalSent).sub(totalFees);
+    const totalTransactions = sendCount + receiveCount;
+    const avgTransactionSize = totalTransactions > 0
+      ? totalSent.add(totalReceived).div(totalTransactions)
       : new Decimal(0);
 
-    // Get category breakdown
-    const categoryBreakdown: Record<string, string> = {};
-    const categoryTotals = new Map<string, Decimal>();
-
-    for (const tx of transactions) {
-      const tags = await prisma.transactionTag.findMany({
-        where: { transactionId: tx.id },
-        include: { category: true },
-      });
-
-      for (const tag of tags) {
-        const existing = categoryTotals.get(tag.category.name) || new Decimal(0);
-        categoryTotals.set(tag.category.name, existing.add(tx.amount));
-      }
-    }
-
-    for (const [name, amount] of categoryTotals) {
-      categoryBreakdown[name] = amount.toString();
-    }
-
     // Upsert monthly analytics
-    await prisma.monthlyAnalytics.upsert({
+    await db.monthlyAnalytics.upsert({
       where: {
-        tenantId_profileId_year_month: {
-          tenantId: wallet.tenantId,
-          profileId,
+        tenantId_walletId_year_month: {
+          tenantId: this.tenantId,
+          walletId: wallet.walletId,
           year,
           month,
         },
       },
       update: {
-        totalIncome,
-        totalExpense,
-        netFlow: totalIncome.sub(totalExpense),
-        transactionCount,
-        averageTransactionSize: averageTxSize,
-        largestTransaction: largestTx,
-        smallestTransaction: smallestTx || new Decimal(0),
-        uniqueContacts: uniqueContacts.size,
-        activeDays: activeDays.size,
-        categoryBreakdown,
+        profileId,
+        totalSent,
+        totalReceived,
+        netFlow,
+        sendCount,
+        receiveCount,
+        totalFees,
+        avgTransactionSize,
+        largestSent,
+        largestReceived,
+        uniqueCounterparties: uniqueCounterparties.size,
+        openingBalance: wallet.cachedBalance,
+        closingBalance: wallet.cachedBalance,
         updatedAt: new Date(),
       },
       create: {
-        tenantId: wallet.tenantId,
+        tenantId: this.tenantId,
         profileId,
+        walletId: wallet.walletId,
         year,
         month,
-        totalIncome,
-        totalExpense,
-        netFlow: totalIncome.sub(totalExpense),
-        transactionCount,
-        averageTransactionSize: averageTxSize,
-        largestTransaction: largestTx,
-        smallestTransaction: smallestTx || new Decimal(0),
-        uniqueContacts: uniqueContacts.size,
-        activeDays: activeDays.size,
-        categoryBreakdown,
+        totalSent,
+        totalReceived,
+        netFlow,
+        sendCount,
+        receiveCount,
+        totalFees,
+        avgTransactionSize,
+        largestSent,
+        largestReceived,
+        uniqueCounterparties: uniqueCounterparties.size,
+        openingBalance: wallet.cachedBalance,
+        closingBalance: wallet.cachedBalance,
       },
     });
 
@@ -801,8 +806,8 @@ class AnalyticsService {
       countChange: number;
     };
   }> {
-    const wallet = await prisma.wallet.findFirst({
-      where: { profileId },
+    const wallet = await db.wallet.findFirst({
+      where: { profileId, deletedAt: null },
     });
 
     if (!wallet) {
@@ -810,13 +815,10 @@ class AnalyticsService {
     }
 
     const calculatePeriod = async (start: Date, end: Date) => {
-      const transactions = await prisma.transaction.findMany({
+      const transactions = await db.transaction.findMany({
         where: {
-          OR: [
-            { senderWalletId: wallet.id },
-            { recipientWalletId: wallet.id },
-          ],
-          createdAt: { gte: start, lte: end },
+          walletId: wallet.walletId,
+          timestamp: { gte: start, lte: end },
         },
       });
 
@@ -824,9 +826,9 @@ class AnalyticsService {
       let expense = new Decimal(0);
 
       for (const tx of transactions) {
-        if (tx.recipientWalletId === wallet.id) {
+        if (INCOME_TYPES.includes(tx.type)) {
           income = income.add(tx.amount);
-        } else {
+        } else if (EXPENSE_TYPES.includes(tx.type)) {
           expense = expense.add(tx.amount);
         }
       }
