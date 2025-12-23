@@ -35,6 +35,8 @@ import goalsRoutes from './routes/goals.routes';
 import allocationRulesRoutes from './routes/allocation-rules.routes';
 // Phase 3: Business & Enterprise Features
 import businessRoutes from './routes/business.routes';
+// Phase 4: Government & NPO Accounts
+import entityAccountsRoutes from './routes/entity-accounts.routes';
 
 /**
  * Creates and configures the Express application
@@ -141,6 +143,9 @@ export function createApp(): Application {
 
   // Phase 3: Business & Enterprise Features
   app.use('/api/v1', businessRoutes);  // Mounts at /api/v1/business-accounts/:id/*, /api/v1/employees/:id, etc.
+
+  // Phase 4: Government & NPO Accounts
+  app.use('/api/v1', entityAccountsRoutes);  // Mounts at /api/v1/government-accounts/:id/*, /api/v1/npo-accounts/:id/*
 
   // Legacy alias for frontend compatibility (api/gxcoin -> api/v1)
   app.use('/api/gxcoin/relationships', relationshipsRoutes);
