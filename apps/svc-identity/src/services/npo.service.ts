@@ -1142,16 +1142,16 @@ class NPOAccountService {
 
     // Get program summary
     const programs = await db.nPOProgram.findMany({
-      where: { tenantId, npoAccountId, status: 'ACTIVE' },
+      where: { tenantId, npoAccountId, isActive: true },
     });
 
     const totalGoal = programs.reduce(
-      (sum: Decimal, p: typeof programs[0]) => sum.plus(p.goalAmount || 0),
+      (sum: Decimal, p: typeof programs[0]) => sum.plus(p.budgetAmount || 0),
       new Decimal(0)
     );
 
-    const totalRaised = programs.reduce(
-      (sum: Decimal, p: typeof programs[0]) => sum.plus(p.raisedAmount),
+    const totalSpent = programs.reduce(
+      (sum: Decimal, p: typeof programs[0]) => sum.plus(p.spentAmount || 0),
       new Decimal(0)
     );
 
@@ -1196,10 +1196,10 @@ class NPOAccountService {
         pendingApprovals,
         programs: {
           activeCount: programs.length,
-          totalGoal,
-          totalRaised,
+          totalBudget: totalGoal,
+          totalSpent,
           progress: totalGoal.greaterThan(0)
-            ? totalRaised.dividedBy(totalGoal).times(100).toNumber()
+            ? totalSpent.dividedBy(totalGoal).times(100).toNumber()
             : 0,
         },
         donations: {

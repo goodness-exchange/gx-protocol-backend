@@ -929,7 +929,7 @@ class GovernmentAccountService {
     });
 
     const totalAllocated = subAccounts.reduce(
-      (sum: Decimal, sa: typeof subAccounts[0]) => sum.plus(sa.allocationAmount),
+      (sum: Decimal, sa: typeof subAccounts[0]) => sum.plus(sa.allocatedBudget || sa.allocationAmount || 0),
       new Decimal(0)
     );
 
