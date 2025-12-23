@@ -92,13 +92,13 @@ router.post('/sub-accounts/transfer', authenticateJWT, subAccountsController.tra
 router.get('/sub-accounts/:subAccountId/transactions', authenticateJWT, subAccountsController.getTransactions);
 
 // ============================================
-// Allocation Rules
+// NOTE: Allocation Rules endpoints moved to Phase 2
+// See allocation-rules.routes.ts for:
+// - POST /api/v1/allocation-rules (create)
+// - PUT /api/v1/allocation-rules/:id (update)
+// - DELETE /api/v1/allocation-rules/:id (delete)
+// - GET /api/v1/allocation-rules/preview (preview)
+// - POST /api/v1/wallets/:walletId/allocate (manual allocate)
 // ============================================
-
-/**
- * POST /api/v1/allocation-rules
- * Create an allocation rule
- */
-router.post('/allocation-rules', authenticateJWT, subAccountsController.createAllocationRule);
 
 export default router;
