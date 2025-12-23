@@ -564,6 +564,9 @@ model UserProfile {
   dailyAnalytics      DailyAnalytics[]
   monthlyAnalytics    MonthlyAnalytics[]
 
+  // Phase 3: Business & Enterprise Features
+  employeeRecords     Employee[]
+
   // Relations to Country
   nationalityCountry Country? @relation(fields: [nationalityCountryCode], references: [countryCode])
 
@@ -875,6 +878,12 @@ model BusinessAccount {
 
   // Phase 1: Context switching
   accountContexts  AccountContext[]
+
+  // Phase 3: Business & Enterprise Features
+  businessSubAccounts BusinessSubAccount[]
+  employees           Employee[]
+  payrollBatches      PayrollBatch[]
+  businessReports     BusinessReport[]
 
   @@unique([tenantId, orgProfileId])
   @@index([tenantId])
@@ -2673,4 +2682,367 @@ model MonthlyAnalytics {
   @@unique([tenantId, profileId, walletId, year, month])
   @@index([tenantId, profileId, year, month])
   @@index([tenantId, walletId, year, month])
+}
+
+// =============================================================================
+// PHASE 3: BUSINESS & ENTERPRISE FEATURES
+// =============================================================================
+
+/// BusinessSubAccountType: Types of business sub-accounts
+enum BusinessSubAccountType {
+  PAYROLL
+  OPERATING_EXPENSES
+  TAX_RESERVE
+  MARKETING
+  SALES
+  R_AND_D
+  EQUIPMENT
+  INVENTORY
+  DEPARTMENT
+  PROJECT
+  CLIENT_ESCROW
+  VENDOR_PAYMENTS
+  CUSTOM_BUSINESS
+}
+
+/// BusinessSubAccount: Virtual fund allocations for business accounts
+model BusinessSubAccount {
+  id                String          @id @default(uuid())
+  tenantId          String
+  businessAccountId String
+  name              String
+  description       String?
+  type              BusinessSubAccountType
+
+  // Department/Project specific
+  departmentId      String?
+  projectId         String?
+  costCenter        String?         // For accounting integration
+
+  // Budget allocation
+  annualBudget      Decimal?        @db.Decimal(36, 9)
+  monthlyBudget     Decimal?        @db.Decimal(36, 9)
+  currentBalance    Decimal         @default(0) @db.Decimal(36, 9)
+
+  // Approval requirements
+  requiresApproval  Boolean         @default(false)
+  approvalThreshold Decimal?        @db.Decimal(36, 9)  // Require approval above this amount
+
+  // Access control
+  managerId         String?         // UserProfile ID who manages this sub-account
+  allowedUserIds    String[]        // UserProfile IDs who can transact
+
+  // UI customization
+  icon              String?
+  color             String?
+  sortOrder         Int             @default(0)
+
+  // Status
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  businessAccount   BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+  transactions      BusinessSubAccountTx[]
+  budgetPeriods     BusinessBudgetPeriod[]
+
+  @@unique([tenantId, businessAccountId, name])
+  @@index([tenantId, businessAccountId])
+  @@index([tenantId, businessAccountId, type])
+}
+
+/// BusinessSubAccountTxType: Types of business sub-account transactions
+enum BusinessSubAccountTxType {
+  ALLOCATION
+  EXPENSE
+  RETURN_TO_MAIN
+  TRANSFER_IN
+  TRANSFER_OUT
+  PAYROLL_PAYMENT
+  VENDOR_PAYMENT
+  ADJUSTMENT
+}
+
+/// BusinessSubAccountTx: Transactions within business sub-accounts
+model BusinessSubAccountTx {
+  id                String          @id @default(uuid())
+  tenantId          String
+  businessSubAccountId String
+  type              BusinessSubAccountTxType
+  amount            Decimal         @db.Decimal(36, 9)
+  description       String?
+  reference         String?         // External reference (invoice, PO, etc.)
+
+  // Related entities
+  employeeId        String?         // For payroll payments
+  vendorName        String?         // For vendor payments
+
+  // Balance tracking
+  balanceBefore     Decimal         @db.Decimal(36, 9)
+  balanceAfter      Decimal         @db.Decimal(36, 9)
+
+  // Approval tracking
+  approvedById      String?
+  approvedAt        DateTime?       @db.Timestamptz(3)
+
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  createdById       String
+
+  // Relations
+  businessSubAccount BusinessSubAccount @relation(fields: [businessSubAccountId], references: [id], onDelete: Cascade)
+  employee          Employee?       @relation(fields: [employeeId], references: [id])
+
+  @@index([tenantId, businessSubAccountId])
+  @@index([tenantId, businessSubAccountId, createdAt])
+  @@index([tenantId, employeeId])
+}
+
+/// BusinessBudgetPeriod: Budget periods for business sub-accounts
+model BusinessBudgetPeriod {
+  id                String          @id @default(uuid())
+  tenantId          String
+  businessSubAccountId String
+  periodType        BudgetPeriodType
+  startDate         DateTime        @db.Timestamptz(3)
+  endDate           DateTime        @db.Timestamptz(3)
+
+  budgetAmount      Decimal         @db.Decimal(36, 9)
+  spentAmount       Decimal         @default(0) @db.Decimal(36, 9)
+  remainingAmount   Decimal         @db.Decimal(36, 9)
+
+  status            BudgetStatus    @default(ON_TRACK)
+  alertThreshold    Decimal         @default(80) @db.Decimal(5, 2)
+  alertSent         Boolean         @default(false)
+  alertSentAt       DateTime?       @db.Timestamptz(3)
+
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  businessSubAccount BusinessSubAccount @relation(fields: [businessSubAccountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, businessSubAccountId])
+  @@index([tenantId, businessSubAccountId, startDate, endDate])
+}
+
+/// PaymentMethod: How employees are paid
+enum PaymentMethod {
+  DIRECT_TRANSFER
+  BATCH_PAYROLL
+  MANUAL
+}
+
+/// PaymentSchedule: Frequency of payment
+enum PaymentSchedule {
+  WEEKLY
+  BI_WEEKLY
+  SEMI_MONTHLY
+  MONTHLY
+}
+
+/// Employee: Employee records for business accounts
+model Employee {
+  id                String          @id @default(uuid())
+  tenantId          String
+  businessAccountId String
+  userId            String?         // Links to UserProfile if they have a GX account
+
+  // Employee details
+  employeeNumber    String          // Internal employee ID/number
+  firstName         String
+  lastName          String
+  email             String
+  phone             String?
+  title             String
+  department        String?
+
+  // Employment dates
+  startDate         DateTime        @db.Timestamptz(3)
+  endDate           DateTime?       @db.Timestamptz(3)
+
+  // Payment configuration
+  paymentMethod     PaymentMethod   @default(DIRECT_TRANSFER)
+  paymentSchedule   PaymentSchedule @default(MONTHLY)
+  salaryAmount      Decimal?        @db.Decimal(36, 9)
+  hourlyRate        Decimal?        @db.Decimal(20, 4)
+  currency          String          @default("GXC")
+
+  // Payment destination
+  walletId          String?         // GX Wallet ID for payments
+  externalAccount   String?         // External account info if not using GX
+
+  // Sub-account access
+  allowedSubAccountIds String[]     // BusinessSubAccount IDs employee can access
+
+  // Status
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  businessAccount   BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+  user              UserProfile?    @relation(fields: [userId], references: [profileId])
+  payrollRecords    PayrollRecord[]
+  subAccountTxs     BusinessSubAccountTx[]
+
+  @@unique([tenantId, businessAccountId, employeeNumber])
+  @@unique([tenantId, businessAccountId, email])
+  @@index([tenantId, businessAccountId])
+  @@index([tenantId, businessAccountId, isActive])
+}
+
+/// PayrollStatus: Status of a payroll record
+enum PayrollStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+/// PayrollRecord: Individual payroll payment records
+model PayrollRecord {
+  id                String          @id @default(uuid())
+  tenantId          String
+  employeeId        String
+  payrollBatchId    String?         // Links to batch if part of batch payroll
+
+  // Period
+  periodStart       DateTime        @db.Timestamptz(3)
+  periodEnd         DateTime        @db.Timestamptz(3)
+
+  // Amounts
+  grossAmount       Decimal         @db.Decimal(36, 9)
+  deductions        Decimal         @default(0) @db.Decimal(36, 9)
+  bonuses           Decimal         @default(0) @db.Decimal(36, 9)
+  netAmount         Decimal         @db.Decimal(36, 9)
+
+  // Breakdown (JSON for flexibility)
+  deductionBreakdown Json?          // { "tax": 100, "insurance": 50, ... }
+  bonusBreakdown    Json?           // { "performance": 200, "holiday": 100, ... }
+
+  // Status tracking
+  status            PayrollStatus   @default(DRAFT)
+  approvedById      String?
+  approvedAt        DateTime?       @db.Timestamptz(3)
+  transactionId     String?         // GX Transaction ID when paid
+  paidAt            DateTime?       @db.Timestamptz(3)
+  failureReason     String?
+
+  // Notes
+  notes             String?
+
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+  createdById       String
+
+  // Relations
+  employee          Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  payrollBatch      PayrollBatch?   @relation(fields: [payrollBatchId], references: [id])
+
+  @@index([tenantId, employeeId])
+  @@index([tenantId, employeeId, periodStart])
+  @@index([tenantId, payrollBatchId])
+  @@index([tenantId, status])
+}
+
+/// PayrollBatch: Batch payroll processing
+model PayrollBatch {
+  id                String          @id @default(uuid())
+  tenantId          String
+  businessAccountId String
+  name              String          // e.g., "December 2025 Payroll"
+
+  // Period
+  periodStart       DateTime        @db.Timestamptz(3)
+  periodEnd         DateTime        @db.Timestamptz(3)
+
+  // Totals
+  totalEmployees    Int
+  totalGrossAmount  Decimal         @db.Decimal(36, 9)
+  totalDeductions   Decimal         @default(0) @db.Decimal(36, 9)
+  totalNetAmount    Decimal         @db.Decimal(36, 9)
+
+  // Status
+  status            PayrollStatus   @default(DRAFT)
+  approvedById      String?
+  approvedAt        DateTime?       @db.Timestamptz(3)
+  processedAt       DateTime?       @db.Timestamptz(3)
+  completedAt       DateTime?       @db.Timestamptz(3)
+
+  // Source sub-account
+  sourceSubAccountId String?        // BusinessSubAccount to pay from
+
+  // Notes
+  notes             String?
+
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+  createdById       String
+
+  // Relations
+  businessAccount   BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+  payrollRecords    PayrollRecord[]
+
+  @@index([tenantId, businessAccountId])
+  @@index([tenantId, businessAccountId, periodStart])
+  @@index([tenantId, status])
+}
+
+/// BusinessReportType: Types of business reports
+enum BusinessReportType {
+  DAILY_SUMMARY
+  WEEKLY_SUMMARY
+  MONTHLY_PROFIT_LOSS
+  QUARTERLY_REPORT
+  ANNUAL_REPORT
+  TAX_SUMMARY
+  PAYROLL_REPORT
+  EXPENSE_REPORT
+  BUDGET_VS_ACTUAL
+  CUSTOM
+}
+
+/// BusinessReport: Generated business reports
+model BusinessReport {
+  id                String          @id @default(uuid())
+  tenantId          String
+  businessAccountId String
+
+  // Report configuration
+  reportType        BusinessReportType
+  name              String
+  periodStart       DateTime        @db.Timestamptz(3)
+  periodEnd         DateTime        @db.Timestamptz(3)
+
+  // Aggregated data
+  totalIncome       Decimal         @db.Decimal(36, 9)
+  totalExpenses     Decimal         @db.Decimal(36, 9)
+  netProfit         Decimal         @db.Decimal(36, 9)
+
+  // Detailed breakdown (JSON)
+  incomeByCategory  Json?           // { "category": amount }
+  expensesByCategory Json?          // { "category": amount }
+  subAccountSummary Json?           // { "subAccountId": { "budget": x, "spent": y } }
+  employeePayroll   Json?           // { "employeeId": { "gross": x, "net": y } }
+  monthlyTrends     Json?           // [{ "month": "2025-01", "income": x, "expenses": y }]
+
+  // Generated files
+  pdfUrl            String?
+  csvUrl            String?
+  excelUrl          String?
+
+  // Metadata
+  generatedAt       DateTime        @default(now()) @db.Timestamptz(3)
+  generatedById     String
+
+  // Relations
+  businessAccount   BusinessAccount @relation(fields: [businessAccountId], references: [businessAccountId], onDelete: Cascade)
+
+  @@index([tenantId, businessAccountId])
+  @@index([tenantId, businessAccountId, reportType])
+  @@index([tenantId, businessAccountId, periodStart, periodEnd])
 }
