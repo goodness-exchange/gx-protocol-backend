@@ -20,7 +20,7 @@ type BusinessReportType =
   | 'ANNUAL_REPORT' | 'TAX_SUMMARY' | 'PAYROLL_REPORT' | 'EXPENSE_REPORT'
   | 'BUDGET_VS_ACTUAL' | 'CUSTOM';
 
-type BudgetStatus = 'ON_TRACK' | 'AT_RISK' | 'EXCEEDED' | 'COMPLETED';
+type BudgetStatus = 'ON_TRACK' | 'WARNING' | 'EXCEEDED' | 'COMPLETED';
 
 // ============================================
 // Types & Interfaces
@@ -603,7 +603,7 @@ export async function getDashboardSummary(
       },
       startDate: { lte: now },
       endDate: { gte: now },
-      status: { in: ['AT_RISK', 'EXCEEDED'] },
+      status: { in: ['WARNING', 'EXCEEDED'] },
     },
     include: {
       businessSubAccount: {

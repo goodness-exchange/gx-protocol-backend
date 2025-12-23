@@ -24,7 +24,7 @@ type BusinessSubAccountTxType =
   | 'PAYROLL_PAYMENT' | 'VENDOR_PAYMENT' | 'ADJUSTMENT';
 
 type BudgetPeriodType = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY' | 'CUSTOM';
-type BudgetStatus = 'ON_TRACK' | 'AT_RISK' | 'EXCEEDED' | 'COMPLETED';
+type BudgetStatus = 'ON_TRACK' | 'WARNING' | 'EXCEEDED' | 'COMPLETED';
 
 // ============================================
 // Types & Interfaces
@@ -497,7 +497,7 @@ export async function recordExpense(
     if (newRemaining.lessThanOrEqualTo(0)) {
       status = 'EXCEEDED';
     } else if (percentUsed.greaterThanOrEqualTo(currentPeriod.alertThreshold)) {
-      status = 'AT_RISK';
+      status = 'WARNING';
     }
 
     await db.businessBudgetPeriod.update({
