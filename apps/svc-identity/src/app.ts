@@ -23,6 +23,12 @@ import transfersRoutes from './routes/transfers.routes';
 import notificationsRoutes from './routes/notifications.routes';
 import relationshipsRoutes from './routes/relationships.routes';
 import qsendRoutes from './routes/qsend.routes';
+// Phase 1: Enhanced wallet features
+import contextRoutes from './routes/context.routes';
+import subaccountsRoutes from './routes/subaccounts.routes';
+import categoriesRoutes from './routes/categories.routes';
+import tagsRoutes from './routes/tags.routes';
+import analyticsRoutes from './routes/analytics.routes';
 
 /**
  * Creates and configures the Express application
@@ -114,6 +120,13 @@ export function createApp(): Application {
   app.use('/api/v1/notifications', notificationsRoutes);
   app.use('/api/v1/relationships', relationshipsRoutes);
   app.use('/api/v1/qsend', qsendRoutes);
+
+  // Phase 1: Enhanced wallet features
+  app.use('/api/v1/contexts', contextRoutes);
+  app.use('/api/v1', subaccountsRoutes);  // Mounts at /api/v1/sub-accounts, /api/v1/wallets/:id/sub-accounts, etc.
+  app.use('/api/v1/categories', categoriesRoutes);
+  app.use('/api/v1', tagsRoutes);  // Mounts at /api/v1/transactions/:id/tags, /api/v1/tags/:id
+  app.use('/api/v1/analytics', analyticsRoutes);
 
   // Legacy alias for frontend compatibility (api/gxcoin -> api/v1)
   app.use('/api/gxcoin/relationships', relationshipsRoutes);
