@@ -29,6 +29,10 @@ import subaccountsRoutes from './routes/subaccounts.routes';
 import categoriesRoutes from './routes/categories.routes';
 import tagsRoutes from './routes/tags.routes';
 import analyticsRoutes from './routes/analytics.routes';
+// Phase 2: Personal Finance Features
+import budgetsRoutes from './routes/budgets.routes';
+import goalsRoutes from './routes/goals.routes';
+import allocationRulesRoutes from './routes/allocation-rules.routes';
 
 /**
  * Creates and configures the Express application
@@ -127,6 +131,11 @@ export function createApp(): Application {
   app.use('/api/v1/categories', categoriesRoutes);
   app.use('/api/v1', tagsRoutes);  // Mounts at /api/v1/transactions/:id/tags, /api/v1/tags/:id
   app.use('/api/v1/analytics', analyticsRoutes);
+
+  // Phase 2: Personal Finance Features
+  app.use('/api/v1/budgets', budgetsRoutes);
+  app.use('/api/v1', goalsRoutes);  // Mounts at /api/v1/wallets/:id/goals, /api/v1/sub-accounts/:id/goal
+  app.use('/api/v1', allocationRulesRoutes);  // Mounts at /api/v1/allocation-rules, /api/v1/wallets/:id/allocate
 
   // Legacy alias for frontend compatibility (api/gxcoin -> api/v1)
   app.use('/api/gxcoin/relationships', relationshipsRoutes);
