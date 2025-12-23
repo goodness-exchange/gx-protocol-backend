@@ -1,5 +1,4 @@
 import { db } from '@gx/core-db';
-import { ContextType } from '@prisma/client';
 
 /**
  * Context Service
@@ -12,6 +11,8 @@ import { ContextType } from '@prisma/client';
  * - Quick switching between contexts without re-authentication
  * - Context-aware wallet and transaction display
  */
+
+type ContextType = 'PERSONAL' | 'BUSINESS';
 
 export interface AccountContextDTO {
   id: string;
@@ -80,7 +81,7 @@ class ContextService {
       },
     });
 
-    return contexts.map((ctx) => {
+    return contexts.map((ctx: typeof contexts[0]) => {
       let walletId: string | null = null;
       let balance: number | null = null;
 

@@ -418,7 +418,7 @@ class CategoriesService {
       },
     });
 
-    return tags.map((tag) => ({
+    return tags.map((tag: typeof tags[0]) => ({
       id: tag.id,
       transactionId: tag.transactionId,
       categoryId: tag.categoryId,
@@ -481,7 +481,7 @@ class CategoriesService {
     ]);
 
     return {
-      transactions: tags.map((tag) => ({
+      transactions: tags.map((tag: typeof tags[0]) => ({
         transactionId: tag.transaction.offTxId,
         type: tag.transaction.type,
         amount: Number(tag.transaction.amount),

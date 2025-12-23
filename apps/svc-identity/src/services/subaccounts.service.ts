@@ -1,6 +1,16 @@
 import { db } from '@gx/core-db';
-import { SubAccountType, AllocationRuleType, AllocationTrigger, AllocationFrequency } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+
+// Define enum types locally since Prisma generates them at runtime
+type SubAccountType =
+  | 'SAVINGS' | 'EMERGENCY_FUND' | 'MORTGAGE' | 'RENT' | 'UTILITIES'
+  | 'GROCERIES' | 'ENTERTAINMENT' | 'HEALTHCARE' | 'EDUCATION' | 'VACATION'
+  | 'CUSTOM_PERSONAL' | 'PAYROLL' | 'OPERATING_EXPENSES' | 'TAX_RESERVE'
+  | 'MARKETING' | 'EQUIPMENT' | 'INVENTORY' | 'DEPARTMENT' | 'PROJECT' | 'CUSTOM_BUSINESS';
+
+type AllocationRuleType = 'PERCENTAGE' | 'FIXED_AMOUNT' | 'REMAINDER';
+type AllocationTrigger = 'ON_DEPOSIT' | 'MANUAL' | 'SCHEDULED' | 'ON_SCHEDULE';
+type AllocationFrequency = 'DAILY' | 'WEEKLY' | 'BIWEEKLY' | 'BI_WEEKLY' | 'MONTHLY' | 'QUARTERLY';
 
 /**
  * Sub-Accounts Service
@@ -137,7 +147,7 @@ class SubAccountsService {
       ],
     });
 
-    return subAccounts.map((sa) => this.toDTO(sa));
+    return subAccounts.map((sa: typeof subAccounts[0]) => this.toDTO(sa));
   }
 
   /**
@@ -402,7 +412,7 @@ class SubAccountsService {
     }
 
     // Perform the transfer in a transaction
-    const result = await db.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx: typeof db) => {
       const fromNewBalance = new Decimal(Number(fromAccount.currentBalance) - data.amount);
       const toNewBalance = new Decimal(Number(toAccount.currentBalance) + data.amount);
 
@@ -540,18 +550,18 @@ class SubAccountsService {
 
     // Get counterpart sub-account names
     const counterpartIds = transactions
-      .map((tx) => tx.counterpartSubAccountId)
-      .filter((id): id is string => id !== null);
+      .map((tx: typeof transactions[0]) => tx.counterpartSubAccountId)
+      .filter((id: string | null): id is string => id !== null);
 
     const counterparts = await db.subAccount.findMany({
       where: { id: { in: counterpartIds } },
       select: { id: true, name: true },
     });
 
-    const counterpartMap = new Map(counterparts.map((c) => [c.id, c.name]));
+    const counterpartMap = new Map(counterparts.map((c: typeof counterparts[0]) => [c.id, c.name]));
 
     return {
-      transactions: transactions.map((tx) => ({
+      transactions: transactions.map((tx: typeof transactions[0]) => ({
         id: tx.id,
         type: tx.type,
         amount: Number(tx.amount),
@@ -649,7 +659,7 @@ class SubAccountsService {
       ],
     });
 
-    return rules.map((rule) => ({
+    return rules.map((rule: typeof rules[0]) => ({
       id: rule.id,
       walletId: rule.walletId,
       subAccountId: rule.subAccountId,

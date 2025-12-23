@@ -1,4 +1,5 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import { logger } from '@gx/core-logger';
 
 const prisma = new PrismaClient();
@@ -97,12 +98,12 @@ class AnalyticsService {
     });
 
     // Calculate totals
-    let totalIncome = new Prisma.Decimal(0);
-    let totalExpense = new Prisma.Decimal(0);
-    let largestIncome = new Prisma.Decimal(0);
-    let largestExpense = new Prisma.Decimal(0);
-    const categoryTotals: Map<string, { amount: Prisma.Decimal; count: number; category: any }> = new Map();
-    const dailyData: Map<string, { income: Prisma.Decimal; expense: Prisma.Decimal; count: number }> = new Map();
+    let totalIncome = new Decimal(0);
+    let totalExpense = new Decimal(0);
+    let largestIncome = new Decimal(0);
+    let largestExpense = new Decimal(0);
+    const categoryTotals: Map<string, { amount: Decimal; count: number; category: any }> = new Map();
+    const dailyData: Map<string, { income: Decimal; expense: Decimal; count: number }> = new Map();
 
     for (const tx of transactions) {
       const isIncome = tx.recipientWalletId === wallet.id;
@@ -123,7 +124,7 @@ class AnalyticsService {
       // Aggregate by category
       for (const tag of tx.tags) {
         const existing = categoryTotals.get(tag.categoryId) || {
-          amount: new Prisma.Decimal(0),
+          amount: new Decimal(0),
           count: 0,
           category: tag.category,
         };
@@ -135,8 +136,8 @@ class AnalyticsService {
       // Aggregate daily
       const dateKey = tx.createdAt.toISOString().split('T')[0];
       const dailyEntry = dailyData.get(dateKey) || {
-        income: new Prisma.Decimal(0),
-        expense: new Prisma.Decimal(0),
+        income: new Decimal(0),
+        expense: new Decimal(0),
         count: 0,
       };
       if (isIncome) {
@@ -180,7 +181,7 @@ class AnalyticsService {
     const transactionCount = transactions.length;
     const averageTransactionSize = transactionCount > 0
       ? totalIncome.add(totalExpense).div(transactionCount)
-      : new Prisma.Decimal(0);
+      : new Decimal(0);
 
     return {
       period: { startDate, endDate },
@@ -230,15 +231,15 @@ class AnalyticsService {
       },
     });
 
-    const categoryTotals: Map<string, { amount: Prisma.Decimal; count: number; category: any }> = new Map();
-    let totalSpending = new Prisma.Decimal(0);
+    const categoryTotals: Map<string, { amount: Decimal; count: number; category: any }> = new Map();
+    let totalSpending = new Decimal(0);
 
     for (const tx of transactions) {
       totalSpending = totalSpending.add(tx.amount);
 
       for (const tag of tx.tags) {
         const existing = categoryTotals.get(tag.categoryId) || {
-          amount: new Prisma.Decimal(0),
+          amount: new Decimal(0),
           count: 0,
           category: tag.category,
         };
@@ -297,15 +298,15 @@ class AnalyticsService {
       },
     });
 
-    const categoryTotals: Map<string, { amount: Prisma.Decimal; count: number; category: any }> = new Map();
-    let totalIncome = new Prisma.Decimal(0);
+    const categoryTotals: Map<string, { amount: Decimal; count: number; category: any }> = new Map();
+    let totalIncome = new Decimal(0);
 
     for (const tx of transactions) {
       totalIncome = totalIncome.add(tx.amount);
 
       for (const tag of tx.tags) {
         const existing = categoryTotals.get(tag.categoryId) || {
-          amount: new Prisma.Decimal(0),
+          amount: new Decimal(0),
           count: 0,
           category: tag.category,
         };
@@ -359,15 +360,15 @@ class AnalyticsService {
       },
     });
 
-    const dailyData: Map<string, { income: Prisma.Decimal; expense: Prisma.Decimal; count: number }> = new Map();
+    const dailyData: Map<string, { income: Decimal; expense: Decimal; count: number }> = new Map();
 
     // Initialize all dates in range
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
       const dateKey = currentDate.toISOString().split('T')[0];
       dailyData.set(dateKey, {
-        income: new Prisma.Decimal(0),
-        expense: new Prisma.Decimal(0),
+        income: new Decimal(0),
+        expense: new Decimal(0),
         count: 0,
       });
       currentDate.setDate(currentDate.getDate() + 1);
@@ -429,15 +430,15 @@ class AnalyticsService {
       },
     });
 
-    const monthlyData: Map<string, { income: Prisma.Decimal; expense: Prisma.Decimal; count: number }> = new Map();
+    const monthlyData: Map<string, { income: Decimal; expense: Decimal; count: number }> = new Map();
 
     // Initialize all months in range
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
       const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
       monthlyData.set(monthKey, {
-        income: new Prisma.Decimal(0),
-        expense: new Prisma.Decimal(0),
+        income: new Decimal(0),
+        expense: new Decimal(0),
         count: 0,
       });
       currentDate.setMonth(currentDate.getMonth() + 1);
@@ -460,7 +461,7 @@ class AnalyticsService {
 
     return Array.from(monthlyData.entries())
       .map(([monthKey, data]) => {
-        const [year, month] = monthKey.split('-');
+        const [year] = monthKey.split('-');
         const totalVolume = data.income.add(data.expense);
         return {
           month: monthKey,
@@ -523,9 +524,9 @@ class AnalyticsService {
       },
     });
 
-    let totalAllocated = new Prisma.Decimal(0);
+    let totalAllocated = new Decimal(0);
 
-    const subAccountsWithAnalytics = subAccounts.map((sa) => {
+    const subAccountsWithAnalytics = subAccounts.map((sa: typeof subAccounts[0]) => {
       totalAllocated = totalAllocated.add(sa.currentBalance);
 
       const goalProgress = sa.goalAmount && sa.goalAmount.gt(0)
@@ -591,10 +592,10 @@ class AnalyticsService {
       },
     });
 
-    let totalIncome = new Prisma.Decimal(0);
-    let totalExpense = new Prisma.Decimal(0);
-    let largestTx = new Prisma.Decimal(0);
-    let smallestTx: Prisma.Decimal | null = null;
+    let totalIncome = new Decimal(0);
+    let totalExpense = new Decimal(0);
+    let largestTx = new Decimal(0);
+    let smallestTx: Decimal | null = null;
     const uniqueContacts = new Set<string>();
 
     for (const tx of transactions) {
@@ -616,7 +617,7 @@ class AnalyticsService {
     const transactionCount = transactions.length;
     const averageTxSize = transactionCount > 0
       ? totalIncome.add(totalExpense).div(transactionCount)
-      : new Prisma.Decimal(0);
+      : new Decimal(0);
 
     // Upsert daily analytics
     await prisma.dailyAnalytics.upsert({
@@ -634,7 +635,7 @@ class AnalyticsService {
         transactionCount,
         averageTransactionSize: averageTxSize,
         largestTransaction: largestTx,
-        smallestTransaction: smallestTx || new Prisma.Decimal(0),
+        smallestTransaction: smallestTx || new Decimal(0),
         uniqueContacts: uniqueContacts.size,
         updatedAt: new Date(),
       },
@@ -648,7 +649,7 @@ class AnalyticsService {
         transactionCount,
         averageTransactionSize: averageTxSize,
         largestTransaction: largestTx,
-        smallestTransaction: smallestTx || new Prisma.Decimal(0),
+        smallestTransaction: smallestTx || new Decimal(0),
         uniqueContacts: uniqueContacts.size,
       },
     });
@@ -688,10 +689,10 @@ class AnalyticsService {
       },
     });
 
-    let totalIncome = new Prisma.Decimal(0);
-    let totalExpense = new Prisma.Decimal(0);
-    let largestTx = new Prisma.Decimal(0);
-    let smallestTx: Prisma.Decimal | null = null;
+    let totalIncome = new Decimal(0);
+    let totalExpense = new Decimal(0);
+    let largestTx = new Decimal(0);
+    let smallestTx: Decimal | null = null;
     const uniqueContacts = new Set<string>();
     const activeDays = new Set<string>();
 
@@ -715,11 +716,11 @@ class AnalyticsService {
     const transactionCount = transactions.length;
     const averageTxSize = transactionCount > 0
       ? totalIncome.add(totalExpense).div(transactionCount)
-      : new Prisma.Decimal(0);
+      : new Decimal(0);
 
     // Get category breakdown
     const categoryBreakdown: Record<string, string> = {};
-    const categoryTotals = new Map<string, Prisma.Decimal>();
+    const categoryTotals = new Map<string, Decimal>();
 
     for (const tx of transactions) {
       const tags = await prisma.transactionTag.findMany({
@@ -728,7 +729,7 @@ class AnalyticsService {
       });
 
       for (const tag of tags) {
-        const existing = categoryTotals.get(tag.category.name) || new Prisma.Decimal(0);
+        const existing = categoryTotals.get(tag.category.name) || new Decimal(0);
         categoryTotals.set(tag.category.name, existing.add(tx.amount));
       }
     }
@@ -754,7 +755,7 @@ class AnalyticsService {
         transactionCount,
         averageTransactionSize: averageTxSize,
         largestTransaction: largestTx,
-        smallestTransaction: smallestTx || new Prisma.Decimal(0),
+        smallestTransaction: smallestTx || new Decimal(0),
         uniqueContacts: uniqueContacts.size,
         activeDays: activeDays.size,
         categoryBreakdown,
@@ -771,7 +772,7 @@ class AnalyticsService {
         transactionCount,
         averageTransactionSize: averageTxSize,
         largestTransaction: largestTx,
-        smallestTransaction: smallestTx || new Prisma.Decimal(0),
+        smallestTransaction: smallestTx || new Decimal(0),
         uniqueContacts: uniqueContacts.size,
         activeDays: activeDays.size,
         categoryBreakdown,
@@ -819,8 +820,8 @@ class AnalyticsService {
         },
       });
 
-      let income = new Prisma.Decimal(0);
-      let expense = new Prisma.Decimal(0);
+      let income = new Decimal(0);
+      let expense = new Decimal(0);
 
       for (const tx of transactions) {
         if (tx.recipientWalletId === wallet.id) {
