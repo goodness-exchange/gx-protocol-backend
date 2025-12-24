@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-messaging
+  labels:
+    app: svc-messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-messaging
+  template:
+    metadata:
+      labels:
+        app: svc-messaging
+    spec:
+      containers:
+        - name: svc-messaging
+          image: 10.43.75.195:5000/gx-svc-messaging:1.0.0
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3007
+              protocol: TCP
+            - name: websocket
+              containerPort: 3008
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3007"
+            - name: MESSAGING_SERVICE_PORT
+              value: "3007"
+            - name: WEBSOCKET_PORT
+              value: "3008"
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secrets
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3007
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3007
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      nodeSelector:
+        node-id: vps4
+      tolerations:
+        - key: environment
+          operator: Equal
+          value: nonprod
+          effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-messaging
+  labels:
+    app: svc-messaging
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3007
+      protocol: TCP
+    - name: websocket
+      port: 3008
+      targetPort: 3008
+      protocol: TCP
+  selector:
+    app: svc-messaging
