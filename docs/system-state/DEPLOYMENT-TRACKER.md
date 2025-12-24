@@ -1,7 +1,7 @@
 # Deployment Version Tracker
 
 > **LIVING DOCUMENT**: Update after every deployment.
-> Last Updated: 2025-12-24T05:45:00Z
+> Last Updated: 2025-12-24T06:17:00Z
 
 ## Current Versions by Environment
 
@@ -31,7 +31,7 @@
 
 | Service | Current Version | Previous Version | Last Deployed | Status |
 |---------|-----------------|------------------|---------------|--------|
-| svc-admin | 2.1.10 | 2.1.9 | 2025-12-20 | Running |
+| svc-admin | 2.1.15 | 2.1.10 | 2025-12-24 | Running |
 | svc-identity | 2.1.9 | 2.1.8 | 2025-12-20 | Running |
 | svc-tokenomics | 2.1.5 | 2.1.4 | 2025-12-18 | Running |
 | svc-governance | 2.1.5 | 2.1.4 | 2025-12-15 | Running |
@@ -58,7 +58,7 @@
 
 | Service | Version | From | To | Status | Requested By | Date |
 |---------|---------|------|-----|--------|--------------|------|
-| svc-admin | 2.1.15 | TestNet | MainNet | PENDING | - | - |
+| - | - | - | - | None | - | - |
 
 ---
 
@@ -68,6 +68,7 @@
 
 | Time (UTC) | Service | Version | Environment | Action | Result |
 |------------|---------|---------|-------------|--------|--------|
+| 06:17:04 | svc-admin | 2.1.15 | **MainNet** | Promote from TestNet | **SUCCESS** |
 | 05:36:33 | svc-admin | 2.1.15 | TestNet | Promote from DevNet | SUCCESS |
 | 05:15:00 | svc-admin | 2.1.15 | DevNet | Deploy new build | SUCCESS |
 

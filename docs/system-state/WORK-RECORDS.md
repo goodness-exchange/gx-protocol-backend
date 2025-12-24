@@ -37,6 +37,7 @@
    |---------|---------|-------------|--------|
    | svc-admin | 2.1.15 | DevNet | Success |
    | svc-admin | 2.1.15 | TestNet | Success |
+   | svc-admin | 2.1.15 | **MainNet** | **Success** |
 
 4. **Documentation Created**
 
