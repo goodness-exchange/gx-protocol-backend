@@ -17,6 +17,8 @@ export enum ConversationType {
 export enum MessageType {
   TEXT = 'TEXT',
   VOICE = 'VOICE',
+  FILE = 'FILE',
+  IMAGE = 'IMAGE',
   SYSTEM = 'SYSTEM',
   TRANSACTION_REF = 'TRANSACTION_REF',
 }
@@ -134,6 +136,15 @@ export interface MessageDTO {
   encryptionKeyId: string;
   voiceDurationMs: number | null;
   voiceStorageKey: string | null;
+  // File attachment fields
+  fileStorageKey: string | null;
+  fileName: string | null;
+  fileMimeType: string | null;
+  fileSizeBytes: number | null;
+  // Image dimensions (for IMAGE type)
+  imageWidth: number | null;
+  imageHeight: number | null;
+  thumbnailStorageKey: string | null;
   linkedTransactionId: string | null;
   replyToMessageId: string | null;
   status: MessageStatus;
@@ -185,6 +196,55 @@ export interface VoiceMessageDTO {
   downloadUrl: string;
   expiresAt: string;
 }
+
+// ==========================================
+// File Attachment DTOs
+// ==========================================
+
+export interface FileUploadDTO {
+  encryptedContent: string;
+  contentNonce: string;
+  encryptionKeyId: string;
+  fileName: string;
+  mimeType: string;
+}
+
+export interface FileMessageDTO {
+  messageId: string;
+  fileStorageKey: string;
+  fileName: string;
+  fileMimeType: string;
+  fileSizeBytes: number;
+  downloadUrl: string;
+  expiresAt: string;
+  // For images
+  thumbnailUrl?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+}
+
+// Supported file types
+export const SUPPORTED_FILE_TYPES = {
+  // Documents
+  'application/pdf': { ext: 'pdf', maxSizeMb: 25, category: 'document' },
+  'application/msword': { ext: 'doc', maxSizeMb: 25, category: 'document' },
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { ext: 'docx', maxSizeMb: 25, category: 'document' },
+  'application/vnd.ms-excel': { ext: 'xls', maxSizeMb: 25, category: 'document' },
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { ext: 'xlsx', maxSizeMb: 25, category: 'document' },
+  'application/vnd.ms-powerpoint': { ext: 'ppt', maxSizeMb: 50, category: 'document' },
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': { ext: 'pptx', maxSizeMb: 50, category: 'document' },
+  'text/plain': { ext: 'txt', maxSizeMb: 10, category: 'document' },
+  'text/csv': { ext: 'csv', maxSizeMb: 10, category: 'document' },
+  // Images
+  'image/jpeg': { ext: 'jpg', maxSizeMb: 10, category: 'image' },
+  'image/png': { ext: 'png', maxSizeMb: 10, category: 'image' },
+  'image/gif': { ext: 'gif', maxSizeMb: 10, category: 'image' },
+  'image/webp': { ext: 'webp', maxSizeMb: 10, category: 'image' },
+  'image/heic': { ext: 'heic', maxSizeMb: 10, category: 'image' },
+  'image/heif': { ext: 'heif', maxSizeMb: 10, category: 'image' },
+} as const;
+
+export type SupportedMimeType = keyof typeof SUPPORTED_FILE_TYPES;
 
 // ==========================================
 // Key Exchange DTOs
