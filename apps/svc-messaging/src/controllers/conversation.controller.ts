@@ -2,18 +2,27 @@ import { Response } from 'express';
 import { logger } from '@gx/core-logger';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { conversationService } from '../services/conversation.service';
-import { CreateConversationDTO, UpdateConversationDTO, AddParticipantsDTO } from '../types/dtos';
+import { CreateConversationDTO, UpdateConversationDTO, AddParticipantsDTO, ConversationType } from '../types/dtos';
 
 class ConversationController {
   /**
    * Create a new conversation
+   * Default type is DIRECT if not specified
    */
   create = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const body = req.body as CreateConversationDTO;
+      const body = req.body as Partial<CreateConversationDTO>;
       const userId = req.user!.profileId;
 
-      const conversation = await conversationService.create(userId, body);
+      // Default to DIRECT conversation type if not specified
+      const dto: CreateConversationDTO = {
+        type: body.type || ConversationType.DIRECT,
+        participantIds: body.participantIds || [],
+        name: body.name,
+        linkedTransactionId: body.linkedTransactionId,
+      };
+
+      const conversation = await conversationService.create(userId, dto);
 
       res.status(201).json({
         success: true,
