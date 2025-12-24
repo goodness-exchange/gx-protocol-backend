@@ -20,7 +20,8 @@ import conversationRoutes from './routes/conversation.routes';
 import messageRoutes from './routes/message.routes';
 import voiceRoutes from './routes/voice.routes';
 import keyRoutes from './routes/key.routes';
-import complianceRoutes from './routes/compliance.routes';
+import groupRoutes from './routes/group.routes';
+// Note: Compliance routes removed - relay-only mode with no server-side message storage
 
 /**
  * Creates and configures the Express application with Socket.io
@@ -141,7 +142,8 @@ export function createApp(): { app: Application; httpServer: HttpServer; io: Soc
   app.use('/api/v1/messages', messageRoutes);
   app.use('/api/v1/voice', voiceRoutes);
   app.use('/api/v1/keys', keyRoutes);
-  app.use('/api/v1/admin/compliance', complianceRoutes);
+  app.use('/api/v1/groups', groupRoutes);
+  // Note: /api/v1/admin/compliance removed - relay-only mode
 
   // ============================================
   // 404 Handler

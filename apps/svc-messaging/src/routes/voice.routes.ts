@@ -1,10 +1,19 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { authenticateJWT } from '../middlewares/auth.middleware';
-import { voiceController } from '../controllers/voice.controller';
+import { voiceRelayController } from '../controllers/voice-relay.controller';
 import { messagingConfig } from '../config';
 
 const router = Router();
+
+/**
+ * Voice Routes - TEMPORARY STORAGE MODE
+ *
+ * Voice messages in relay mode:
+ * - Uploaded to S3 with 24-hour TTL
+ * - Auto-deleted after all recipients download
+ * - No permanent server storage
+ */
 
 // Configure multer for voice message uploads
 const upload = multer({
@@ -31,29 +40,35 @@ const upload = multer({
   },
 });
 
-// All routes require authentication
+/**
+ * GET /api/v1/voice/info
+ * Get information about voice message handling (public)
+ */
+router.get('/info', voiceRelayController.getInfo);
+
+// All other routes require authentication
 router.use(authenticateJWT);
 
 /**
  * POST /api/v1/voice/conversations/:conversationId
- * Upload a voice message
+ * Upload a voice message with temporary storage
  */
 router.post(
   '/conversations/:conversationId',
   upload.single('audio'),
-  voiceController.upload
+  voiceRelayController.upload
 );
 
 /**
- * GET /api/v1/voice/:messageId
- * Download a voice message
+ * GET /api/v1/voice/:voiceId/url
+ * Get presigned download URL for voice message
  */
-router.get('/:messageId', voiceController.download);
+router.get('/:voiceId/url', voiceRelayController.getDownloadUrl);
 
 /**
- * GET /api/v1/voice/:messageId/url
- * Get presigned URL for voice message
+ * POST /api/v1/voice/:voiceId/confirm
+ * Confirm voice message was downloaded
  */
-router.get('/:messageId/url', voiceController.getPresignedUrl);
+router.post('/:voiceId/confirm', voiceRelayController.confirmDownload);
 
 export default router;
