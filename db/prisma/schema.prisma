@@ -1680,6 +1680,8 @@ model AdminUser {
   approvalDecisions   ApprovalRequest[] @relation("Approver")
   notifications       AdminNotification[]
   webhooks            AdminWebhook[]
+  deploymentRequests  DeploymentRecord[] @relation("DeploymentRequester")
+  deploymentApprovals DeploymentRecord[] @relation("DeploymentApprover")
 
   @@index([email])
   @@index([username])
@@ -1762,6 +1764,7 @@ model ApprovalRequest {
   // Relations
   requester         AdminUser           @relation("Requester", fields: [requesterId], references: [id])
   approver          AdminUser?          @relation("Approver", fields: [approverId], references: [id])
+  deployment        DeploymentRecord?   // Linked deployment if requestType is DEPLOYMENT_PROMOTION
 
   @@index([requesterId])
   @@index([approverId])
@@ -3470,4 +3473,101 @@ model NPODonation {
   @@index([tenantId, npoAccountId])
   @@index([tenantId, donorProfileId])
   @@index([tenantId, createdAt])
+}
+
+// =============================================================================
+// SECTION 21: DEPLOYMENT PROMOTION WORKFLOW
+// DevNet -> TestNet -> MainNet deployment tracking with approval gates
+// =============================================================================
+
+/// DeploymentStatus: Lifecycle states for deployment promotions
+enum DeploymentStatus {
+  PENDING_APPROVAL    // Awaiting SuperOwner approval
+  APPROVED            // Approved, ready to execute
+  IN_PROGRESS         // Deployment executing
+  HEALTH_CHECK        // Running health checks
+  COMPLETED           // Successfully deployed
+  FAILED              // Deployment failed
+  ROLLED_BACK         // Rolled back due to failure
+  CANCELLED           // Cancelled before execution
+}
+
+/// DeploymentRecord: Tracks deployment promotions across environments
+model DeploymentRecord {
+  id                String            @id @default(uuid())
+
+  // Deployment identification
+  service           String            // e.g., "svc-identity", "svc-admin"
+  sourceEnv         String            // "devnet", "testnet"
+  targetEnv         String            // "testnet", "mainnet"
+  imageTag          String            // e.g., "2.1.9"
+  previousImageTag  String?           // For rollback
+
+  // Git information
+  gitCommit         String            // Full commit SHA
+  gitBranch         String            // Branch name
+  gitMessage        String?           // Commit message
+
+  // Status tracking
+  status            DeploymentStatus  @default(PENDING_APPROVAL)
+
+  // Approval tracking (linked to ApprovalRequest)
+  approvalRequestId String?           @unique
+  requestedBy       String            // AdminUser.id who initiated
+  requestedAt       DateTime          @default(now()) @db.Timestamptz(3)
+  approvedBy        String?           // SuperOwner.id who approved
+  approvedAt        DateTime?         @db.Timestamptz(3)
+
+  // Execution tracking
+  executedAt        DateTime?         @db.Timestamptz(3)
+  completedAt       DateTime?         @db.Timestamptz(3)
+  rolledBackAt      DateTime?         @db.Timestamptz(3)
+  rollbackReason    String?
+
+  // Audit data (JSON blobs)
+  buildArtifacts    Json?             // { buildTime, dockerImage, size, layers }
+  configDiff        Json?             // { changed: [], added: [], removed: [] }
+  healthCheckResults Json?            // { checks: [], passed: bool, duration }
+  preDeployMetrics  Json?             // { replicas, cpu, memory, errorRate }
+  postDeployMetrics Json?             // { replicas, cpu, memory, errorRate }
+
+  // Error tracking
+  errorMessage      String?
+  errorStack        String?
+
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  approvalRequest   ApprovalRequest?  @relation(fields: [approvalRequestId], references: [id])
+  logs              DeploymentLog[]
+  requester         AdminUser         @relation("DeploymentRequester", fields: [requestedBy], references: [id])
+  approver          AdminUser?        @relation("DeploymentApprover", fields: [approvedBy], references: [id])
+
+  @@index([service, targetEnv])
+  @@index([status])
+  @@index([requestedBy])
+  @@index([createdAt])
+  @@index([targetEnv, status])
+}
+
+/// DeploymentLog: Detailed log entries for deployment activities
+model DeploymentLog {
+  id            String            @id @default(uuid())
+  deploymentId  String
+
+  // Log entry
+  level         String            // "info", "warn", "error", "debug"
+  message       String
+  metadata      Json?             // Additional context
+
+  // Source tracking
+  source        String?           // "cli", "api", "health-check", "rollback"
+
+  timestamp     DateTime          @default(now()) @db.Timestamptz(3)
+
+  deployment    DeploymentRecord  @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@index([deploymentId, timestamp])
+  @@index([level])
 }
