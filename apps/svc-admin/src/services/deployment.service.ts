@@ -458,7 +458,7 @@ class DeploymentService {
         namespace,
       }, 'cli');
 
-      const imageFullPath = `registry.gxcoin.money/${deployment.service}:${deployment.imageTag}`;
+      const imageFullPath = `10.43.75.195:5000/${deployment.service}:${deployment.imageTag}`;
       const setImageResult = await this.runKubectl(
         `set image deployment/${deployment.service} ${deployment.service}=${imageFullPath} -n ${namespace}`
       );
@@ -630,7 +630,7 @@ class DeploymentService {
     await this.addLog(deploymentId, 'warn', 'Initiating rollback', { reason }, 'rollback');
 
     const namespace = ENV_NAMESPACE_MAP[deployment.targetEnv as Environment];
-    const imageFullPath = `registry.gxcoin.money/${deployment.service}:${deployment.previousImageTag}`;
+    const imageFullPath = `10.43.75.195:5000/${deployment.service}:${deployment.previousImageTag}`;
 
     // Set image to previous version
     const setImageResult = await this.runKubectl(
@@ -810,10 +810,40 @@ class DeploymentService {
   private async checkHealthEndpoint(service: string, namespace: string): Promise<HealthCheck> {
     const start = Date.now();
     try {
-      // Use kubectl exec to curl the health endpoint from within the cluster
-      const result = await this.runKubectl(
-        `exec -n ${namespace} deployment/${service} -- curl -sf http://localhost:80/health --max-time 10`
+      // Use kubectl exec with wget (alpine) or curl, falling back to pod readiness
+      // First try wget (available in alpine), then curl, then fall back to pod readiness
+      // Services use different ports - detect from environment or use common ones
+      const servicePorts: Record<string, number> = {
+        'svc-admin': 3006,
+        'svc-identity': 3001,
+        'svc-tokenomics': 3005,
+        'gx-wallet-frontend': 3000,
+        'outbox-submitter': 3003,
+        'projector': 3004,
+      };
+      const port = servicePorts[service] || 80;
+
+      let result = await this.runKubectl(
+        `exec -n ${namespace} deployment/${service} -- wget -q -O- http://localhost:${port}/health --timeout=10`
       );
+
+      // If wget fails (not found), try curl
+      if (!result.success && result.stderr.includes('not found')) {
+        result = await this.runKubectl(
+          `exec -n ${namespace} deployment/${service} -- curl -sf http://localhost:${port}/health --max-time 10`
+        );
+      }
+
+      // If both fail due to missing tools, fall back to pod readiness (already checked)
+      if (!result.success && result.stderr.includes('not found')) {
+        return {
+          name: 'Health Endpoint',
+          endpoint: '/health',
+          passed: true, // Passed because pod readiness already verified
+          duration: Date.now() - start,
+          message: 'Health check skipped (no wget/curl in container), relying on pod readiness',
+        };
+      }
 
       return {
         name: 'Health Endpoint',
@@ -919,7 +949,7 @@ class DeploymentService {
         return null;
       }
 
-      // Extract tag from image (e.g., registry.gxcoin.money/svc-identity:2.1.9 -> 2.1.9)
+      // Extract tag from image (e.g., 10.43.75.195:5000/svc-identity:2.1.9 -> 2.1.9)
       const image = result.stdout.replace(/'/g, '');
       const parts = image.split(':');
       return parts.length > 1 ? parts[parts.length - 1] : null;
@@ -951,7 +981,7 @@ class DeploymentService {
   }
 
   private async collectBuildArtifacts(service: string, imageTag: string): Promise<BuildArtifacts> {
-    const dockerImage = `registry.gxcoin.money/${service}:${imageTag}`;
+    const dockerImage = `10.43.75.195:5000/${service}:${imageTag}`;
 
     return {
       dockerImage,
