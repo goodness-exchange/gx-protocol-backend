@@ -80,6 +80,7 @@ COPY --from=builder /app/packages/core-db/node_modules/.prisma ./packages/core-d
 
 # Replace workspace symlinks with actual directories in node_modules/@gx
 # This ensures module resolution works without relying on symlinks
+# Note: chmod ensures files are readable even when runAsUser differs from image user
 RUN rm -rf /app/node_modules/@gx && mkdir -p /app/node_modules/@gx && \
     cp -r /app/packages/core-config /app/node_modules/@gx/ && \
     cp -r /app/packages/core-db /app/node_modules/@gx/ && \
@@ -88,7 +89,8 @@ RUN rm -rf /app/node_modules/@gx && mkdir -p /app/node_modules/@gx && \
     cp -r /app/packages/core-events /app/node_modules/@gx/ && \
     cp -r /app/packages/core-openapi /app/node_modules/@gx/ && \
     cp -r /app/packages/core-fabric /app/node_modules/@gx/ && \
-    cp -r /app/packages/core-storage /app/node_modules/@gx/
+    cp -r /app/packages/core-storage /app/node_modules/@gx/ && \
+    chmod -R a+rX /app/node_modules/@gx
 
 # Copy Prisma client to root node_modules (for packages that import directly)
 RUN mkdir -p /app/node_modules/.prisma && \
