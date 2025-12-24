@@ -46,6 +46,12 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
+# Install kubectl and curl for deployment operations
+RUN apk add --no-cache curl && \
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin/
+
 # Install production dependencies only
 COPY package.json package-lock.json* ./
 COPY apps/svc-admin/package.json ./apps/svc-admin/
