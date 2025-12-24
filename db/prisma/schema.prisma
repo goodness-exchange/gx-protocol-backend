@@ -3571,3 +3571,364 @@ model DeploymentLog {
   @@index([deploymentId, timestamp])
   @@index([level])
 }
+
+// =============================================================================
+// SECTION: ENCRYPTED MESSAGING SYSTEM
+// =============================================================================
+// End-to-end encrypted messaging with real-time WebSocket delivery
+// Features: Text/Voice messages, Group chats, Transaction linking
+// Security: Signal Protocol E2E encryption, Master key escrow for compliance
+// =============================================================================
+
+/// ConversationType: Type of conversation
+enum ConversationType {
+  DIRECT           // 1-on-1 conversation between two users
+  GROUP            // Group conversation with 3+ participants
+}
+
+/// MessageType: Type of message content
+enum MessageType {
+  TEXT             // Text message
+  VOICE            // Voice message (60 sec max)
+  SYSTEM           // System notification (user joined, left, etc.)
+  TRANSACTION_REF  // Reference to a money transfer
+}
+
+/// MessageStatus: Delivery status of a message
+enum MessageStatus {
+  SENDING          // Being encrypted/sent
+  SENT             // Sent to server
+  DELIVERED        // Delivered to recipient device
+  READ             // Read by recipient
+  FAILED           // Delivery failed
+}
+
+/// ParticipantRole: Role of a participant in a conversation
+enum ParticipantRole {
+  OWNER            // Conversation creator
+  ADMIN            // Can add/remove members (groups)
+  MEMBER           // Regular participant
+}
+
+/// MasterKeyDecryptionReason: Compliance reasons for master key decryption
+enum MasterKeyDecryptionReason {
+  CRIMINAL_INVESTIGATION
+  COURT_ORDER
+  REGULATORY_COMPLIANCE
+  FRAUD_PREVENTION
+  AML_INVESTIGATION
+}
+
+/// Conversation: Container for messages between users
+model Conversation {
+  conversationId      String            @id @default(uuid())
+  tenantId            String
+
+  // Conversation metadata
+  type                ConversationType
+  name                String?           // Group name (null for direct chats)
+  description         String?
+  avatarUrl           String?           // Group avatar URL
+
+  // Transaction linking
+  linkedTransactionId String?           // If conversation is about a specific transfer
+
+  // Status
+  isArchived          Boolean           @default(false)
+  deletedAt           DateTime?         @db.Timestamptz(3)
+
+  // Timestamps
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @db.Timestamptz(3)
+  lastMessageAt       DateTime?         @db.Timestamptz(3)
+
+  // Relations
+  participants        ConversationParticipant[]
+  messages            Message[]
+  groupKeys           GroupEncryptionKey[]
+
+  @@index([tenantId, type])
+  @@index([tenantId, lastMessageAt])
+  @@index([linkedTransactionId])
+}
+
+/// ConversationParticipant: User membership in conversations
+model ConversationParticipant {
+  participantId       String            @id @default(uuid())
+  tenantId            String
+  conversationId      String
+  profileId           String            // UserProfile.profileId
+
+  // Role and permissions
+  role                ParticipantRole   @default(MEMBER)
+  canSendMessages     Boolean           @default(true)
+
+  // Read state tracking
+  lastReadAt          DateTime?         @db.Timestamptz(3)
+  unreadCount         Int               @default(0)
+
+  // Notification preferences
+  isMuted             Boolean           @default(false)
+  muteExpiresAt       DateTime?         @db.Timestamptz(3)
+
+  // Membership status
+  joinedAt            DateTime          @default(now()) @db.Timestamptz(3)
+  leftAt              DateTime?         @db.Timestamptz(3)
+  removedBy           String?           // ProfileId of remover
+
+  // Relations
+  conversation        Conversation      @relation(fields: [conversationId], references: [conversationId], onDelete: Cascade)
+
+  @@unique([tenantId, conversationId, profileId])
+  @@index([tenantId, profileId])
+  @@index([conversationId])
+}
+
+/// Message: Individual encrypted messages
+model Message {
+  messageId           String            @id @default(uuid())
+  tenantId            String
+  conversationId      String
+  senderProfileId     String            // UserProfile.profileId
+
+  // Message content (encrypted)
+  type                MessageType
+  encryptedContent    String            @db.Text  // Base64 encoded ciphertext
+  contentNonce        String            // Encryption nonce/IV
+  encryptionKeyId     String            // Key used for encryption
+
+  // Voice message specific
+  voiceDurationMs     Int?              // Duration in milliseconds (max 60000)
+  voiceStorageKey     String?           // S3 key for encrypted voice file
+  voiceFileHash       String?           // SHA-256 of encrypted file
+
+  // Transaction reference
+  linkedTransactionId String?           // If type=TRANSACTION_REF
+
+  // Reply support
+  replyToMessageId    String?           // Parent message if reply
+
+  // Delivery status
+  status              MessageStatus     @default(SENDING)
+
+  // Compliance escrow - encrypted with master key for SuperOwner access
+  masterKeyWrappedContent String?       @db.Text
+
+  // Timestamps
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  editedAt            DateTime?         @db.Timestamptz(3)
+  deletedAt           DateTime?         @db.Timestamptz(3)
+
+  // Relations
+  conversation        Conversation      @relation(fields: [conversationId], references: [conversationId], onDelete: Cascade)
+  deliveryReceipts    MessageDeliveryReceipt[]
+  replyTo             Message?          @relation("MessageReplies", fields: [replyToMessageId], references: [messageId])
+  replies             Message[]         @relation("MessageReplies")
+
+  @@index([tenantId, conversationId, createdAt])
+  @@index([senderProfileId])
+  @@index([linkedTransactionId])
+  @@index([status])
+}
+
+/// MessageDeliveryReceipt: Per-recipient delivery tracking
+model MessageDeliveryReceipt {
+  receiptId           String            @id @default(uuid())
+  tenantId            String
+  messageId           String
+  recipientProfileId  String
+
+  // Delivery states
+  deliveredAt         DateTime?         @db.Timestamptz(3)
+  readAt              DateTime?         @db.Timestamptz(3)
+
+  // Failed delivery info
+  failedAt            DateTime?         @db.Timestamptz(3)
+  failureReason       String?
+
+  // Relations
+  message             Message           @relation(fields: [messageId], references: [messageId], onDelete: Cascade)
+
+  @@unique([messageId, recipientProfileId])
+  @@index([tenantId, recipientProfileId])
+}
+
+/// UserSignalKey: Signal Protocol identity keys per user
+model UserSignalKey {
+  keyId               String            @id @default(uuid())
+  tenantId            String
+  profileId           String            // UserProfile.profileId
+
+  // Signal Protocol keys (encrypted at rest)
+  identityKeyPublic   String            // Public identity key
+  identityKeyPrivate  String            @db.Text  // Encrypted private key
+  registrationId      Int               // Signal registration ID
+
+  // Signed pre-key (rotated weekly)
+  signedPreKeyId      Int
+  signedPreKeyPublic  String
+  signedPreKeyPrivate String            @db.Text
+  signedPreKeySignature String
+
+  // Status
+  isActive            Boolean           @default(true)
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  revokedAt           DateTime?         @db.Timestamptz(3)
+
+  // One-time pre-keys
+  preKeys             SignalPreKey[]
+
+  @@unique([tenantId, profileId, isActive])
+  @@index([profileId])
+}
+
+/// SignalPreKey: One-time pre-keys for Signal Protocol session establishment
+model SignalPreKey {
+  preKeyId            String            @id @default(uuid())
+  tenantId            String
+  userKeyId           String            // UserSignalKey.keyId
+
+  keyIndex            Int               // Pre-key index
+  publicKey           String
+  privateKey          String            @db.Text  // Encrypted
+
+  isUsed              Boolean           @default(false)
+  usedAt              DateTime?         @db.Timestamptz(3)
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+
+  userSignalKey       UserSignalKey     @relation(fields: [userKeyId], references: [keyId], onDelete: Cascade)
+
+  @@unique([userKeyId, keyIndex])
+  @@index([tenantId, isUsed])
+}
+
+/// GroupEncryptionKey: Symmetric keys for group conversations
+model GroupEncryptionKey {
+  keyId               String            @id @default(uuid())
+  tenantId            String
+  conversationId      String
+
+  // Key versioning (increment on rotation)
+  keyVersion          Int
+  createdByProfileId  String
+
+  // Key wrapped for each participant
+  participantKeys     GroupParticipantKey[]
+
+  // Master key escrow - key encrypted with master key for compliance
+  masterKeyWrapped    String            @db.Text
+
+  // Status
+  isActive            Boolean           @default(true)
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  rotatedAt           DateTime?         @db.Timestamptz(3)
+
+  conversation        Conversation      @relation(fields: [conversationId], references: [conversationId], onDelete: Cascade)
+
+  @@unique([conversationId, keyVersion])
+  @@index([tenantId, conversationId, isActive])
+}
+
+/// GroupParticipantKey: Group key wrapped for individual participants
+model GroupParticipantKey {
+  id                  String            @id @default(uuid())
+  tenantId            String
+  groupKeyId          String
+  participantProfileId String
+
+  // Key encrypted for this participant's public key
+  encryptedKey        String            @db.Text
+
+  groupKey            GroupEncryptionKey @relation(fields: [groupKeyId], references: [keyId], onDelete: Cascade)
+
+  @@unique([groupKeyId, participantProfileId])
+  @@index([participantProfileId])
+}
+
+/// MasterKey: System master keys for compliance decryption
+model MasterKey {
+  keyId               String            @id @default(uuid())
+
+  // Key identification
+  keyVersion          Int               @unique
+  keyFingerprint      String            @unique  // SHA-256 of public key
+
+  // HSM-stored key reference (only public portion stored in DB)
+  publicKeyPem        String            @db.Text
+
+  // Key lifecycle
+  isActive            Boolean           @default(true)
+  activatedAt         DateTime          @default(now()) @db.Timestamptz(3)
+  rotatedAt           DateTime?         @db.Timestamptz(3)
+  deactivatedAt       DateTime?         @db.Timestamptz(3)
+
+  // Audit
+  createdByAdminId    String            // AdminUser.id
+
+  decryptionRequests  MasterKeyDecryptionAudit[]
+
+  @@index([isActive])
+}
+
+/// MasterKeyDecryptionAudit: Immutable audit trail for compliance decryptions
+model MasterKeyDecryptionAudit {
+  auditId             String            @id @default(uuid())
+  tenantId            String
+
+  // Decryption request
+  masterKeyId         String
+  requestedByAdminId  String            // AdminUser.id (SUPER_OWNER only)
+
+  // Target specification
+  targetMessageId     String?           // If decrypting single message
+  targetConversationId String?          // If decrypting conversation
+  targetProfileId     String?           // User being investigated
+  dateRangeStart      DateTime?         @db.Timestamptz(3)
+  dateRangeEnd        DateTime?         @db.Timestamptz(3)
+
+  // Justification (required)
+  reason              MasterKeyDecryptionReason
+  caseNumber          String?           // External case/ticket reference
+  courtOrderNumber    String?           // Legal order reference
+  justification       String            @db.Text
+
+  // Approval workflow (requires second SUPER_OWNER)
+  approvedByAdminId   String?           // Second SUPER_OWNER approval
+  approvedAt          DateTime?         @db.Timestamptz(3)
+  rejectedAt          DateTime?         @db.Timestamptz(3)
+  rejectionReason     String?
+
+  // Execution
+  executedAt          DateTime?         @db.Timestamptz(3)
+  messagesDecrypted   Int               @default(0)
+
+  // Integrity (blockchain-style hash chain)
+  requestHash         String            // SHA-256 of request details
+  previousAuditHash   String?           // Chain to previous audit entry
+
+  // Timestamps
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+
+  masterKey           MasterKey         @relation(fields: [masterKeyId], references: [keyId])
+
+  @@index([tenantId, requestedByAdminId])
+  @@index([targetProfileId])
+  @@index([createdAt])
+  @@index([reason])
+}
+
+/// UserPresence: Online status tracking for messaging
+model UserPresence {
+  profileId           String            @id
+  tenantId            String
+
+  // Status
+  isOnline            Boolean           @default(false)
+  lastSeenAt          DateTime          @db.Timestamptz(3)
+
+  // Active device info
+  deviceId            String?
+  platform            String?           // "ios", "android", "web"
+
+  @@index([tenantId, isOnline])
+}
