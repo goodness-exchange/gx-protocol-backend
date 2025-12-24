@@ -79,6 +79,8 @@ class ConversationService {
    * List user's conversations
    */
   async list(userId: string, options: { limit: number; offset: number }): Promise<ConversationListDTO> {
+    // RELAY-ONLY MODE: No message storage on server
+    // Messages are stored on client devices
     const [conversations, total] = await Promise.all([
       db.conversation.findMany({
         where: {
@@ -94,10 +96,7 @@ class ConversationService {
           participants: {
             where: { leftAt: null },
           },
-          messages: {
-            take: 1,
-            orderBy: { createdAt: 'desc' },
-          },
+          // Note: messages not included - stored on client
         },
         orderBy: { lastMessageAt: 'desc' },
         take: options.limit,
@@ -303,6 +302,10 @@ class ConversationService {
 
   /**
    * Convert database model to DTO
+   *
+   * RELAY-ONLY MODE:
+   * - lastMessage is not included (stored on client)
+   * - Client maintains its own message history
    */
   private toDTO(conversation: any): ConversationDTO {
     const participant = conversation.participants?.[0];
@@ -324,16 +327,9 @@ class ConversationService {
         isOnline: false, // TODO: Check presence
         lastSeenAt: null,
       })),
-      lastMessage: conversation.messages?.[0]
-        ? {
-            messageId: conversation.messages[0].messageId,
-            senderProfileId: conversation.messages[0].senderProfileId,
-            senderDisplayName: conversation.messages[0].senderProfileId,
-            type: conversation.messages[0].type,
-            previewText: '[Encrypted]',
-            createdAt: conversation.messages[0].createdAt.toISOString(),
-          }
-        : undefined,
+      // Note: lastMessage not included in relay-only mode
+      // Client stores message history locally
+      lastMessage: undefined,
     };
   }
 }

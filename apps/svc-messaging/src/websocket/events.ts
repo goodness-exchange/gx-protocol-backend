@@ -28,6 +28,13 @@ export const WS_EVENTS = {
   MESSAGE_ERROR: 'message:error',
 
   // ==========================================
+  // Relay Mode Events (Client Storage)
+  // ==========================================
+  PENDING_MESSAGES: 'pending:messages',         // Offline messages delivered on reconnect
+  SYNC_REQUEST: 'sync:request',                 // Client requests sync status
+  SYNC_COMPLETE: 'sync:complete',               // Server confirms sync
+
+  // ==========================================
   // Voice Message Events
   // ==========================================
   VOICE_UPLOAD_START: 'voice:upload:start',
