@@ -15,6 +15,7 @@ import {
 } from '../types/approval.types';
 import { notificationService } from './notification.service';
 import type { ApprovalNotificationData } from '../types/notification.types';
+import { deploymentService } from './deployment.service';
 
 // ============================================================================
 // Type Definitions for Prisma Results
@@ -732,11 +733,45 @@ class ApprovalService {
     }
   }
 
-  // Placeholder execution handlers - to be implemented with actual logic
+  // Execute deployment promotion via deployment service
   private async executeDeploymentPromotion(context: ApprovalExecutionContext): Promise<ApprovalExecutionResult> {
     logger.info({ context }, 'Executing deployment promotion');
-    // TODO: Integrate with deployment service
-    return { success: true, data: { message: 'Deployment promotion executed (placeholder)' } };
+
+    try {
+      // Extract deployment ID from payload
+      const payload = context.payload as { deploymentId?: string } | null;
+      if (!payload?.deploymentId) {
+        return {
+          success: false,
+          error: 'Missing deploymentId in approval payload',
+        };
+      }
+
+      // Execute the deployment
+      const result = await deploymentService.executeDeployment(
+        payload.deploymentId,
+        context.approverId
+      );
+
+      return {
+        success: true,
+        data: {
+          message: 'Deployment promotion started',
+          deploymentId: result.deployment.id,
+          service: result.deployment.service,
+          targetEnv: result.deployment.targetEnv,
+          imageTag: result.deployment.imageTag,
+          status: result.deployment.status,
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error, context }, 'Deployment promotion failed');
+      return {
+        success: false,
+        error: `Deployment promotion failed: ${errorMessage}`,
+      };
+    }
   }
 
   private async executeUserFreeze(context: ApprovalExecutionContext): Promise<ApprovalExecutionResult> {
