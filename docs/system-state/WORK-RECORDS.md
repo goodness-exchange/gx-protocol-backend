@@ -61,6 +61,21 @@
 | SELF_APPROVAL_NOT_ALLOWED error | Used two-person workflow: manazir creates, superowner approves |
 | ImagePullBackOff on srv1117946 (vps2) | Created /etc/rancher/k3s/registries.yaml on vps2 with insecure registry config |
 | MainNet postgres-1/redis-0 Pending | Changed vps2 node-role label from 'secondary' to 'primary' |
+| TestNet outbox-submitter restarts | Transient PostgreSQL connectivity - self-healed via K8s restart |
+| VPS5 SSH brute-force attacks (1336 attempts) | Permanently blocked 20 attacker IPs via firewalld |
+| VPS4 disk at 41% (old images accumulating) | Ran aggressive cleanup, freed 39GB (41% → 31%) |
+| Cleanup scripts not aggressive enough | Updated cleanup-images.sh to remove old image versions |
+
+5. **Infrastructure Maintenance**
+
+   | Task | Details | Result |
+   |------|---------|--------|
+   | Full system health check | All 5 VPSs, all environments | All healthy |
+   | Backup verification | Past 5 days on all VPSs | All successful |
+   | Security scan verification | All VPSs | Running, no threats |
+   | VPS5 attacker IP blocking | 20 IPs permanently blocked | Firewalld rules saved |
+   | VPS4 disk cleanup | Old container images removed | 39GB freed |
+   | Cleanup script upgrade | Now removes old image versions | Deployed to VPS4 |
 
 #### Lessons Learned
 
@@ -68,6 +83,8 @@
 2. **Source Code as Truth**: Always verify API schemas from controller validation code
 3. **Container vs K8S Ports**: K8S service port (80) differs from container port (3006, etc.)
 4. **Living Documentation**: System documents must be updated after each change
+5. **Aggressive Cleanup**: Default `crictl rmi --prune` doesn't remove old tagged versions - must explicitly remove
+6. **Security Monitoring**: Regular failed login audits across all VPSs catch brute-force attacks early
 
 ---
 
