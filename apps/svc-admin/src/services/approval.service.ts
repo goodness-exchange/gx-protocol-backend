@@ -381,6 +381,26 @@ class ApprovalService {
       },
     });
 
+    // Update linked deployment record status if this is a deployment approval
+    if (approval.requestType === 'DEPLOYMENT_PROMOTION') {
+      const payload = approval.payload as { deploymentId?: string } | null;
+      if (payload?.deploymentId) {
+        const deploymentStatus = vote.decision === 'APPROVE' ? 'APPROVED' : 'CANCELLED';
+        await db.deploymentRecord.update({
+          where: { id: payload.deploymentId },
+          data: {
+            status: deploymentStatus,
+            approvedBy: vote.decision === 'APPROVE' ? approverId : undefined,
+            approvedAt: vote.decision === 'APPROVE' ? new Date() : undefined,
+          },
+        });
+        logger.info(
+          { deploymentId: payload.deploymentId, status: deploymentStatus },
+          'Updated deployment record status after approval vote'
+        );
+      }
+    }
+
     // Log to audit trail
     await this.logApprovalAction(approverId, `approval:${vote.decision.toLowerCase()}`, approvalId, {
       requestType: approval.requestType,
