@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: svc-messaging
+  name: svc-messaging
+  namespace: backend-mainnet
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: svc-messaging
+  template:
+    metadata:
+      labels:
+        app: svc-messaging
+    spec:
+      containers:
+      - env:
+        - name: PORT
+          value: "3007"
+        - name: MESSAGING_SERVICE_PORT
+          value: "3007"
+        - name: WEBSOCKET_PORT
+          value: "3008"
+        - name: REDIS_URL
+          value: "redis://:Vqgag%2Fj9zz6pb5mXSfSNY0C%2FQt86zPojErs43Zq7vMA%3D@redis-master.backend-mainnet.svc.cluster.local:6379"
+        - name: MASTER_KEY_ENABLED
+          value: "false"
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        - secretRef:
+            name: backend-secrets
+        image: 10.43.75.195:5000/gx-svc-messaging:file-sharing
+        imagePullPolicy: Always
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3007
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        name: svc-messaging
+        ports:
+        - containerPort: 3007
+          name: http
+          protocol: TCP
+        - containerPort: 3008
+          name: websocket
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3007
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+      nodeSelector:
+        node-role: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: svc-messaging
+  name: svc-messaging
+  namespace: backend-mainnet
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3007
+    protocol: TCP
+  - name: websocket
+    port: 3008
+    targetPort: 3008
+    protocol: TCP
+  selector:
+    app: svc-messaging
+  type: ClusterIP
