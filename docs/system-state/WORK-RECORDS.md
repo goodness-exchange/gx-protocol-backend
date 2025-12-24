@@ -38,6 +38,7 @@
    | svc-admin | 2.1.15 | DevNet | Success |
    | svc-admin | 2.1.15 | TestNet | Success |
    | svc-admin | 2.1.15 | **MainNet** | **Success** |
+   | gx-wallet-frontend | 1.2.0 | **MainNet** | **Success** |
 
 4. **Documentation Created**
 
@@ -57,6 +58,8 @@
 | Multiple API field name mismatches | Referenced controller source for exact field names |
 | Pod readiness failing due to projectionLag | Proceeded with deployment (unrelated infrastructure issue) |
 | Port forwards dying unexpectedly | Used nohup and fuser to manage |
+| SELF_APPROVAL_NOT_ALLOWED error | Used two-person workflow: manazir creates, superowner approves |
+| ImagePullBackOff on srv1117946 (vps2) | Created /etc/rancher/k3s/registries.yaml on vps2 with insecure registry config |
 
 #### Lessons Learned
 
@@ -91,9 +94,9 @@
 |--------|-------|
 | Deployments to DevNet | 15+ |
 | Deployments to TestNet | 8 |
-| Deployments to MainNet | 5 |
+| Deployments to MainNet | 6 |
 | Rollbacks | 1 |
-| Critical Issues Fixed | 4 |
+| Critical Issues Fixed | 6 |
 
 ---
 

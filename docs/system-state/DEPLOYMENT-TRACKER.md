@@ -1,7 +1,7 @@
 # Deployment Version Tracker
 
 > **LIVING DOCUMENT**: Update after every deployment.
-> Last Updated: 2025-12-24T06:17:00Z
+> Last Updated: 2025-12-24T06:39:00Z
 
 ## Current Versions by Environment
 
@@ -38,7 +38,7 @@
 | svc-loanpool | 2.1.5 | 2.1.4 | 2025-12-15 | Running |
 | svc-tax | 2.1.5 | 2.1.4 | 2025-12-15 | Running |
 | svc-organization | 2.1.5 | 2.1.4 | 2025-12-15 | Running |
-| gx-wallet-frontend | 1.0.0 | - | 2025-12-10 | Running |
+| gx-wallet-frontend | 1.2.0 | 1.0.0 | 2025-12-24 | Running |
 | outbox-submitter | 2.1.6 | 2.1.5 | 2025-12-15 | Running |
 | projector | 2.1.5 | 2.1.4 | 2025-12-15 | Running |
 
@@ -68,6 +68,7 @@
 
 | Time (UTC) | Service | Version | Environment | Action | Result |
 |------------|---------|---------|-------------|--------|--------|
+| 06:39:00 | gx-wallet-frontend | 1.2.0 | **MainNet** | Promote from TestNet | **SUCCESS** |
 | 06:17:04 | svc-admin | 2.1.15 | **MainNet** | Promote from TestNet | **SUCCESS** |
 | 05:36:33 | svc-admin | 2.1.15 | TestNet | Promote from DevNet | SUCCESS |
 | 05:15:00 | svc-admin | 2.1.15 | DevNet | Deploy new build | SUCCESS |
