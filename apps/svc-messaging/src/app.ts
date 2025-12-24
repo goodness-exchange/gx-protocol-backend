@@ -19,6 +19,7 @@ import healthRoutes from './routes/health.routes';
 import conversationRoutes from './routes/conversation.routes';
 import messageRoutes from './routes/message.routes';
 import voiceRoutes from './routes/voice.routes';
+import fileRoutes from './routes/file.routes';
 import keyRoutes from './routes/key.routes';
 import groupRoutes from './routes/group.routes';
 // Note: Compliance routes removed - relay-only mode with no server-side message storage
@@ -141,6 +142,7 @@ export function createApp(): { app: Application; httpServer: HttpServer; io: Soc
   app.use('/api/v1/conversations', conversationRoutes);
   app.use('/api/v1/messages', messageRoutes);
   app.use('/api/v1/voice', voiceRoutes);
+  app.use('/api/v1/files', fileRoutes);
   app.use('/api/v1/keys', keyRoutes);
   app.use('/api/v1/groups', groupRoutes);
   // Note: /api/v1/admin/compliance removed - relay-only mode
