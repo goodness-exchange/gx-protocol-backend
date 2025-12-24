@@ -60,6 +60,7 @@
 | Port forwards dying unexpectedly | Used nohup and fuser to manage |
 | SELF_APPROVAL_NOT_ALLOWED error | Used two-person workflow: manazir creates, superowner approves |
 | ImagePullBackOff on srv1117946 (vps2) | Created /etc/rancher/k3s/registries.yaml on vps2 with insecure registry config |
+| MainNet postgres-1/redis-0 Pending | Changed vps2 node-role label from 'secondary' to 'primary' |
 
 #### Lessons Learned
 
