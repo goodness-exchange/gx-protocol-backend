@@ -1,147 +1,148 @@
 # Session Context - December 25, 2025
 
-> Resume file for continuing work on GX Protocol - Frontend File Upload UI
+> Resume file for continuing work on GX Protocol - File Upload E2E Testing Complete
 
 ## Current State Summary
 
-### Frontend File Upload UI (gx-wallet-frontend)
+### File Upload & Download - E2E WORKING
 
-Implemented complete file upload UI for the messaging system to integrate with the backend file sharing API deployed on Dec 24.
+Completed end-to-end testing and fixed issues with the file upload and download flow:
 
-#### Components Created/Modified
+1. **MinIO Deployed for DevNet S3 Storage**
+   - Deployed MinIO StatefulSet in backend-devnet namespace
+   - Bucket: `gx-voice-messages`
+   - Credentials: gxdevnet / GxDevNet2025S3Storage
+   - Internal endpoint: http://minio.backend-devnet.svc.cluster.local:9000
 
-| File | Status | Description |
-|------|--------|-------------|
-| `components/messaging/types.ts` | Modified | Added FILE/IMAGE types, upload progress types, file utilities |
-| `components/messaging/hooks/useFileUpload.ts` | New | File upload hook with progress tracking |
-| `components/messaging/hooks/useMessageStore.ts` | New | IndexedDB storage for relay-only messaging |
-| `components/messaging/hooks/useMessages.ts` | Modified | Now uses IndexedDB instead of server storage |
-| `components/messaging/MessageInput.tsx` | Modified | Added attachment button, upload progress UI |
-| `components/messaging/MessageBubble.tsx` | Modified | Renders FILE and IMAGE message types |
-| `components/messaging/ImageLightbox.tsx` | New | Full-screen image viewer with zoom |
-| `components/messaging/ChatContainer.tsx` | Modified | Integrates file upload hook |
-| `components/messaging/MessageList.tsx` | Modified | Passes image click handler |
-| `components/messaging/index.ts` | Modified | Exports new components and hooks |
-| `lib/icons.ts` | Modified | Added file-related icons |
-| `Dockerfile` | Modified | Added build args for API URLs |
+2. **Backend S3 Configuration Added**
+   - Custom S3 endpoint support for MinIO/Wasabi
+   - Path-style URL support for non-AWS providers
+   - Environment variables: S3_ENDPOINT, S3_FORCE_PATH_STYLE
 
-### Features Implemented
+3. **Download Endpoint Fixed**
+   - Changed from path parameter to query parameter (storageKey contains slashes)
+   - Added proxy download endpoint that streams through backend
+   - GET /api/v1/files/url?storageKey=... (presigned URL)
+   - GET /api/v1/files/download?storageKey=... (proxy stream)
 
-1. **File Attachment Button**
-   - Paperclip icon with dropdown menu
-   - Options: "Photos & Images" and "Documents"
-   - Proper accept attributes for file types
+### Git Commits Made
 
-2. **Upload Progress UI**
-   - Thumbnail preview for images
-   - Progress bar with percentage
-   - File size display
-   - Cancel button
-   - Status indicators (uploading, completed, failed)
-
-3. **Message Rendering**
-   - IMAGE type: Thumbnail with click-to-view, hover download
-   - FILE type: Document card with type-specific icons
-     - PDF (red), DOC (blue), XLS (green), PPT (orange), TXT (gray)
-   - Download on click
-
-4. **Image Lightbox**
-   - Full-screen overlay
-   - Zoom in/out controls
-   - Download button
-   - Close on Escape or click outside
-   - Sender info and timestamp
-
-5. **IndexedDB Storage**
-   - Messages stored locally in IndexedDB
-   - No server-side message history (relay-only)
-   - Pagination from local storage
-
-### Git Branch Status
-
-**Branch**: `dev`
-**Last Commit**: `b6f794e` - fix(docker): add build args for Next.js public environment variables
-**Remote**: Pushed to `origin/dev`
-
-### Recent Commits (Dec 25)
+#### Backend (gx-protocol-backend) - development branch
 ```
-b6f794e fix(docker): add build args for Next.js public environment variables
-af779f1 feat(messaging): implement IndexedDB storage for relay-only mode
-ad8d412 chore(messaging): export file upload hook, lightbox, and add icons
-37b6e6a feat(messaging): pass image click handler to message bubbles
-70dc74f feat(messaging): integrate file upload into chat container
-02ed0fe feat(messaging): add full-screen image lightbox component
-f98d949 feat(messaging): add file and image rendering in message bubbles
-c95ac98 feat(messaging): add file attachment button and upload progress UI
-ad4b719 feat(messaging): implement file upload hook with progress tracking
-bcea01d feat(messaging): add FILE and IMAGE message types with helper utilities
+104c01a fix(svc-messaging): accept participantProfileIds as alternate field name
+408f025 feat(svc-messaging): add custom S3 endpoint and file stream methods
+e1b6e78 feat(svc-messaging): add proxy download controller with storageKey param
+c5743d1 feat(svc-messaging): update file download route and add proxy endpoint
+4b361f6 feat(svc-messaging): add custom S3 endpoint support for MinIO compatibility
 ```
 
-### Supported File Types
+#### Frontend (gx-wallet-frontend) - dev branch
+```
+42c4b7d feat(messaging): update file download to use proxy endpoint
+```
 
-| Category | Types | Max Size |
-|----------|-------|----------|
-| Documents | PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, CSV | 10-50 MB |
-| Images | JPG, PNG, GIF, WEBP, HEIC, HEIF | 10 MB |
+### Files Modified
 
-### API Integration
+#### Backend
+| File | Changes |
+|------|---------|
+| `apps/svc-messaging/src/config.ts` | Added s3Endpoint, s3ForcePathStyle config |
+| `apps/svc-messaging/src/routes/file.routes.ts` | Changed to query param, added proxy route |
+| `apps/svc-messaging/src/controllers/file-relay.controller.ts` | Added proxyDownload, updated getDownloadUrl |
+| `apps/svc-messaging/src/services/file-relay.service.ts` | Added custom endpoint, getFileStream method |
 
-The frontend now integrates with the svc-messaging file endpoints:
+#### Frontend
+| File | Changes |
+|------|---------|
+| `components/messaging/MessageBubble.tsx` | Use proxy endpoint for downloads |
+
+### Conversation Creation Fix (December 25, 04:06 UTC)
+
+Fixed conversation creation error where requests using `participantProfileIds` would fail:
+
+**Root Cause**: Controller only accepted `participantIds` but some clients/tests sent `participantProfileIds`
+
+**Fix Applied**:
+- Added backward compatibility for both field names
+- Improved error handling with specific 400 responses for validation errors
+- Enhanced logging to include actual error message
+
+**File Modified**: `apps/svc-messaging/src/controllers/conversation.controller.ts`
+
+### DevNet Deployment Status
+
+| Component | Image Tag | Status |
+|-----------|-----------|--------|
+| svc-messaging | conv-fix | DEPLOYED |
+| MinIO | latest | DEPLOYED |
+| gx-wallet-frontend | file-download | DEPLOYED |
+
+### API Endpoints for File Handling
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/v1/files/conversations/:id` | Upload file |
-| GET | `/api/v1/files/:fileId/url` | Get download URL |
+| POST | `/api/v1/files/conversations/:id` | Upload file (multipart) |
+| GET | `/api/v1/files/url?storageKey=...` | Get presigned download URL |
+| GET | `/api/v1/files/download?storageKey=...` | Proxy download (stream through backend) |
+| GET | `/api/v1/files/info` | Get supported file types info |
 | DELETE | `/api/v1/files/:fileId` | Delete file |
-| GET | `/api/v1/files/info` | Get supported types |
 
-### Testing Status
+### Test Results
 
-- Build: **PASSED** (npm run build)
-- TypeScript: **NO ERRORS**
-- Deployment: Not yet deployed (need to build Docker image)
+```bash
+# Upload test - SUCCESS
+POST /api/v1/files/conversations/d2d777e0-b9ba-4285-9d8c-3b69b69f03d1
+Response: {"success":true,"data":{"messageId":"d0812f1d-263d-47e3-ab94-f96fd89d18f8",...}}
+
+# Get URL - SUCCESS
+GET /api/v1/files/url?storageKey=files%2F...
+Response: {"success":true,"data":{"downloadUrl":"http://minio...."}}
+
+# Proxy Download - SUCCESS
+GET /api/v1/files/download?storageKey=files%2F...
+Response: <file content streamed>
+```
 
 ### Pending/Next Steps
 
-1. **Deploy Frontend to DevNet**
-   ```bash
-   cd /home/sugxcoin/prod-blockchain/gx-wallet-frontend
-   docker build --build-arg NEXT_PUBLIC_API_URL=https://devnet-api.gxcoin.money \
-                --build-arg NEXT_PUBLIC_WS_URL=https://devnet-api.gxcoin.money \
-                -t 10.43.75.195:5000/gx-wallet-frontend:file-upload .
-   docker push 10.43.75.195:5000/gx-wallet-frontend:file-upload
-   kubectl rollout restart deployment/gx-wallet-frontend -n backend-devnet
-   ```
+1. **Add DNS for devnet.gxcoin.money** (Cloudflare)
+   - Point to 217.196.51.190
+   - Currently accessible via /etc/hosts or direct IP with Host header
 
-2. **Test File Upload Flow**
-   - Upload images and documents
-   - Verify progress tracking
-   - Test download functionality
-   - Test image lightbox
+2. **Master Key Escrow** (Phase 2)
 
-3. **Other Pending Work** (from Dec 24)
-   - Master key escrow (Phase 2)
-   - Ingress configuration for WebSocket
+3. **Ingress WebSocket Configuration**
 
-### Quick Commands to Resume
+4. **Deploy to TestNet/MainNet** (when ready)
+   - Copy MinIO deployment or configure external S3
+   - Set S3 environment variables in messaging deployment
+
+### Quick Commands
 
 ```bash
-# Check frontend status
-kubectl get pods -n backend-devnet -l app=gx-wallet-frontend
+# Check MinIO status
+kubectl get pods -n backend-devnet -l app=minio
 
-# Port forward for local testing
-kubectl port-forward svc/gx-wallet-frontend -n backend-devnet 3000:80 &
+# Port forward for testing
+kubectl port-forward svc/svc-messaging -n backend-devnet 3040:80 &
+kubectl port-forward svc/minio -n backend-devnet 9000:9000 &
 
-# View frontend logs
-kubectl logs -n backend-devnet -l app=gx-wallet-frontend --tail=50
+# MinIO CLI
+mc alias set devminio http://localhost:9000 gxdevnet GxDevNet2025S3Storage
+mc ls devminio/gx-voice-messages
 
-# Build and deploy
-cd /home/sugxcoin/prod-blockchain/gx-wallet-frontend
-npm run build
-docker build -t 10.43.75.195:5000/gx-wallet-frontend:latest .
-docker push 10.43.75.195:5000/gx-wallet-frontend:latest
-kubectl rollout restart deployment/gx-wallet-frontend -n backend-devnet
+# Test file upload
+curl -X POST "http://localhost:3040/api/v1/files/conversations/$CONV_ID" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@/tmp/test.txt" \
+  -F "encryptedContent=..." \
+  -F "contentNonce=..." \
+  -F "encryptionKeyId=..."
+
+# Test proxy download
+curl "http://localhost:3040/api/v1/files/download?storageKey=$ENCODED_KEY" \
+  -H "Authorization: Bearer $TOKEN" -o downloaded.txt
 ```
 
 ---
-*Last updated: December 25, 2025, 09:30 UTC*
+*Last updated: December 25, 2025, 04:10 UTC*
