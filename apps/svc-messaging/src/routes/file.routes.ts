@@ -28,11 +28,18 @@ router.post(
   fileRelayController.upload.bind(fileRelayController)
 );
 
-// Get download URL
+// Get download URL (storageKey via query param since it contains slashes)
 router.get(
-  '/:fileId/url',
+  '/url',
   authenticateJWT,
   fileRelayController.getDownloadUrl.bind(fileRelayController)
+);
+
+// Proxy download (streams file through backend for external access)
+router.get(
+  '/download',
+  authenticateJWT,
+  fileRelayController.proxyDownload.bind(fileRelayController)
 );
 
 // Delete file
