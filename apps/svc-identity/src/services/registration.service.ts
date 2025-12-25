@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { logger } from '@gx/core-logger';
 import { db } from '@gx/core-db';
@@ -808,10 +809,10 @@ class RegistrationService {
    */
   private async migrateToUserProfile(registration: any) {
     // Generate placeholder biometric hash (will be replaced with actual biometric in KYC)
-    const biometricPlaceholder = await bcrypt.hash(
-      `${registration.email}:${Date.now()}`,
-      10
-    );
+    // Must be 64-character SHA-256 hex string for blockchain chaincode compatibility
+    const biometricPlaceholder = crypto.createHash('sha256')
+      .update(`${registration.email}:${Date.now()}`)
+      .digest('hex');
 
     // Create user profile (NOT yet on blockchain - that happens after admin approval)
     const user = await db.userProfile.create({

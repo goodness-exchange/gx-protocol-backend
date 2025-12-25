@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { logger } from '@gx/core-logger';
 import { db, PrismaClient } from '@gx/core-db';
 import type {
@@ -60,8 +61,9 @@ class UsersService {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Generate a simple biometric hash placeholder (in production, this would be actual biometric data)
-    const biometricHash = await bcrypt.hash(`${email}:${Date.now()}`, 10);
+    // Generate a SHA-256 biometric hash placeholder (in production, this would be actual biometric data)
+    // Must be 64-character hex string for blockchain chaincode compatibility
+    const biometricHash = crypto.createHash('sha256').update(`${email}:${Date.now()}`).digest('hex');
 
     // Create local user profile (off-chain)
     // Blockchain registration happens after KYC approval via svc-admin.batchRegisterOnchain()

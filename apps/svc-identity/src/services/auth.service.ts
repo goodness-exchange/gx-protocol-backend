@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { logger } from '@gx/core-logger';
 import { db } from '@gx/core-db';
@@ -57,8 +58,8 @@ class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
 
     // Generate placeholder biometric hash (will be updated during KYC)
-    // Using email + timestamp to ensure uniqueness
-    const biometricPlaceholder = await bcrypt.hash(`${email}:${Date.now()}`, 10);
+    // Must be 64-character SHA-256 hex string for blockchain chaincode compatibility
+    const biometricPlaceholder = crypto.createHash('sha256').update(`${email}:${Date.now()}`).digest('hex');
 
     // Parse date of birth
     const dob = new Date(dateOfBirth);
