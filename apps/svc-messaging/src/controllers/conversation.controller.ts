@@ -11,13 +11,16 @@ class ConversationController {
    */
   create = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const body = req.body as Partial<CreateConversationDTO>;
+      const body = req.body as Partial<CreateConversationDTO> & { participantProfileIds?: string[] };
       const userId = req.user!.profileId;
+
+      // Accept both participantIds and participantProfileIds for backward compatibility
+      const participants = body.participantIds || body.participantProfileIds || [];
 
       // Default to DIRECT conversation type if not specified
       const dto: CreateConversationDTO = {
         type: body.type || ConversationType.DIRECT,
-        participantIds: body.participantIds || [],
+        participantIds: participants,
         name: body.name,
         linkedTransactionId: body.linkedTransactionId,
       };
@@ -29,7 +32,18 @@ class ConversationController {
         data: conversation,
       });
     } catch (error) {
-      logger.error({ error }, 'Failed to create conversation');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error, errorMessage }, 'Failed to create conversation');
+
+      // Return more specific error for validation failures
+      if (errorMessage.includes('must have exactly') || errorMessage.includes('participant')) {
+        res.status(400).json({
+          error: 'Bad Request',
+          message: errorMessage,
+        });
+        return;
+      }
+
       res.status(500).json({
         error: 'Internal Server Error',
         message: 'Failed to create conversation',
