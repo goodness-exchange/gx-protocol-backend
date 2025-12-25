@@ -178,6 +178,7 @@ function selectIdentityForCommand(commandType: string): string {
     'ACTIVATE_TREASURY',
     'DISTRIBUTE_GENESIS', // Requires gx_admin role for genesis token distribution
     'TRANSFER_TOKENS', // Uses TransferInternal which requires Admin role
+    'Q_SEND_PAY', // Uses TransferWithFees which requires Admin role
   ];
 
   // For super admin commands, use Org1 super-admin
@@ -713,12 +714,16 @@ class OutboxSubmitter {
 
     // Submit transaction using selected identity with explicit endorsing organizations
     // The chaincode uses default endorsement policy which requires MAJORITY (both orgs)
-    // We explicitly specify both Org1MSP and Org2MSP to ensure proper endorsement
+    // We explicitly specify both Org1 and Org2 MSPs to ensure proper endorsement
+    // Use environment-specific MSP IDs (e.g., Org1DevnetMSP, Org2DevnetMSP)
+    const org1MspId = process.env.FABRIC_MSP_ID || 'Org1MSP';
+    const org2MspId = process.env.FABRIC_ORG2_MSP_ID || 'Org2MSP';
+
     const result = await fabricClient.submitTransactionWithOptions({
       contractName,
       functionName,
       args,
-      endorsingOrganizations: ['Org1MSP', 'Org2MSP'],
+      endorsingOrganizations: [org1MspId, org2MspId],
     });
 
     this.log('info', 'Transaction submitted successfully', {
@@ -986,6 +991,23 @@ class OutboxSubmitter {
           ],
         };
 
+      // ========== Q Send (QR-based Payments) ==========
+      case 'Q_SEND_PAY':
+        // Q Send uses TransferWithFees for person-to-person transfer
+        // The fee structure is determined by the chaincode based on account types
+        return {
+          contractName: 'TokenomicsContract',
+          functionName: 'TransferWithFees',
+          args: [
+            payload.fromUserId as string,
+            payload.toUserId as string,
+            payload.amount.toString(),
+            'P2P', // Transaction type hint for fee calculation
+            payload.remark as string || 'Q Send payment',
+            `qsend-${payload.qsendRequestCode}`, // Idempotency key
+          ],
+        };
+
       default:
         throw new Error(`Unknown command type: ${commandType}`);
     }
@@ -1200,6 +1222,114 @@ class OutboxSubmitter {
           error: error.message,
           fromUserId: payload.fromUserId,
           toUserId: payload.toUserId,
+          txId: result.transactionId,
+        });
+      }
+    }
+
+    // Handle Q_SEND_PAY: Update QSendRequest with transaction ID and sync balances
+    if (commandType === 'Q_SEND_PAY') {
+      try {
+        const fromUserId = payload.fromUserId as string;
+        const toUserId = payload.toUserId as string;
+        const amount = payload.amount as number;
+        const qsendRequestId = payload.qsendRequestId as string;
+        const qsendRequestCode = payload.qsendRequestCode as string;
+
+        // Update QSendRequest with on-chain transaction ID
+        await this.prisma.qSendRequest.update({
+          where: { id: qsendRequestId },
+          data: {
+            onChainTxId: result.transactionId,
+          },
+        });
+
+        this.log('info', 'Updated QSendRequest with on-chain transaction ID', {
+          qsendRequestId,
+          qsendRequestCode,
+          txId: result.transactionId,
+        });
+
+        // Find sender and receiver profiles
+        const [senderProfile, receiverProfile] = await Promise.all([
+          this.prisma.userProfile.findFirst({ where: { fabricUserId: fromUserId } }),
+          this.prisma.userProfile.findFirst({ where: { fabricUserId: toUserId } }),
+        ]);
+
+        // Sync both wallets from blockchain
+        if (senderProfile) {
+          const senderWallet = await this.prisma.wallet.findFirst({
+            where: { profileId: senderProfile.profileId, deletedAt: null },
+          });
+          if (senderWallet) {
+            await this.syncWalletBalanceFromBlockchain(fromUserId, senderWallet.walletId);
+          }
+        }
+
+        if (receiverProfile) {
+          const receiverWallet = await this.prisma.wallet.findFirst({
+            where: { profileId: receiverProfile.profileId, deletedAt: null },
+          });
+          if (receiverWallet) {
+            await this.syncWalletBalanceFromBlockchain(toUserId, receiverWallet.walletId);
+          }
+        }
+
+        // Create notifications
+        const { randomUUID } = await import('crypto');
+        const formattedAmount = amount.toLocaleString();
+
+        if (senderProfile) {
+          const receiverName = receiverProfile
+            ? `${receiverProfile.firstName || ''} ${receiverProfile.lastName || ''}`.trim() || 'Unknown'
+            : toUserId.slice(0, 15) + '...';
+
+          await this.prisma.notification.create({
+            data: {
+              notificationId: randomUUID(),
+              tenantId: 'default',
+              recipientId: senderProfile.profileId,
+              type: 'WALLET_DEBITED',
+              title: 'Q Send Payment Sent',
+              message: `You sent ${formattedAmount} Q to ${receiverName} via Q Send (${qsendRequestCode})`,
+              actionUrl: '/qsend',
+              actionRequired: false,
+            },
+          });
+        }
+
+        if (receiverProfile) {
+          const senderName = senderProfile
+            ? `${senderProfile.firstName || ''} ${senderProfile.lastName || ''}`.trim() || 'Unknown'
+            : fromUserId.slice(0, 15) + '...';
+
+          await this.prisma.notification.create({
+            data: {
+              notificationId: randomUUID(),
+              tenantId: 'default',
+              recipientId: receiverProfile.profileId,
+              type: 'WALLET_CREDITED',
+              title: 'Q Send Payment Received',
+              message: `You received ${formattedAmount} Q from ${senderName} via Q Send (${qsendRequestCode})`,
+              actionUrl: '/qsend',
+              actionRequired: false,
+            },
+          });
+        }
+
+        this.log('info', 'Processed Q_SEND_PAY post-commit side effects', {
+          fromUserId,
+          toUserId,
+          amount,
+          qsendRequestCode,
+          txId: result.transactionId,
+        });
+      } catch (error: any) {
+        // Log error but don't fail the command - the blockchain transaction succeeded
+        this.log('error', 'Failed to process Q_SEND_PAY post-commit side effects', {
+          error: error.message,
+          qsendRequestId: payload.qsendRequestId,
+          qsendRequestCode: payload.qsendRequestCode,
           txId: result.transactionId,
         });
       }
