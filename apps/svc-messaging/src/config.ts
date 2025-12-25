@@ -28,6 +28,8 @@ const configSchema = z.object({
   // Voice Message Storage (S3)
   s3BucketVoice: z.string().default('gx-voice-messages'),
   s3Region: z.string().default('us-east-1'),
+  s3Endpoint: z.string().optional(), // Custom S3 endpoint for MinIO/Wasabi/etc
+  s3ForcePathStyle: z.coerce.boolean().default(false), // Required for MinIO
   awsAccessKeyId: z.string().optional(),
   awsSecretAccessKey: z.string().optional(),
 
@@ -86,6 +88,8 @@ export const messagingConfig: MessagingConfig = configSchema.parse({
   // S3 Configuration
   s3BucketVoice: process.env.S3_BUCKET_VOICE || 'gx-voice-messages',
   s3Region: process.env.S3_REGION || process.env.AWS_REGION || 'us-east-1',
+  s3Endpoint: process.env.S3_ENDPOINT,
+  s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
   awsAccessKeyId: process.env.AWS_ACCESS_KEY_ID,
   awsSecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
 
