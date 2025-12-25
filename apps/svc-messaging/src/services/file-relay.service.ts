@@ -52,14 +52,22 @@ class FileRelayService {
 
   private initS3Client(): void {
     if (messagingConfig.s3Region && messagingConfig.awsAccessKeyId && messagingConfig.awsSecretAccessKey) {
-      this.s3Client = new S3Client({
+      const s3Config: ConstructorParameters<typeof S3Client>[0] = {
         region: messagingConfig.s3Region,
         credentials: {
           accessKeyId: messagingConfig.awsAccessKeyId,
           secretAccessKey: messagingConfig.awsSecretAccessKey,
         },
-      });
-      logger.info('FileRelayService S3 client initialized');
+      };
+
+      // Support custom S3 endpoints (MinIO, Wasabi, etc.)
+      if (messagingConfig.s3Endpoint) {
+        s3Config.endpoint = messagingConfig.s3Endpoint;
+        s3Config.forcePathStyle = messagingConfig.s3ForcePathStyle;
+      }
+
+      this.s3Client = new S3Client(s3Config);
+      logger.info({ endpoint: messagingConfig.s3Endpoint || 'AWS S3' }, 'FileRelayService S3 client initialized');
     } else {
       logger.warn('S3 credentials not configured, file storage disabled');
     }
@@ -256,6 +264,56 @@ class FileRelayService {
       }
 
       return result;
+    } catch (error: any) {
+      if (error.name === 'NoSuchKey') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get file stream for proxy download
+   */
+  async getFileStream(fileStorageKey: string, profileId: string): Promise<{
+    body: NodeJS.ReadableStream;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  } | null> {
+    if (!this.s3Client) {
+      throw new Error('File storage not configured');
+    }
+
+    // Extract conversation ID from storage key
+    const parts = fileStorageKey.split('/');
+    if (parts.length < 3) {
+      return null;
+    }
+    const conversationId = parts[1];
+
+    // Verify user is participant
+    const isParticipant = await this.isParticipant(conversationId, profileId);
+    if (!isParticipant) {
+      throw new Error('Access denied: not a participant');
+    }
+
+    try {
+      const response = await this.s3Client.send(new GetObjectCommand({
+        Bucket: messagingConfig.s3BucketVoice,
+        Key: fileStorageKey,
+      }));
+
+      if (!response.Body) {
+        return null;
+      }
+
+      return {
+        body: response.Body as NodeJS.ReadableStream,
+        fileName: response.Metadata?.['original-filename'] || 'download',
+        mimeType: response.ContentType || 'application/octet-stream',
+        sizeBytes: response.ContentLength || 0,
+      };
     } catch (error: any) {
       if (error.name === 'NoSuchKey') {
         return null;
