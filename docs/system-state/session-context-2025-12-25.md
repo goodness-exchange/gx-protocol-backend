@@ -69,13 +69,39 @@ Fixed conversation creation error where requests using `participantProfileIds` w
 
 **File Modified**: `apps/svc-messaging/src/controllers/conversation.controller.ts`
 
+### WebSocket Real-Time Messaging (December 25, 04:35 UTC)
+
+Configured WebSocket support for real-time messaging via ingress:
+
+**Ingress Configuration**:
+- Added WebSocket annotations for HTTP/1.1 upgrade support
+- Added `/socket.io` route to svc-messaging
+- Sticky sessions via `upstream-hash-by: "$remote_addr"`
+
+**Backend Status**:
+- Socket.io server running with Redis adapter for horizontal scaling
+- JWT authentication for WebSocket connections
+- Event handlers for messages, typing indicators, presence
+
+**Frontend Status**:
+- Rebuilt with `NEXT_PUBLIC_WS_URL=http://devnet.gxcoin.money`
+- useWebSocket hook connects automatically when authenticated
+
+**Test Results**:
+```
+Connecting to: http://devnet.gxcoin.money
+SUCCESS: Connected!
+Socket ID: izJCKKYqEw5-Kte0AAAD
+Transport: websocket
+```
+
 ### DevNet Deployment Status
 
 | Component | Image Tag | Status |
 |-----------|-----------|--------|
 | svc-messaging | conv-fix | DEPLOYED |
 | MinIO | latest | DEPLOYED |
-| gx-wallet-frontend | file-download | DEPLOYED |
+| gx-wallet-frontend | websocket | DEPLOYED |
 
 ### API Endpoints for File Handling
 
@@ -105,15 +131,13 @@ Response: <file content streamed>
 
 ### Pending/Next Steps
 
-1. **Add DNS for devnet.gxcoin.money** (Cloudflare)
-   - Point to 217.196.51.190
-   - Currently accessible via /etc/hosts or direct IP with Host header
+1. **Master Key Escrow** (Phase 2)
 
-2. **Master Key Escrow** (Phase 2)
+2. **Add TLS/HTTPS for devnet.gxcoin.money**
+   - Currently HTTP only
+   - Consider Let's Encrypt or Cloudflare proxy
 
-3. **Ingress WebSocket Configuration**
-
-4. **Deploy to TestNet/MainNet** (when ready)
+3. **Deploy to TestNet/MainNet** (when ready)
    - Copy MinIO deployment or configure external S3
    - Set S3 environment variables in messaging deployment
 
@@ -145,4 +169,4 @@ curl "http://localhost:3040/api/v1/files/download?storageKey=$ENCODED_KEY" \
 ```
 
 ---
-*Last updated: December 25, 2025, 04:10 UTC*
+*Last updated: December 25, 2025, 04:40 UTC*
