@@ -96,12 +96,12 @@ class FileRelayController {
   }
 
   /**
-   * GET /api/v1/files/:fileId/url
+   * GET /api/v1/files/url?storageKey=...
    * Get presigned download URL for file
    */
   async getDownloadUrl(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { fileId } = req.params;
+      const storageKey = req.query.storageKey as string;
       const userId = req.user?.profileId;
 
       if (!userId) {
@@ -109,8 +109,12 @@ class FileRelayController {
         return;
       }
 
-      // fileId is the storage key
-      const result = await fileRelayService.getDownloadUrl(fileId, userId);
+      if (!storageKey) {
+        res.status(400).json({ success: false, error: 'Missing storageKey query parameter' });
+        return;
+      }
+
+      const result = await fileRelayService.getDownloadUrl(storageKey, userId);
 
       if (!result) {
         res.status(404).json({
@@ -131,6 +135,53 @@ class FileRelayController {
         res.status(403).json({ success: false, error: error.message });
       } else {
         res.status(500).json({ success: false, error: 'Failed to get download URL' });
+      }
+    }
+  }
+
+  /**
+   * GET /api/v1/files/download?storageKey=...
+   * Proxy download - streams file through backend for external access
+   */
+  async proxyDownload(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const storageKey = req.query.storageKey as string;
+      const userId = req.user?.profileId;
+
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      if (!storageKey) {
+        res.status(400).json({ success: false, error: 'Missing storageKey query parameter' });
+        return;
+      }
+
+      const stream = await fileRelayService.getFileStream(storageKey, userId);
+
+      if (!stream) {
+        res.status(404).json({
+          success: false,
+          error: 'File not found or expired',
+        });
+        return;
+      }
+
+      // Set headers for download
+      res.setHeader('Content-Type', stream.mimeType);
+      res.setHeader('Content-Length', stream.sizeBytes);
+      res.setHeader('Content-Disposition', `attachment; filename="${stream.fileName}"`);
+
+      // Pipe the S3 stream to response
+      stream.body.pipe(res);
+    } catch (error: any) {
+      logger.error({ error }, 'Failed to proxy file download');
+
+      if (error.message.includes('Access denied')) {
+        res.status(403).json({ success: false, error: error.message });
+      } else {
+        res.status(500).json({ success: false, error: 'Failed to download file' });
       }
     }
   }
@@ -199,7 +250,7 @@ class FileRelayController {
         },
         endpoints: {
           upload: 'POST /api/v1/files/conversations/:conversationId',
-          getUrl: 'GET /api/v1/files/:fileId/url',
+          getUrl: 'GET /api/v1/files/url?storageKey=...',
           delete: 'DELETE /api/v1/files/:fileId',
         },
       },
