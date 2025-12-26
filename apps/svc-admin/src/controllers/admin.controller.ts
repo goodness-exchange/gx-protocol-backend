@@ -113,6 +113,32 @@ class AdminController {
       res.status(500).json({ error: 'Internal Server Error', message: (error as Error).message });
     }
   };
+
+  listAdmins = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { role, isActive, page, limit, search } = req.query;
+      const result = await adminService.listAdmins({
+        role: role as string | undefined,
+        isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+        page: page ? parseInt(page as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        search: search as string | undefined,
+      });
+      res.status(200).json(result);
+    } catch (error) {
+      logger.error({ error }, 'Failed to list admins');
+      res.status(500).json({ error: 'Internal Server Error', message: (error as Error).message });
+    }
+  };
+
+  getAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const admin = await adminService.getAdminById(req.params.adminId);
+      res.status(200).json(admin);
+    } catch (error) {
+      res.status(404).json({ error: 'Not Found', message: (error as Error).message });
+    }
+  };
 }
 
 export const adminController = new AdminController();

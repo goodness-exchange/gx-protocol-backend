@@ -144,6 +144,76 @@ class AdminService {
     if (!counters) throw new Error('Global counters not found');
     return counters;
   }
+
+  async listAdmins(params: { role?: string; isActive?: boolean; page?: number; limit?: number; search?: string }) {
+    const { role, isActive, page = 1, limit = 50, search } = params;
+    const skip = (page - 1) * limit;
+
+    const where: any = { deletedAt: null };
+    if (role) where.role = role;
+    if (isActive !== undefined) where.isActive = isActive;
+    if (search) {
+      where.OR = [
+        { username: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { displayName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [admins, total] = await Promise.all([
+      db.adminUser.findMany({
+        where,
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          displayName: true,
+          role: true,
+          isActive: true,
+          mfaEnabled: true,
+          lastLoginAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      db.adminUser.count({ where }),
+    ]);
+
+    return {
+      admins,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async getAdminById(id: string) {
+    const admin = await db.adminUser.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        displayName: true,
+        role: true,
+        isActive: true,
+        mfaEnabled: true,
+        lastLoginAt: true,
+        lastLoginIp: true,
+        loginFailedAttempts: true,
+        lockedUntil: true,
+        createdAt: true,
+        updatedAt: true,
+        customPermissions: true,
+      },
+    });
+    if (!admin) throw new Error('Admin not found');
+    return admin;
+  }
 }
 
 export const adminService = new AdminService();

@@ -15,6 +15,8 @@ router.post('/parameters', /* authenticateJWT, requireSuperAdmin, */ adminContro
 router.post('/system/pause', /* authenticateJWT, requireSuperAdmin, */ adminController.pauseSystem);
 router.post('/system/resume', /* authenticateJWT, requireSuperAdmin, */ adminController.resumeSystem);
 router.post('/admins', /* authenticateJWT, requireSuperAdmin, */ adminController.appointAdmin);
+router.get('/admins', /* authenticateJWT, requireAdmin, */ adminController.listAdmins);
+router.get('/admins/:adminId', /* authenticateJWT, requireAdmin, */ adminController.getAdmin);
 router.post('/treasury/activate', /* authenticateJWT, requireSuperAdmin, */ adminController.activateTreasury);
 
 router.get('/system/status', adminController.getSystemStatus);
