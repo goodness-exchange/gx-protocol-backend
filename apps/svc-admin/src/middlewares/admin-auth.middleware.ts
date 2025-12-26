@@ -4,6 +4,7 @@ import { logger } from '@gx/core-logger';
 import { adminConfig } from '../config';
 import { AdminAuthenticatedRequest, AdminJWTPayload, AdminAuthErrorCode, AdminRole } from '../types/admin-auth.types';
 import { adminAuthService } from '../services/admin-auth.service';
+import { rbacService } from '../services/rbac.service';
 
 // ============================================================================
 // Admin JWT Authentication Middleware
@@ -179,11 +180,15 @@ export const requireMfaVerified = (
 };
 
 // ============================================================================
-// Permission-Based Access Control Middleware
+// Permission-Based Access Control Middleware (Enhanced with RBAC Service)
 // ============================================================================
 
 /**
- * Require specific permission
+ * Require specific permission (uses RBAC service for comprehensive checking)
+ * Supports:
+ * - Wildcard permissions (e.g., user:* matches user:view:all)
+ * - MFA requirement checking
+ * - Approval requirement indication
  */
 export const requirePermission = (permissionCode: string) => {
   return async (req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
@@ -196,23 +201,91 @@ export const requirePermission = (permissionCode: string) => {
     }
 
     try {
-      // SUPER_OWNER has all permissions
-      if (req.admin.role === 'SUPER_OWNER') {
-        next();
+      const result = await rbacService.checkPermission(
+        {
+          adminId: req.admin.adminId,
+          role: req.admin.role,
+          customPermissions: [],
+          mfaVerified: req.admin.mfaVerified,
+        },
+        permissionCode
+      );
+
+      if (!result.allowed) {
+        logger.warn(
+          { adminId: req.admin.adminId, permission: permissionCode, reason: result.reason },
+          'Admin access denied'
+        );
+
+        // Check if MFA is required
+        if (result.requiresMfa && !req.admin.mfaVerified) {
+          res.status(403).json({
+            error: 'Forbidden',
+            code: AdminAuthErrorCode.MFA_REQUIRED,
+            message: 'MFA verification required for this action',
+            requiresMfa: true,
+          });
+          return;
+        }
+
+        res.status(403).json({
+          error: 'Forbidden',
+          message: result.reason || `Missing required permission: ${permissionCode}`,
+          requiresApproval: result.requiresApproval,
+        });
         return;
       }
 
-      // Get admin's profile with permissions
-      const profile = await adminAuthService.getProfile(req.admin.adminId);
+      // Attach permission info to request for downstream use
+      (req as any).permissionInfo = {
+        code: permissionCode,
+        requiresMfa: result.requiresMfa,
+        requiresApproval: result.requiresApproval,
+      };
 
-      if (!profile.permissions.includes(permissionCode)) {
+      next();
+    } catch (error) {
+      logger.error({ error }, 'Permission check error');
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Permission check failed',
+      });
+    }
+  };
+};
+
+/**
+ * Require any of the specified permissions
+ */
+export const requireAnyPermission = (...permissionCodes: string[]) => {
+  return async (req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    if (!req.admin) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Not authenticated',
+      });
+      return;
+    }
+
+    try {
+      const result = await rbacService.checkAnyPermission(
+        {
+          adminId: req.admin.adminId,
+          role: req.admin.role,
+          customPermissions: [],
+          mfaVerified: req.admin.mfaVerified,
+        },
+        permissionCodes
+      );
+
+      if (!result.allowed) {
         logger.warn(
-          { adminId: req.admin.adminId, permission: permissionCode },
-          'Admin access denied: missing permission'
+          { adminId: req.admin.adminId, permissions: permissionCodes },
+          'Admin access denied: missing all required permissions'
         );
         res.status(403).json({
           error: 'Forbidden',
-          message: `Missing required permission: ${permissionCode}`,
+          message: `Missing required permissions: ${permissionCodes.join(' OR ')}`,
         });
         return;
       }
@@ -224,6 +297,85 @@ export const requirePermission = (permissionCode: string) => {
         error: 'Internal Server Error',
         message: 'Permission check failed',
       });
+    }
+  };
+};
+
+/**
+ * Require all specified permissions
+ */
+export const requireAllPermissions = (...permissionCodes: string[]) => {
+  return async (req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    if (!req.admin) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Not authenticated',
+      });
+      return;
+    }
+
+    try {
+      const result = await rbacService.checkAllPermissions(
+        {
+          adminId: req.admin.adminId,
+          role: req.admin.role,
+          customPermissions: [],
+          mfaVerified: req.admin.mfaVerified,
+        },
+        permissionCodes
+      );
+
+      if (!result.allowed) {
+        logger.warn(
+          { adminId: req.admin.adminId, permissions: permissionCodes, reason: result.reason },
+          'Admin access denied: missing required permission'
+        );
+        res.status(403).json({
+          error: 'Forbidden',
+          message: result.reason || `Missing required permissions: ${permissionCodes.join(' AND ')}`,
+        });
+        return;
+      }
+
+      next();
+    } catch (error) {
+      logger.error({ error }, 'Permission check error');
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Permission check failed',
+      });
+    }
+  };
+};
+
+/**
+ * Check if action requires approval and attach to request
+ * Use this for actions that may need workflow approval
+ */
+export const checkApprovalRequired = (permissionCode: string) => {
+  return async (req: AdminAuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    if (!req.admin) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Not authenticated',
+      });
+      return;
+    }
+
+    try {
+      const permission = await rbacService.getPermissionByCode(permissionCode);
+
+      if (permission?.requiresApproval) {
+        (req as any).approvalRequired = {
+          permissionCode,
+          riskLevel: permission.riskLevel,
+        };
+      }
+
+      next();
+    } catch (error) {
+      logger.error({ error }, 'Approval check error');
+      next(); // Continue anyway, approval is optional check
     }
   };
 };
