@@ -21,7 +21,7 @@ const router = Router();
 router.get(
   '/services',
   authenticateAdminJWT,
-  requirePermission('deployment:view'),
+  requirePermission('deployment:view:all'),
   (req, res) => deploymentController.getServices(req, res)
 );
 
@@ -33,7 +33,7 @@ router.get(
 router.get(
   '/environments',
   authenticateAdminJWT,
-  requirePermission('deployment:view'),
+  requirePermission('deployment:view:all'),
   (req, res) => deploymentController.getEnvironments(req, res)
 );
 
@@ -41,12 +41,12 @@ router.get(
 // Create Deployment Request (Promote)
 // POST /api/v1/admin/deployments/promote
 // Creates a deployment request that requires SUPER_OWNER approval
-// Permission: deployment:create
+// Permission: deployment:testnet:deploy or deployment:mainnet:deploy
 // -----------------------------------------------------------------------------
 router.post(
   '/promote',
   authenticateAdminJWT,
-  requirePermission('deployment:create'),
+  requirePermission('deployment:testnet:deploy'),
   (req, res) => deploymentController.createDeployment(req, res)
 );
 
@@ -54,12 +54,12 @@ router.post(
 // List Deployments
 // GET /api/v1/admin/deployments
 // Returns paginated list of deployments with optional filters
-// Permission: deployment:view
+// Permission: deployment:view:all
 // -----------------------------------------------------------------------------
 router.get(
   '/',
   authenticateAdminJWT,
-  requirePermission('deployment:view'),
+  requirePermission('deployment:view:all'),
   (req, res) => deploymentController.listDeployments(req, res)
 );
 
@@ -68,12 +68,12 @@ router.get(
 // GET /api/v1/admin/deployments/:id
 // Returns deployment details, optionally with logs
 // Query: ?includeLogs=true
-// Permission: deployment:view
+// Permission: deployment:view:all
 // -----------------------------------------------------------------------------
 router.get(
   '/:id',
   authenticateAdminJWT,
-  requirePermission('deployment:view'),
+  requirePermission('deployment:view:all'),
   (req, res) => deploymentController.getDeployment(req, res)
 );
 
@@ -82,12 +82,12 @@ router.get(
 // GET /api/v1/admin/deployments/:id/logs
 // Returns deployment execution logs
 // Query: ?limit=100&offset=0
-// Permission: deployment:view
+// Permission: deployment:view:all
 // -----------------------------------------------------------------------------
 router.get(
   '/:id/logs',
   authenticateAdminJWT,
-  requirePermission('deployment:view'),
+  requirePermission('deployment:view:all'),
   (req, res) => deploymentController.getDeploymentLogs(req, res)
 );
 
@@ -96,13 +96,13 @@ router.get(
 // POST /api/v1/admin/deployments/:id/execute
 // Executes an approved deployment
 // SUPER_OWNER only
-// Permission: deployment:execute
+// Permission: deployment:mainnet:deploy (CRITICAL)
 // -----------------------------------------------------------------------------
 router.post(
   '/:id/execute',
   authenticateAdminJWT,
   requireSuperOwner,
-  requirePermission('deployment:execute'),
+  requirePermission('deployment:mainnet:deploy'),
   (req, res) => deploymentController.executeDeployment(req, res)
 );
 
@@ -111,13 +111,13 @@ router.post(
 // POST /api/v1/admin/deployments/:id/rollback
 // Rolls back a deployment to the previous version
 // SUPER_OWNER only
-// Permission: deployment:rollback
+// Permission: deployment:rollback:all
 // -----------------------------------------------------------------------------
 router.post(
   '/:id/rollback',
   authenticateAdminJWT,
   requireSuperOwner,
-  requirePermission('deployment:rollback'),
+  requirePermission('deployment:rollback:all'),
   (req, res) => deploymentController.rollbackDeployment(req, res)
 );
 
