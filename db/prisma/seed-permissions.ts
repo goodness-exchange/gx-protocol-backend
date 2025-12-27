@@ -158,6 +158,16 @@ const permissions: PermissionDefinition[] = [
   { code: 'admin:mfa:reset', name: 'Reset Admin MFA', description: 'Reset MFA for other admins', category: 'SYSTEM', riskLevel: 'HIGH', requiresMfa: true, requiresApproval: true },
 
   // ============================================================================
+  // SESSION & DEVICE MANAGEMENT PERMISSIONS
+  // ============================================================================
+
+  { code: 'session:view:all', name: 'View All Sessions', description: 'View all user and admin sessions', category: 'SYSTEM', riskLevel: 'LOW', requiresMfa: false, requiresApproval: false },
+  { code: 'session:revoke:all', name: 'Revoke User Sessions', description: 'Revoke user sessions', category: 'SYSTEM', riskLevel: 'MEDIUM', requiresMfa: true, requiresApproval: false },
+  { code: 'device:view:all', name: 'View All Devices', description: 'View all trusted devices', category: 'SYSTEM', riskLevel: 'LOW', requiresMfa: false, requiresApproval: false },
+  { code: 'device:update:all', name: 'Update Device Trust', description: 'Update device trust status', category: 'SYSTEM', riskLevel: 'MEDIUM', requiresMfa: true, requiresApproval: false },
+  { code: 'device:delete:all', name: 'Remove Devices', description: 'Remove trusted devices', category: 'SYSTEM', riskLevel: 'MEDIUM', requiresMfa: true, requiresApproval: false },
+
+  // ============================================================================
   // ROLE MANAGEMENT PERMISSIONS
   // ============================================================================
 
@@ -245,6 +255,9 @@ const rolePermissions: Record<AdminRole, string[]> = {
     // Admin management (limited)
     'admin:view:all', 'admin:create:all', 'admin:update:all', 'admin:session:revoke',
 
+    // Session & device management
+    'session:view:all', 'session:revoke:all', 'device:view:all', 'device:update:all', 'device:delete:all',
+
     // Role viewing
     'role:view:all',
 
@@ -283,6 +296,9 @@ const rolePermissions: Record<AdminRole, string[]> = {
 
     // Admin view
     'admin:view:all',
+
+    // Session & device view
+    'session:view:all', 'device:view:all',
 
     // Role view
     'role:view:all',
