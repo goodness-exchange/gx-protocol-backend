@@ -17,12 +17,11 @@ const router = Router();
 // Create Approval Request
 // POST /api/v1/admin/approvals
 // Any authenticated admin can create approval requests
-// Permission: approval:create
+// No special permission required - users create requests for actions they need approval for
 // -----------------------------------------------------------------------------
 router.post(
   '/',
   authenticateAdminJWT,
-  requirePermission('approval:create'),
   (req, res) => approvalController.createApproval(req, res)
 );
 
@@ -30,12 +29,12 @@ router.post(
 // List Approval Requests
 // GET /api/v1/admin/approvals
 // SUPER_OWNER sees all, others see only their own
-// Permission: approval:view
+// Permission: approval:view:all (SUPER_OWNER+) or approval:view:pending
 // -----------------------------------------------------------------------------
 router.get(
   '/',
   authenticateAdminJWT,
-  requirePermission('approval:view'),
+  requirePermission('approval:view:all'),
   (req, res) => approvalController.listApprovals(req, res)
 );
 
@@ -55,12 +54,12 @@ router.get(
 // Get Single Approval Request
 // GET /api/v1/admin/approvals/:id
 // SUPER_OWNER sees all, others see only their own
-// Permission: approval:view
+// Permission: approval:view:all
 // -----------------------------------------------------------------------------
 router.get(
   '/:id',
   authenticateAdminJWT,
-  requirePermission('approval:view'),
+  requirePermission('approval:view:all'),
   (req, res) => approvalController.getApproval(req, res)
 );
 
@@ -68,12 +67,14 @@ router.get(
 // Vote on Approval Request (Approve/Reject)
 // POST /api/v1/admin/approvals/:id/vote
 // SUPER_OWNER only
-// Permission: approval:approve (for approve) or approval:reject (for reject)
+// Permission: approval:approve:all (for approve) or approval:reject:all (for reject)
+// Note: Controller validates specific permission based on vote type
 // -----------------------------------------------------------------------------
 router.post(
   '/:id/vote',
   authenticateAdminJWT,
   requireSuperOwner,
+  requirePermission('approval:approve:all'),
   (req, res) => approvalController.voteOnApproval(req, res)
 );
 
