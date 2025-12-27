@@ -1,40 +1,213 @@
 import { Router } from 'express';
 import { adminController } from '../controllers/admin.controller';
 import { userManagementController } from '../controllers/user-management.controller';
-// TEMPORARY: Commented out for testing - RE-ENABLE FOR PRODUCTION!
-// import { authenticateJWT } from '../middlewares/auth.middleware';
-// import { requireAdmin, requireSuperAdmin } from '@gx/core-http';
+import {
+  authenticateAdminJWT,
+  requirePermission,
+  requireSuperOwner,
+} from '../middlewares/admin-auth.middleware';
 
 const router = Router();
 
-// All admin operations require SUPER_ADMIN role
-// TEMPORARY: Authentication disabled for testing - RE-ENABLE FOR PRODUCTION!
-router.post('/bootstrap', /* authenticateJWT, requireSuperAdmin, */ adminController.bootstrapSystem);
-router.post('/countries/initialize', /* authenticateJWT, requireSuperAdmin, */ adminController.initializeCountryData);
-router.post('/parameters', /* authenticateJWT, requireSuperAdmin, */ adminController.updateSystemParameter);
-router.post('/system/pause', /* authenticateJWT, requireSuperAdmin, */ adminController.pauseSystem);
-router.post('/system/resume', /* authenticateJWT, requireSuperAdmin, */ adminController.resumeSystem);
-router.post('/admins', /* authenticateJWT, requireSuperAdmin, */ adminController.appointAdmin);
-router.get('/admins', /* authenticateJWT, requireAdmin, */ adminController.listAdmins);
-router.get('/admins/:adminId', /* authenticateJWT, requireAdmin, */ adminController.getAdmin);
-router.post('/treasury/activate', /* authenticateJWT, requireSuperAdmin, */ adminController.activateTreasury);
+// ============================================================================
+// System Administration Routes
+// These are high-privilege operations for system setup and control
+// ============================================================================
 
-router.get('/system/status', adminController.getSystemStatus);
-router.get('/parameters/:paramId', adminController.getSystemParameter);
-router.get('/countries/:countryCode/stats', adminController.getCountryStats);
-router.get('/countries', adminController.listAllCountries);
-router.get('/counters', adminController.getGlobalCounters);
+// Bootstrap system - SUPER_OWNER only (one-time setup)
+router.post(
+  '/bootstrap',
+  authenticateAdminJWT,
+  requireSuperOwner,
+  adminController.bootstrapSystem
+);
 
+// Initialize country data - requires config:country:manage
+router.post(
+  '/countries/initialize',
+  authenticateAdminJWT,
+  requirePermission('config:country:manage'),
+  adminController.initializeCountryData
+);
+
+// Update system parameter - requires config:limit:set
+router.post(
+  '/parameters',
+  authenticateAdminJWT,
+  requirePermission('config:limit:set'),
+  adminController.updateSystemParameter
+);
+
+// Pause system - requires system:pause:all (CRITICAL)
+router.post(
+  '/system/pause',
+  authenticateAdminJWT,
+  requirePermission('system:pause:all'),
+  adminController.pauseSystem
+);
+
+// Resume system - requires system:resume:all
+router.post(
+  '/system/resume',
+  authenticateAdminJWT,
+  requirePermission('system:resume:all'),
+  adminController.resumeSystem
+);
+
+// Activate treasury - SUPER_OWNER only
+router.post(
+  '/treasury/activate',
+  authenticateAdminJWT,
+  requireSuperOwner,
+  adminController.activateTreasury
+);
+
+// ============================================================================
+// Admin Management Routes
+// ============================================================================
+
+// List all admins - requires admin:view:all
+router.get(
+  '/admins',
+  authenticateAdminJWT,
+  requirePermission('admin:view:all'),
+  adminController.listAdmins
+);
+
+// Get single admin - requires admin:view:all
+router.get(
+  '/admins/:adminId',
+  authenticateAdminJWT,
+  requirePermission('admin:view:all'),
+  adminController.getAdmin
+);
+
+// Create new admin - requires admin:create:all
+router.post(
+  '/admins',
+  authenticateAdminJWT,
+  requirePermission('admin:create:all'),
+  adminController.appointAdmin
+);
+
+// ============================================================================
+// Read-Only System Routes (authenticated only)
+// ============================================================================
+
+// System status - requires system:health:view
+router.get(
+  '/system/status',
+  authenticateAdminJWT,
+  requirePermission('system:health:view'),
+  adminController.getSystemStatus
+);
+
+// Get system parameter - requires system:health:view
+router.get(
+  '/parameters/:paramId',
+  authenticateAdminJWT,
+  requirePermission('system:health:view'),
+  adminController.getSystemParameter
+);
+
+// Get country stats - requires user:view:all (user distribution data)
+router.get(
+  '/countries/:countryCode/stats',
+  authenticateAdminJWT,
+  requirePermission('user:view:all'),
+  adminController.getCountryStats
+);
+
+// List all countries - requires config:country:manage or user:view:all
+router.get(
+  '/countries',
+  authenticateAdminJWT,
+  requirePermission('user:view:all'),
+  adminController.listAllCountries
+);
+
+// Get global counters - requires report:view:dashboard
+router.get(
+  '/counters',
+  authenticateAdminJWT,
+  requirePermission('report:view:dashboard'),
+  adminController.getGlobalCounters
+);
+
+// ============================================================================
 // User Management Routes
-// TEMPORARY: Authentication disabled for testing - RE-ENABLE FOR PRODUCTION!
-router.get('/users', /* authenticateJWT, requireAdmin, */ userManagementController.listUsers);
-router.get('/users/pending-onchain', /* authenticateJWT, requireSuperAdmin, */ userManagementController.getPendingOnchainUsers);
-router.get('/users/frozen', /* authenticateJWT, requireAdmin, */ userManagementController.listFrozenUsers);
-router.get('/users/:userId', /* authenticateJWT, requireAdmin, */ userManagementController.getUserDetails);
-router.post('/users/:userId/approve', /* authenticateJWT, requireAdmin, */ userManagementController.approveUser);
-router.post('/users/:userId/deny', /* authenticateJWT, requireAdmin, */ userManagementController.denyUser);
-router.post('/users/batch-register-onchain', /* authenticateJWT, requireSuperAdmin, */ userManagementController.batchRegisterOnchain);
-router.post('/users/:userId/freeze', /* authenticateJWT, requireSuperAdmin, */ userManagementController.freezeUser);
-router.post('/users/:userId/unfreeze', /* authenticateJWT, requireSuperAdmin, */ userManagementController.unfreezeUser);
+// ============================================================================
+
+// List users - requires user:view:all
+router.get(
+  '/users',
+  authenticateAdminJWT,
+  requirePermission('user:view:all'),
+  userManagementController.listUsers
+);
+
+// Get users pending on-chain registration - requires user:view:all
+router.get(
+  '/users/pending-onchain',
+  authenticateAdminJWT,
+  requirePermission('user:view:all'),
+  userManagementController.getPendingOnchainUsers
+);
+
+// List frozen users - requires user:view:all
+router.get(
+  '/users/frozen',
+  authenticateAdminJWT,
+  requirePermission('user:view:all'),
+  userManagementController.listFrozenUsers
+);
+
+// Get user details - requires user:view:all
+router.get(
+  '/users/:userId',
+  authenticateAdminJWT,
+  requirePermission('user:view:all'),
+  userManagementController.getUserDetails
+);
+
+// Approve user - requires user:approve:all
+router.post(
+  '/users/:userId/approve',
+  authenticateAdminJWT,
+  requirePermission('user:approve:all'),
+  userManagementController.approveUser
+);
+
+// Deny/Reject user - requires user:reject:all
+router.post(
+  '/users/:userId/deny',
+  authenticateAdminJWT,
+  requirePermission('user:reject:all'),
+  userManagementController.denyUser
+);
+
+// Batch register users on-chain - requires user:approve:all
+router.post(
+  '/users/batch-register-onchain',
+  authenticateAdminJWT,
+  requirePermission('user:approve:all'),
+  userManagementController.batchRegisterOnchain
+);
+
+// Freeze user - requires user:freeze:all (HIGH risk, MFA + Approval)
+router.post(
+  '/users/:userId/freeze',
+  authenticateAdminJWT,
+  requirePermission('user:freeze:all'),
+  userManagementController.freezeUser
+);
+
+// Unfreeze user - requires user:unfreeze:all (HIGH risk, MFA + Approval)
+router.post(
+  '/users/:userId/unfreeze',
+  authenticateAdminJWT,
+  requirePermission('user:unfreeze:all'),
+  userManagementController.unfreezeUser
+);
 
 export default router;
