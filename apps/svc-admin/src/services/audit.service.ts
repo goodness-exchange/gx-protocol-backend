@@ -173,8 +173,8 @@ class AuditService {
    */
   async getAdminActivitySummary(adminId: string): Promise<AdminActivitySummary> {
     // Get admin info
-    const admin = await prisma.adminAccount.findUnique({
-      where: { adminId },
+    const admin = await prisma.adminUser.findUnique({
+      where: { id: adminId },
       select: { username: true },
     });
 
@@ -340,10 +340,10 @@ class AuditService {
       select: { profileId: true, firstName: true, lastName: true, email: true },
     });
 
-    // Fetch admin accounts (actors might be admins)
-    const admins = await prisma.adminAccount.findMany({
-      where: { adminId: { in: Array.from(profileIds) } },
-      select: { adminId: true, username: true },
+    // Fetch admin users (actors might be admins)
+    const admins = await prisma.adminUser.findMany({
+      where: { id: { in: Array.from(profileIds) } },
+      select: { id: true, username: true },
     });
 
     // Create lookup maps
@@ -354,7 +354,7 @@ class AuditService {
       ])
     );
     const adminMap = new Map<string, string>(
-      admins.map((a: { adminId: string; username: string }) => [a.adminId, a.username])
+      admins.map((a: { id: string; username: string }) => [a.id, a.username])
     );
 
     // Enrich logs
