@@ -7,6 +7,7 @@ import { adminConfig } from './config';
 import adminRoutes from './routes/admin.routes';
 import adminAuthRoutes from './routes/admin-auth.routes';
 import approvalRoutes from './routes/approval.routes';
+import auditRoutes from './routes/audit.routes';
 import deploymentRoutes from './routes/deployment.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import { notificationRoutes } from './routes/notification.routes';
@@ -27,6 +28,7 @@ export function createApp(): Application {
   app.use('/api/v1/admin/deployments', deploymentRoutes);
   app.use('/api/v1/admin/notifications', notificationRoutes);
   app.use('/api/v1/admin/dashboard', dashboardRoutes);
+  app.use('/api/v1/admin/audit', auditRoutes);
   app.use('/api/v1/admin/rbac', rbacRoutes);
   app.use('/api/v1/admin', adminRoutes);
   app.use((req, res) => {
