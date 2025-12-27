@@ -1,5 +1,8 @@
 import { Router } from 'express';
-import { authenticateAdminJWT } from '../middlewares/admin-auth.middleware';
+import {
+  authenticateAdminJWT,
+  requirePermission,
+} from '../middlewares/admin-auth.middleware';
 import {
   getNotifications,
   getUnreadCount,
@@ -51,43 +54,50 @@ router.patch('/mark-all-read', markAllAsRead);
 router.patch('/:id/read', markAsRead);
 
 // ==========================================================================
-// Webhook Management Endpoints (SUPER_OWNER only)
+// Webhook Management Endpoints
+// Requires specific webhook permissions
 // ==========================================================================
 
 /**
  * POST /api/v1/admin/notifications/webhooks
  * Create a new webhook
+ * Permission: webhook:create:all (requires MFA)
  */
-router.post('/webhooks', createWebhook);
+router.post('/webhooks', requirePermission('webhook:create:all'), createWebhook);
 
 /**
  * GET /api/v1/admin/notifications/webhooks
  * Get all webhooks
+ * Permission: webhook:view:all
  */
-router.get('/webhooks', getWebhooks);
+router.get('/webhooks', requirePermission('webhook:view:all'), getWebhooks);
 
 /**
  * GET /api/v1/admin/notifications/webhooks/:id
  * Get webhook by ID
+ * Permission: webhook:view:all
  */
-router.get('/webhooks/:id', getWebhookById);
+router.get('/webhooks/:id', requirePermission('webhook:view:all'), getWebhookById);
 
 /**
  * PATCH /api/v1/admin/notifications/webhooks/:id
  * Update webhook
+ * Permission: webhook:update:all (requires MFA)
  */
-router.patch('/webhooks/:id', updateWebhook);
+router.patch('/webhooks/:id', requirePermission('webhook:update:all'), updateWebhook);
 
 /**
  * DELETE /api/v1/admin/notifications/webhooks/:id
  * Delete webhook
+ * Permission: webhook:delete:all (requires MFA)
  */
-router.delete('/webhooks/:id', deleteWebhook);
+router.delete('/webhooks/:id', requirePermission('webhook:delete:all'), deleteWebhook);
 
 /**
  * POST /api/v1/admin/notifications/webhooks/:id/regenerate-secret
  * Regenerate webhook secret
+ * Permission: webhook:update:all (requires MFA)
  */
-router.post('/webhooks/:id/regenerate-secret', regenerateWebhookSecret);
+router.post('/webhooks/:id/regenerate-secret', requirePermission('webhook:update:all'), regenerateWebhookSecret);
 
 export { router as notificationRoutes };
