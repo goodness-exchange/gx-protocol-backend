@@ -758,7 +758,8 @@ class OutboxSubmitter {
             payload.userId as string,
             payload.biometricHash as string,
             // Support both 'nationality' and 'countryCode' field names for backwards compatibility
-            (payload.nationality || payload.countryCode) as string,
+            // Use empty string as default to prevent undefined in args array (causes protobuf serialization error)
+            (payload.nationality || payload.countryCode || '') as string,
             payload.age.toString(),
           ],
         };
@@ -798,7 +799,8 @@ class OutboxSubmitter {
           args: [
             payload.userId as string,
             // Support both 'nationality' and 'countryCode' field names for backwards compatibility
-            (payload.nationality || payload.countryCode) as string,
+            // Use empty string as default to prevent undefined in args array (causes protobuf serialization error)
+            (payload.nationality || payload.countryCode || '') as string,
           ],
         };
 
