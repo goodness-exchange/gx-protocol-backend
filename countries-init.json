@@ -2,7 +2,7 @@
   "countriesData": [
     {"code": "IN", "name": "India", "percentage": 0.13464767},
     {"code": "CN", "name": "China", "percentage": 0.13025376},
-    {"code": "US", "name": "United States", "percentage": 0.03194266},
+    {"code": "US", "name": "United States", "percentage": 0.03194263},
     {"code": "ID", "name": "Indonesia", "percentage": 0.04336332},
     {"code": "PK", "name": "Pakistan", "percentage": 0.04108177},
     {"code": "NG", "name": "Nigeria", "percentage": 0.03384748},
