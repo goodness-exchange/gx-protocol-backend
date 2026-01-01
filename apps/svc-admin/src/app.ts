@@ -10,6 +10,7 @@ import approvalRoutes from './routes/approval.routes';
 import auditRoutes from './routes/audit.routes';
 import deploymentRoutes from './routes/deployment.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import entityAccountsRoutes from './routes/entity-accounts.routes';
 import { notificationRoutes } from './routes/notification.routes';
 import rbacRoutes from './routes/rbac.routes';
 import sessionRoutes from './routes/session.routes';
@@ -34,6 +35,7 @@ export function createApp(): Application {
   app.use('/api/v1/admin/rbac', rbacRoutes);
   app.use('/api/v1/admin/sessions', sessionRoutes);
   app.use('/api/v1/admin/devices', deviceRoutes);
+  app.use('/api/v1/admin', entityAccountsRoutes);
   app.use('/api/v1/admin', adminRoutes);
   app.use((req, res) => {
     res.status(404).json({ error: 'Not Found', message: `Route ${req.method} ${req.path} not found`, path: req.path });
