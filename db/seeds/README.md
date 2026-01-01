@@ -5,14 +5,14 @@ This directory contains seed data scripts for initializing the GX Protocol datab
 ## Scripts
 
 ### 01-countries.ts
-Seeds all 195 sovereign nations with ISO 3166-1 alpha-2 country codes and regional classifications.
+Seeds all 234 countries/territories with ISO 3166-1 alpha-2 country codes and regional classifications.
 
 **Data Includes:**
 - Country codes (2-letter ISO standard)
 - Country names
 - Regional groupings (Africa, Asia, Europe, North America, South America, Oceania)
 
-**Total Records:** 195 countries
+**Total Records:** 234 countries
 
 ### 02-system-parameters.ts
 Seeds critical system-wide configuration parameters that control protocol behavior.
@@ -86,7 +86,7 @@ psql $DATABASE_URL -c "SELECT COUNT(*) FROM \"SystemParameter\";"
 ```
 
 Expected counts:
-- Countries: 195
+- Countries: 234
 - SystemParameters: 38
 
 ## Modifying Seeds

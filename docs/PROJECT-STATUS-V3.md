@@ -201,7 +201,7 @@ apps/svc-{name}/
 
 **System Administration:**
 - ✅ Bootstrap system (genesis setup)
-- ✅ Initialize country data (195 countries)
+- ✅ Initialize country data (234 countries)
 - ✅ Update system parameters
 - ✅ Pause/resume system operations
 - ✅ Appoint admin users
