@@ -16,6 +16,7 @@ import rbacRoutes from './routes/rbac.routes';
 import sessionRoutes from './routes/session.routes';
 import deviceRoutes from './routes/device.routes';
 import healthRoutes from './routes/health.routes';
+import publicRoutes from './routes/public.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -37,6 +38,7 @@ export function createApp(): Application {
   app.use('/api/v1/admin/devices', deviceRoutes);
   app.use('/api/v1/admin', entityAccountsRoutes);
   app.use('/api/v1/admin', adminRoutes);
+  app.use('/api/v1/public', publicRoutes);
   app.use((req, res) => {
     res.status(404).json({ error: 'Not Found', message: `Route ${req.method} ${req.path} not found`, path: req.path });
   });
