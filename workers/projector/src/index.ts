@@ -737,6 +737,11 @@ class Projector {
         await this.handleTreasuryActivated(payload, event);
         break;
 
+      // TokenomicsContract - Treasury allocation during user registration
+      case 'TreasuryAllocationEvent':
+        await this.handleTreasuryAllocationEvent(payload, event);
+        break;
+
       // TaxAndFeeContract events
       case 'VelocityTaxApplied':
         await this.handleVelocityTaxApplied(payload, event);
@@ -2237,6 +2242,136 @@ class Projector {
     });
 
     this.log('debug', 'Treasury activated');
+  }
+
+  /**
+   * Handle TreasuryAllocationEvent
+   *
+   * This event is emitted when a user is registered and receives their genesis allocation.
+   * The chaincode mints tokens to both the user and the country treasury.
+   *
+   * Event Structure (from chaincode):
+   * ```json
+   * {
+   *   "treasuryID": "treasury_NG",
+   *   "amount": 50000000,              // Govt treasury allocation in Qirat
+   *   "phase": 1,                       // Phase 1-6
+   *   "nationality": "NG",              // Country code
+   *   "mintSource": "USER_REGISTRATION" // Source of the mint
+   * }
+   * ```
+   *
+   * Read Model Updates:
+   * - Create SupplyTracking record for treasury mint
+   * - Update CountryAllocation statistics
+   */
+  private async handleTreasuryAllocationEvent(
+    payload: any,
+    event: BlockchainEvent
+  ): Promise<void> {
+    const treasuryId = payload.treasuryID;
+    const amount = typeof payload.amount === 'string'
+      ? parseFloat(payload.amount)
+      : (payload.amount || 0);
+    const phase = payload.phase || 1;
+    const countryCode = payload.nationality || null;
+    const mintSource = payload.mintSource || 'USER_REGISTRATION';
+
+    // ENTERPRISE FIX: Idempotency check
+    const alreadyProcessed = await this.isTransactionAlreadyProcessed(`${event.transactionId}-treasury`);
+    if (alreadyProcessed) {
+      this.log('info', 'TreasuryAllocationEvent already processed, skipping', {
+        txId: event.transactionId,
+        blockNumber: event.blockNumber.toString(),
+      });
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Create SupplyTracking record for government treasury mint
+      if (amount > 0 && treasuryId) {
+        await tx.supplyTracking.create({
+          data: {
+            tenantId: this.config.tenantId,
+            eventType: 'GOVT_GENESIS_MINT',
+            poolId: 'GOVT_GENESIS',
+            amount: amount,
+            recipientId: treasuryId,
+            recipientType: 'TREASURY',
+            countryCode: countryCode,
+            phase: phase,
+            txHash: event.transactionId,
+            blockNumber: event.blockNumber,
+            timestamp: event.timestamp,
+            metadata: {
+              mintSource: mintSource,
+            },
+          },
+        });
+      }
+
+      // Update CountryAllocation statistics
+      if (countryCode) {
+        const existingAllocation = await tx.countryAllocation.findUnique({
+          where: { countryCode },
+        });
+
+        if (existingAllocation) {
+          const phaseField = `phase${phase}Remaining` as keyof typeof existingAllocation;
+
+          await tx.countryAllocation.update({
+            where: { countryCode },
+            data: {
+              totalUsers: { increment: 1 },
+              totalMinted: { increment: amount },
+              currentPhase: phase,
+              lastSyncBlock: event.blockNumber,
+              lastSyncAt: event.timestamp,
+              // Decrement remaining slots for the phase
+              ...(existingAllocation[phaseField] !== undefined && {
+                [phaseField]: { decrement: 1 },
+              }),
+            },
+          });
+        } else {
+          // Create CountryAllocation if it doesn't exist
+          await tx.countryAllocation.create({
+            data: {
+              countryCode: countryCode,
+              tenantId: this.config.tenantId,
+              countryName: countryCode, // Will be updated when country data is synced
+              percentage: 0,
+              phase1Remaining: BigInt(0),
+              phase2Remaining: BigInt(0),
+              phase3Remaining: BigInt(0),
+              phase4Remaining: BigInt(0),
+              phase5Remaining: BigInt(0),
+              phase6Remaining: BigInt(0),
+              totalUsers: BigInt(1),
+              totalMinted: amount,
+              currentPhase: phase,
+              treasuryId: treasuryId,
+              treasuryBalance: amount,
+              treasuryLocked: true,
+              lastSyncBlock: event.blockNumber,
+              lastSyncAt: event.timestamp,
+            },
+          });
+        }
+      }
+    });
+
+    // Add to processed cache
+    this.addToProcessedCache(`${event.transactionId}-treasury`);
+
+    this.log('info', 'TreasuryAllocationEvent processed', {
+      treasuryId,
+      amount,
+      phase,
+      countryCode,
+      mintSource,
+      blockNumber: event.blockNumber.toString(),
+    });
   }
 
   /**
