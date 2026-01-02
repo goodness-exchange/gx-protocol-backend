@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { logger } from '@gx/core-logger';
 import { adminService } from '../services/admin.service';
+import { supplyService } from '../services/supply.service';
 import type { AuthenticatedRequest } from '../types/dtos';
 
 class AdminController {
@@ -137,6 +138,54 @@ class AdminController {
       res.status(200).json(admin);
     } catch (error) {
       res.status(404).json({ error: 'Not Found', message: (error as Error).message });
+    }
+  };
+
+  /**
+   * Get supply status from blockchain
+   * Queries TokenomicsContract:GetSupplyStatus
+   */
+  getSupplyStatus = async (_req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const supplyStatus = await supplyService.getSupplyStatus();
+      res.status(200).json({ supply: supplyStatus });
+    } catch (error) {
+      logger.error({ error }, 'Failed to get supply status');
+      res.status(500).json({ error: 'Internal Server Error', message: (error as Error).message });
+    }
+  };
+
+  /**
+   * Get specific pool status from blockchain
+   */
+  getPoolStatus = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { poolId } = req.params;
+      const poolStatus = await supplyService.getPoolStatus(poolId);
+
+      if (!poolStatus) {
+        res.status(404).json({ error: 'Not Found', message: `Pool ${poolId} not found` });
+        return;
+      }
+
+      res.status(200).json({ pool: poolStatus });
+    } catch (error) {
+      logger.error({ error }, 'Failed to get pool status');
+      res.status(500).json({ error: 'Internal Server Error', message: (error as Error).message });
+    }
+  };
+
+  /**
+   * Get public supply information (for transparency)
+   * No authentication required - will be routed through public routes
+   */
+  getPublicSupply = async (_req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const publicSupply = await supplyService.getPublicSupply();
+      res.status(200).json(publicSupply);
+    } catch (error) {
+      logger.error({ error }, 'Failed to get public supply');
+      res.status(500).json({ error: 'Internal Server Error', message: (error as Error).message });
     }
   };
 }
