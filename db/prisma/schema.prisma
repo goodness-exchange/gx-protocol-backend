@@ -450,6 +450,7 @@ model Country {
   licensedPartners     LicensedPartner[]
   kycDocuments         KYCDocument[]
   userProfiles         UserProfile[] // Users with this nationality
+  countryAllocation    CountryAllocation?    // Token economics allocation tracking
 }
 
 model LegalTenderStatus {
@@ -3931,4 +3932,112 @@ model UserPresence {
   platform            String?           // "ios", "android", "web"
 
   @@index([tenantId, isOnline])
+}
+
+// =============================================================================
+// SECTION: TOKEN ECONOMICS - SUPPLY TRACKING
+// Off-chain analytics for mint events and supply management
+// Spec: MODULE-1-TOKEN-ECONOMICS.md Section 1.3.3
+// =============================================================================
+
+/// SupplyEventType: Types of supply-affecting events
+enum SupplyEventType {
+  GENESIS_MINT         // User genesis coin allocation
+  GOVT_GENESIS_MINT    // Government treasury genesis allocation
+  LOAN_MINT            // Loan disbursement from loan pool
+  LOAN_REPAYMENT       // Loan repayment (coins returned to pool)
+  TAX_COLLECTION       // Tax collected to charitable pool
+  FEE_COLLECTION       // Transaction fees to operations fund
+  CHARITABLE_DISBURSEMENT // Distribution from charitable pool
+  ADJUSTMENT           // Manual admin adjustment
+}
+
+/// SupplyTracking: Off-chain analytics table for mint events
+/// Purpose: Track all supply-affecting operations for dashboard and reporting
+/// Synced from blockchain events by the Projector worker
+model SupplyTracking {
+  id              String            @id @default(uuid())
+  tenantId        String
+
+  // Event details
+  eventType       SupplyEventType
+  poolId          String            // Pool ID: USER_GENESIS, GOVT_GENESIS, LOAN, CHARITABLE, GX, OPERATIONS
+
+  // Amount (stored in Qirat - 9 decimal places)
+  amount          Decimal           @db.Decimal(36, 9)
+
+  // Recipient details
+  recipientId     String            // User ID, Treasury ID, or Pool Account ID
+  recipientType   String            // "USER", "TREASURY", "POOL"
+
+  // Context
+  countryCode     String?           @db.Char(2)  // ISO country code for genesis mints
+  phase           Int?              // Phase 1-6 for genesis distribution
+  relatedTxId     String?           // Related transaction ID (e.g., for loan repayment)
+
+  // Blockchain reference
+  txHash          String            // Blockchain transaction hash
+  blockNumber     BigInt            // Block number on Fabric
+  timestamp       DateTime          @db.Timestamptz(3)
+
+  // Additional context stored as JSON
+  metadata        Json?
+
+  // Audit fields
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId])
+  @@index([eventType])
+  @@index([poolId])
+  @@index([recipientId])
+  @@index([countryCode])
+  @@index([timestamp])
+  @@index([tenantId, eventType, timestamp])
+  @@index([tenantId, poolId, timestamp])
+}
+
+/// CountryAllocation: Per-country phase allocation tracking
+/// Purpose: Track remaining slots per phase for each country
+/// Synced from blockchain CountryStats via Projector
+model CountryAllocation {
+  countryCode     String            @id @db.Char(2)
+  tenantId        String
+
+  // Country info
+  countryName     String
+  percentage      Decimal           @db.Decimal(10, 8)  // e.g., 0.18 for 18%
+
+  // Phase remaining slots (users)
+  phase1Remaining BigInt            @default(0)
+  phase2Remaining BigInt            @default(0)
+  phase3Remaining BigInt            @default(0)
+  phase4Remaining BigInt            @default(0)
+  phase5Remaining BigInt            @default(0)
+  phase6Remaining BigInt            @default(0)
+
+  // Statistics
+  totalUsers      BigInt            @default(0)         // Total users registered from this country
+  totalMinted     Decimal           @default(0) @db.Decimal(36, 9)  // Total coins minted (user + govt)
+  currentPhase    Int               @default(1)         // Current active phase (1-6)
+
+  // Treasury info
+  treasuryId      String?           // Treasury account ID (treasury_{CC})
+  treasuryBalance Decimal           @default(0) @db.Decimal(36, 9)
+  treasuryLocked  Boolean           @default(true)      // Locked until govt onboards
+  treasuryOnboardedAt DateTime?     @db.Timestamptz(3)
+
+  // Sync tracking
+  lastSyncBlock   BigInt?           // Last block synced from blockchain
+  lastSyncAt      DateTime?         @db.Timestamptz(3)
+
+  // Audit fields
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+
+  // Relation to Country table
+  country         Country           @relation(fields: [countryCode], references: [countryCode])
+
+  @@index([tenantId])
+  @@index([currentPhase])
+  @@index([tenantId, currentPhase])
 }
