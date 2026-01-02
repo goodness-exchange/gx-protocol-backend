@@ -135,6 +135,27 @@ router.get(
 );
 
 // ============================================================================
+// Supply Status Routes (Blockchain Query)
+// These endpoints query the blockchain for supply and pool information
+// ============================================================================
+
+// Get supply status - requires report:view:dashboard
+router.get(
+  '/supply/status',
+  authenticateAdminJWT,
+  requirePermission('report:view:dashboard'),
+  adminController.getSupplyStatus
+);
+
+// Get specific pool status - requires report:view:dashboard
+router.get(
+  '/supply/pools/:poolId',
+  authenticateAdminJWT,
+  requirePermission('report:view:dashboard'),
+  adminController.getPoolStatus
+);
+
+// ============================================================================
 // User Management Routes
 // ============================================================================
 
