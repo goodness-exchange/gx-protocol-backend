@@ -1286,6 +1286,24 @@ class Projector {
    * Handle GenesisDistributed event
    *
    * ENTERPRISE PATTERN: Idempotent Event Handler
+   *
+   * Event Structure (from chaincode):
+   * ```json
+   * {
+   *   "userID": "US A12 XYZ789 TEST1 3985",
+   *   "userAmount": 500000000000,      // User allocation in Qirat
+   *   "govtAmount": 50000000000,       // Govt treasury allocation in Qirat
+   *   "phase": 1,                      // Phase 1-6
+   *   "treasuryID": "treasury_US",     // Treasury account
+   *   "countryCode": "US"              // Country code
+   * }
+   * ```
+   *
+   * Read Model Updates:
+   * - Update user wallet balance with genesis allocation
+   * - Create transaction history entries
+   * - Create SupplyTracking records for user and govt mint
+   * - Update CountryAllocation statistics
    */
   private async handleGenesisDistributed(
     payload: any,
@@ -1301,46 +1319,136 @@ class Projector {
       return;
     }
 
-    // Update wallet balance with genesis allocation
-    await this.prisma.wallet.updateMany({
-      where: { profileId: payload.userId },
-      data: {
-        cachedBalance: {
-          increment: parseFloat(payload.amount),
-        },
-        updatedAt: event.timestamp,
-      },
-    });
+    // Parse amounts - handle both legacy and new payload formats
+    const userId = payload.userID || payload.userId;
+    const userAmount = typeof payload.userAmount === 'string'
+      ? parseFloat(payload.userAmount)
+      : (payload.userAmount || parseFloat(payload.amount) || 0);
+    const govtAmount = typeof payload.govtAmount === 'string'
+      ? parseFloat(payload.govtAmount)
+      : (payload.govtAmount || 0);
+    const phase = payload.phase || payload.tier || 1;
+    const countryCode = payload.countryCode || null;
+    const treasuryId = payload.treasuryID || payload.treasuryId || null;
 
-    // Create transaction history
-    const wallet = await this.prisma.wallet.findFirst({
-      where: { profileId: payload.userId },
-    });
-
-    if (wallet) {
-      await this.prisma.transaction.create({
+    // Use transaction to ensure atomicity
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Update wallet balance with genesis allocation
+      await tx.wallet.updateMany({
+        where: { profileId: userId },
         data: {
-          tenantId: this.config.tenantId,
-          onChainTxId: event.transactionId,
-          walletId: wallet.walletId,
-          type: 'GENESIS',
-          counterparty: 'SYSTEM',
-          amount: parseFloat(payload.amount),
-          fee: 0,
-          remark: `Genesis allocation: ${payload.tier}`,
-          timestamp: event.timestamp,
-          blockNumber: event.blockNumber,
+          cachedBalance: {
+            increment: userAmount,
+          },
+          updatedAt: event.timestamp,
         },
       });
-    }
+
+      // Create transaction history
+      const wallet = await tx.wallet.findFirst({
+        where: { profileId: userId },
+      });
+
+      if (wallet) {
+        await tx.transaction.create({
+          data: {
+            tenantId: this.config.tenantId,
+            onChainTxId: event.transactionId,
+            walletId: wallet.walletId,
+            type: 'GENESIS',
+            counterparty: 'SYSTEM',
+            amount: userAmount,
+            fee: 0,
+            remark: `Genesis allocation: Phase ${phase}`,
+            timestamp: event.timestamp,
+            blockNumber: event.blockNumber,
+          },
+        });
+      }
+
+      // Create SupplyTracking record for user genesis mint
+      if (userAmount > 0) {
+        await tx.supplyTracking.create({
+          data: {
+            tenantId: this.config.tenantId,
+            eventType: 'GENESIS_MINT',
+            poolId: 'USER_GENESIS',
+            amount: userAmount,
+            recipientId: userId,
+            recipientType: 'USER',
+            countryCode: countryCode,
+            phase: phase,
+            txHash: event.transactionId,
+            blockNumber: event.blockNumber,
+            timestamp: event.timestamp,
+            metadata: {
+              walletId: wallet?.walletId,
+            },
+          },
+        });
+      }
+
+      // Create SupplyTracking record for government treasury mint
+      if (govtAmount > 0 && treasuryId) {
+        await tx.supplyTracking.create({
+          data: {
+            tenantId: this.config.tenantId,
+            eventType: 'GOVT_GENESIS_MINT',
+            poolId: 'GOVT_GENESIS',
+            amount: govtAmount,
+            recipientId: treasuryId,
+            recipientType: 'TREASURY',
+            countryCode: countryCode,
+            phase: phase,
+            txHash: `${event.transactionId}-govt`,
+            blockNumber: event.blockNumber,
+            timestamp: event.timestamp,
+            metadata: {
+              triggeredByUser: userId,
+            },
+          },
+        });
+      }
+
+      // Update CountryAllocation statistics if country code present
+      if (countryCode) {
+        const existingAllocation = await tx.countryAllocation.findUnique({
+          where: { countryCode },
+        });
+
+        if (existingAllocation) {
+          const totalMinted = userAmount + govtAmount;
+          const phaseField = `phase${phase}Remaining` as keyof typeof existingAllocation;
+
+          await tx.countryAllocation.update({
+            where: { countryCode },
+            data: {
+              totalUsers: { increment: 1 },
+              totalMinted: { increment: totalMinted },
+              currentPhase: phase,
+              lastSyncBlock: event.blockNumber,
+              lastSyncAt: event.timestamp,
+              // Decrement remaining slots for the phase
+              ...(existingAllocation[phaseField] !== undefined && {
+                [phaseField]: { decrement: 1 },
+              }),
+            },
+          });
+        }
+      }
+    });
 
     // Add to cache after successful processing
     this.addToProcessedCache(event.transactionId);
 
-    this.log('debug', 'Genesis distributed', {
-      userId: payload.userId,
-      amount: payload.amount,
-      tier: payload.tier,
+    this.log('info', 'Genesis distributed with supply tracking', {
+      userId,
+      userAmount,
+      govtAmount,
+      phase,
+      countryCode,
+      treasuryId,
+      blockNumber: event.blockNumber.toString(),
     });
   }
 
@@ -1841,6 +1949,27 @@ class Projector {
    *
    * This event is emitted when country data is bulk-initialized in the blockchain.
    * The payload contains an array of countries to insert into the read model.
+   *
+   * Event Structure (from chaincode):
+   * ```json
+   * {
+   *   "countries": [
+   *     {
+   *       "code": "US",
+   *       "name": "United States",
+   *       "percentage": 0.04,
+   *       "phase1Allocation": 4000000,
+   *       "phase2Allocation": 8000000,
+   *       // ... phases 3-6
+   *     }
+   *   ]
+   * }
+   * ```
+   *
+   * Read Model Updates:
+   * - Upsert Country records
+   * - Upsert CountryAllocation records with phase allocations
+   * - Set COUNTRIES_INITIALIZED system parameter
    */
   private async handleCountryDataInitialized(
     payload: any,
@@ -1858,21 +1987,91 @@ class Projector {
       countryCount: countries.length
     });
 
+    // Phase allocation constants (from MODULE-1-TOKEN-ECONOMICS.md)
+    const PHASE_USERS = {
+      1: 100_000_000,   // 100M users
+      2: 200_000_000,   // 200M users
+      3: 300_000_000,   // 300M users
+      4: 400_000_000,   // 400M users
+      5: 1_550_000_000, // 1.55B users
+      6: 2_450_000_000, // 2.45B users
+    };
+
     // Bulk insert/update countries using transaction for atomicity
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       for (const country of countries) {
+        const countryCode = country.code || country.countryCode;
+        const countryName = country.name || country.countryName;
+        const percentage = parseFloat(country.percentage) || 0;
+
+        // Upsert Country table
         await tx.country.upsert({
-          where: {
-            countryCode: country.code || country.countryCode
-          },
+          where: { countryCode },
           create: {
-            countryCode: country.code || country.countryCode,
-            countryName: country.name || country.countryName,
+            countryCode,
+            countryName,
             region: country.region || 'Unknown',
           },
           update: {
-            countryName: country.name || country.countryName,
+            countryName,
             region: country.region || 'Unknown',
+          },
+        });
+
+        // Calculate phase allocations from percentage or use provided values
+        const phase1Remaining = country.phase1Allocation
+          ? BigInt(country.phase1Allocation)
+          : BigInt(Math.floor(PHASE_USERS[1] * percentage));
+        const phase2Remaining = country.phase2Allocation
+          ? BigInt(country.phase2Allocation)
+          : BigInt(Math.floor(PHASE_USERS[2] * percentage));
+        const phase3Remaining = country.phase3Allocation
+          ? BigInt(country.phase3Allocation)
+          : BigInt(Math.floor(PHASE_USERS[3] * percentage));
+        const phase4Remaining = country.phase4Allocation
+          ? BigInt(country.phase4Allocation)
+          : BigInt(Math.floor(PHASE_USERS[4] * percentage));
+        const phase5Remaining = country.phase5Allocation
+          ? BigInt(country.phase5Allocation)
+          : BigInt(Math.floor(PHASE_USERS[5] * percentage));
+        const phase6Remaining = country.phase6Allocation
+          ? BigInt(country.phase6Allocation)
+          : BigInt(Math.floor(PHASE_USERS[6] * percentage));
+
+        // Upsert CountryAllocation table
+        await tx.countryAllocation.upsert({
+          where: { countryCode },
+          create: {
+            countryCode,
+            tenantId: this.config.tenantId,
+            countryName,
+            percentage,
+            phase1Remaining,
+            phase2Remaining,
+            phase3Remaining,
+            phase4Remaining,
+            phase5Remaining,
+            phase6Remaining,
+            totalUsers: BigInt(0),
+            totalMinted: 0,
+            currentPhase: 1,
+            treasuryId: `treasury_${countryCode}`,
+            treasuryBalance: 0,
+            treasuryLocked: true,
+            lastSyncBlock: event.blockNumber,
+            lastSyncAt: event.timestamp,
+          },
+          update: {
+            countryName,
+            percentage,
+            phase1Remaining,
+            phase2Remaining,
+            phase3Remaining,
+            phase4Remaining,
+            phase5Remaining,
+            phase6Remaining,
+            lastSyncBlock: event.blockNumber,
+            lastSyncAt: event.timestamp,
           },
         });
       }
@@ -1898,7 +2097,7 @@ class Projector {
       });
     });
 
-    this.log('info', 'Country data initialized successfully', {
+    this.log('info', 'Country data initialized successfully with allocations', {
       countryCount: countries.length,
     });
   }
