@@ -90,6 +90,79 @@ export const requireTreasuryAdmin = (options?: { permission?: string }) => {
 };
 
 /**
+ * Require user to be a government administrator for an account
+ * Checks both account-level and treasury-level permissions
+ */
+export const requireAccountAdmin = (options?: { permission?: string }) => {
+  return async (
+    req: GovernmentAuthenticatedRequest,
+    _res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      if (!req.user) {
+        throw new AppError('UNAUTHORIZED', 401, 'Not authenticated');
+      }
+
+      const accountId = req.params.accountId;
+
+      if (!accountId) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Account ID required');
+      }
+
+      // Get account to find its treasury
+      const account = await import('@gx/core-db').then((m) =>
+        m.db.governmentHierarchyAccount.findUnique({
+          where: { accountId },
+          select: { accountId: true, treasuryId: true, accountName: true },
+        })
+      );
+
+      if (!account) {
+        throw new AppError('ACCOUNT_NOT_FOUND', 404, 'Account not found');
+      }
+
+      // Check if user is an administrator for this account's treasury
+      const assignments = await administratorService.getAdministratorsForProfile(req.user.profileId);
+
+      // Find assignment for this treasury (account-level or treasury-level)
+      const treasuryAssignment = assignments.find(
+        (a) => a.treasuryId === account.treasuryId && (a.accountId === accountId || !a.accountId)
+      );
+
+      if (!treasuryAssignment) {
+        throw new AppError('FORBIDDEN', 403, 'Not an administrator for this account');
+      }
+
+      // Check specific permission if required
+      if (options?.permission) {
+        const permissions = await administratorService.getPermissions(
+          req.user.profileId,
+          account.treasuryId,
+          accountId
+        );
+
+        const hasPermission = (permissions as unknown as Record<string, boolean>)[options.permission];
+        if (!hasPermission) {
+          throw new AppError('FORBIDDEN', 403, `Missing permission: ${options.permission}`);
+        }
+      }
+
+      // Attach context to request
+      req.user.treasuryId = account.treasuryId;
+      req.user.accountId = accountId;
+      req.user.permissions = Object.entries(treasuryAssignment.permissions)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
+/**
  * Require Super Admin role (platform admin, not government admin)
  */
 export const requireSuperAdmin = async (
