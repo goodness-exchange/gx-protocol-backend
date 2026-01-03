@@ -372,6 +372,80 @@ enum ContactStatus {
 }
 
 // =============================================================================
+// MODULE-2 & SHARED MULTI-SIG ENUMS
+// =============================================================================
+
+/// MultiSigEntityType: Type of entity for polymorphic multi-sig references (SHARED)
+/// This replaces the entity-specific approach with a unified multi-sig infrastructure
+enum MultiSigEntityType {
+  GOVERNMENT_TREASURY
+  GOVERNMENT_ACCOUNT
+  BUSINESS_ACCOUNT
+  NPO_ACCOUNT
+  PERSONAL_ACCOUNT
+}
+
+/// SignatoryStatus: Status of a signatory (SHARED)
+enum SignatoryStatus {
+  SIGNATORY_PENDING
+  SIGNATORY_ACTIVE
+  SIGNATORY_SUSPENDED
+  SIGNATORY_REVOKED
+}
+
+/// MultiSigStatus: Status of multi-sig transaction (SHARED)
+enum MultiSigStatus {
+  MULTISIG_PENDING
+  MULTISIG_APPROVED
+  MULTISIG_EXECUTED
+  MULTISIG_REJECTED
+  MULTISIG_EXPIRED
+  MULTISIG_CANCELLED
+}
+
+/// TreasuryStatus: Status of government treasury
+enum TreasuryStatus {
+  PENDING_ONBOARDING
+  ONBOARDING
+  TREASURY_ACTIVE
+  TREASURY_SUSPENDED
+  TREASURY_FROZEN
+}
+
+/// GovtAdminStatus: Status of government administrator
+enum GovtAdminStatus {
+  ADMIN_PENDING
+  ADMIN_ACTIVE
+  ADMIN_SUSPENDED
+  ADMIN_REMOVED
+}
+
+/// GovtAccountStatus: Status of government hierarchy account
+enum GovtAccountStatus {
+  ACCOUNT_ACTIVE
+  ACCOUNT_FROZEN
+  ACCOUNT_ARCHIVED
+}
+
+/// GovtTransactionType: Types of government transactions
+enum GovtTransactionType {
+  GENESIS_MINT
+  ALLOCATION
+  DISBURSEMENT
+  GOVT_TRANSFER
+  GOVT_RECEIPT
+  GOVT_FEE
+  GOVT_ADJUSTMENT
+}
+
+/// APICredentialStatus: Status of external API credentials
+enum APICredentialStatus {
+  API_ACTIVE
+  API_EXPIRED
+  API_REVOKED
+}
+
+// =============================================================================
 // SECTION 2: PROGRESSIVE REGISTRATION (Pre-UserProfile)
 // =============================================================================
 
@@ -451,6 +525,7 @@ model Country {
   kycDocuments         KYCDocument[]
   userProfiles         UserProfile[] // Users with this nationality
   countryAllocation    CountryAllocation?    // Token economics allocation tracking
+  governmentTreasury   GovernmentTreasury?   // MODULE-2: Government treasury for this country
 }
 
 model LegalTenderStatus {
@@ -581,6 +656,9 @@ model UserProfile {
   governmentSignatories GovernmentSignatory[]
   npoSignatories        NPOSignatory[]
   npoDonations          NPODonation[]         // Donations made by this user
+
+  // MODULE-2: Government Treasury Administrator Relations
+  govtAdministratorOf   GovernmentAdministrator[] @relation("GovtAdminProfile")
 
   // Relations to Country
   nationalityCountry Country? @relation(fields: [nationalityCountryCode], references: [countryCode])
@@ -4040,4 +4118,354 @@ model CountryAllocation {
   @@index([tenantId])
   @@index([currentPhase])
   @@index([tenantId, currentPhase])
+}
+
+// =============================================================================
+// MODULE-2: GOVERNMENT TREASURY SYSTEM & SHARED MULTI-SIG INFRASTRUCTURE
+// =============================================================================
+// These tables implement:
+// 1. Shared Multi-Sig Infrastructure (used by Government, Business, NGO)
+// 2. Government Treasury System per MODULE-2 specification
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// SHARED MULTI-SIG INFRASTRUCTURE
+// -----------------------------------------------------------------------------
+// Replaces duplicated GovernmentSignatoryRule, NPOSignatoryRule, etc.
+// with a single polymorphic design using entityType + entityId
+// -----------------------------------------------------------------------------
+
+/// SharedSignatoryRule: Shared approval rules across all entity types
+/// Replaces: GovernmentSignatoryRule, NPOSignatoryRule, BusinessSignatoryRule
+/// Note: Existing SignatoryRule (for BusinessAccount) remains for backward compatibility
+model SharedSignatoryRule {
+  ruleId            String        @id @default(uuid())
+  tenantId          String
+
+  // Polymorphic reference - works for any entity type
+  entityType        MultiSigEntityType
+  entityId          String        // treasury_US, treasury_US.dept_finance, business_123, npo_456
+
+  // Rule definition - evaluated in order (lower ruleOrder = higher priority)
+  ruleOrder         Int
+  minAmount         Decimal?      @db.Decimal(36, 9)  // NULL = no minimum
+  maxAmount         Decimal?      @db.Decimal(36, 9)  // NULL = no maximum
+  requiredApprovals Int           // Number of approvals needed
+
+  // Optional constraints
+  transactionTypes  String[]      // ["ALLOCATION", "DISBURSEMENT", "TRANSFER"] - empty = all types
+  approverRoles     String[]      // ["Secretary", "Deputy"] - empty = any role
+  autoExecute       Boolean       @default(true)  // Execute when threshold met?
+
+  // Time constraints (optional)
+  validFrom         DateTime?     @db.Timestamptz(3)
+  validUntil        DateTime?     @db.Timestamptz(3)
+
+  // Metadata
+  isActive          Boolean       @default(true)
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
+  createdBy         String?
+
+  @@unique([tenantId, entityType, entityId, ruleOrder])
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, isActive])
+}
+
+/// PendingMultiSigTransaction: Transactions awaiting multi-sig approval
+/// Replaces: GovernmentApproval, NPOApproval, BusinessApproval
+model PendingMultiSigTransaction {
+  pendingTxId       String        @id @default(uuid())
+  tenantId          String
+
+  // Polymorphic reference
+  entityType        MultiSigEntityType
+  entityId          String
+
+  // Transaction details
+  transactionType   String        // "ALLOCATION", "DISBURSEMENT", "TRANSFER", etc.
+  fromEntityId      String        // Source account/entity
+  toEntityId        String        // Destination account/entity
+  amount            Decimal       @db.Decimal(36, 9)
+  fee               Decimal       @default(0) @db.Decimal(36, 9)
+  purpose           String?       // Human-readable purpose
+  category          String?       // "SocialWelfare", "Payroll", "Procurement"
+  externalRef       String?       // External system reference (ERP PO#, etc.)
+
+  // Approval workflow
+  requiredApprovals Int
+  currentApprovals  Int           @default(0)
+
+  // Status
+  status            MultiSigStatus @default(MULTISIG_PENDING)
+
+  // Initiation
+  initiatedBy       String        // UserProfile ID
+  initiatedAt       DateTime      @default(now()) @db.Timestamptz(3)
+  expiresAt         DateTime?     @db.Timestamptz(3)  // Auto-expire if not approved
+
+  // Execution (when approved)
+  executedAt        DateTime?     @db.Timestamptz(3)
+  executedTxId      String?       // Blockchain transaction ID after execution
+
+  // Rejection
+  rejectedAt        DateTime?     @db.Timestamptz(3)
+  rejectedBy        String?
+  rejectionReason   String?
+
+  // Relations
+  votes             MultiSigVote[]
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, status])
+  @@index([tenantId, initiatedBy])
+  @@index([expiresAt])
+}
+
+/// MultiSigVote: Individual votes on pending multi-sig transactions
+/// Replaces: GovernmentApprovalVote, NPOApprovalVote, BusinessApprovalVote
+model MultiSigVote {
+  voteId            String        @id @default(uuid())
+  tenantId          String
+  pendingTxId       String
+
+  // Voter info
+  voterId           String        // UserProfile ID
+  voterRole         String?       // Role at time of vote (for audit trail)
+
+  // Vote
+  approved          Boolean
+  remarks           String?
+  votedAt           DateTime      @default(now()) @db.Timestamptz(3)
+
+  // Relations
+  pendingTx         PendingMultiSigTransaction @relation(fields: [pendingTxId], references: [pendingTxId], onDelete: Cascade)
+
+  @@unique([tenantId, pendingTxId, voterId])
+  @@index([tenantId, voterId])
+}
+
+// -----------------------------------------------------------------------------
+// GOVERNMENT TREASURY TABLES (MODULE-2)
+// -----------------------------------------------------------------------------
+
+/// GovernmentTreasury: Root treasury account per country
+/// Created automatically when first citizen from country registers
+/// Managed by verified government administrators after onboarding
+model GovernmentTreasury {
+  treasuryId                  String        @id  // Format: "treasury_US", "treasury_NG"
+  tenantId                    String
+  countryCode                 String        @unique @db.Char(2)
+
+  // Status
+  status                      TreasuryStatus @default(PENDING_ONBOARDING)
+  locked                      Boolean       @default(true)
+  lockReason                  String?       // Reason for lock (if locked)
+
+  // Balance (synced from blockchain via Projector)
+  balance                     Decimal       @default(0) @db.Decimal(36, 9)
+  cumulativeAllocations       Decimal       @default(0) @db.Decimal(36, 9)  // Total from genesis minting
+  totalDisbursed              Decimal       @default(0) @db.Decimal(36, 9)
+  totalAllocatedToAccounts    Decimal       @default(0) @db.Decimal(36, 9)
+
+  // Creation & Onboarding
+  createdAt                   DateTime      @default(now()) @db.Timestamptz(3)
+  createdByUserId             String?       // First citizen who triggered auto-creation
+  onboardedAt                 DateTime?     @db.Timestamptz(3)
+  verifiedBy                  String?       // Super Admin who verified and onboarded
+  verificationNotes           String?       // Notes from verification process
+
+  // Activity tracking
+  lastActivityAt              DateTime?     @db.Timestamptz(3)
+
+  // Blockchain sync
+  lastSyncBlock               BigInt?
+  lastSyncAt                  DateTime?     @db.Timestamptz(3)
+
+  // Relations
+  country                     Country       @relation(fields: [countryCode], references: [countryCode])
+  administrators              GovernmentAdministrator[]
+  accounts                    GovernmentHierarchyAccount[]
+  transactions                GovernmentTransaction[]
+  apiCredentials              GovernmentAPICredential[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+/// GovernmentAdministrator: Administrators with granular permissions
+/// Can be assigned at treasury level or specific account level
+model GovernmentAdministrator {
+  id                          String        @id @default(uuid())
+  tenantId                    String
+  treasuryId                  String        // Always references root treasury
+  accountId                   String?       // NULL = treasury-level admin, otherwise account-level
+  profileId                   String        // UserProfile reference
+
+  // Role (display name)
+  role                        String        // "Finance Minister", "Treasury Secretary", etc.
+
+  // Granular permissions (as specified in MODULE-2)
+  canCreateStructure          Boolean       @default(false)  // Create sub-accounts
+  canAllocateFunds            Boolean       @default(false)  // Move funds between accounts
+  canAssignAdministrators     Boolean       @default(false)  // Manage other admins
+  canConfigureRules           Boolean       @default(false)  // Set signatory rules
+  canDisburseFunds            Boolean       @default(false)  // Release to external recipients
+  canViewReports              Boolean       @default(true)   // View reports/transactions
+  canManageAPIKeys            Boolean       @default(false)  // Manage external API credentials
+
+  // Status
+  status                      GovtAdminStatus @default(ADMIN_ACTIVE)
+  assignedAt                  DateTime      @default(now()) @db.Timestamptz(3)
+  assignedBy                  String        // UserProfile who assigned (or 'SUPER_ADMIN')
+  removedAt                   DateTime?     @db.Timestamptz(3)
+  removedBy                   String?
+
+  // Relations
+  treasury                    GovernmentTreasury @relation(fields: [treasuryId], references: [treasuryId], onDelete: Cascade)
+  account                     GovernmentHierarchyAccount? @relation(fields: [accountId], references: [accountId], onDelete: Cascade)
+  userProfile                 UserProfile   @relation("GovtAdminProfile", fields: [profileId], references: [profileId], onDelete: Cascade)
+
+  @@unique([tenantId, treasuryId, accountId, profileId])
+  @@index([tenantId, treasuryId])
+  @@index([tenantId, accountId])
+  @@index([tenantId, profileId])
+}
+
+/// GovernmentHierarchyAccount: Hierarchical accounts with unlimited depth
+/// Supports any government structure: ministries, departments, bureaus, divisions
+model GovernmentHierarchyAccount {
+  accountId                   String        @id  // Format: "treasury_US.treasury_dept.fiscal_bureau"
+  tenantId                    String
+  treasuryId                  String        // Root treasury reference
+  parentAccountId             String?       // NULL for root-level (direct children of treasury)
+
+  // Account info
+  accountName                 String        // "Bureau of Fiscal Service"
+  hierarchyLevel              Int           // 0=root child, 1=dept, 2=bureau, etc.
+  hierarchyPath               String        // "/Treasury Department/Bureau of Fiscal Service"
+
+  // Balance (synced from blockchain via Projector)
+  balance                     Decimal       @default(0) @db.Decimal(36, 9)
+  allocatedFromParent         Decimal       @default(0) @db.Decimal(36, 9)  // Total received from parent
+  totalDisbursed              Decimal       @default(0) @db.Decimal(36, 9)
+  totalAllocatedToChildren    Decimal       @default(0) @db.Decimal(36, 9)
+
+  // Status
+  status                      GovtAccountStatus @default(ACCOUNT_ACTIVE)
+
+  // Metadata
+  description                 String?
+  budgetCode                  String?       // Government budget classification code
+  fiscalYear                  Int?
+
+  // Timestamps
+  createdAt                   DateTime      @default(now()) @db.Timestamptz(3)
+  createdBy                   String        // UserProfile who created
+  updatedAt                   DateTime      @updatedAt @db.Timestamptz(3)
+
+  // Blockchain sync
+  lastSyncBlock               BigInt?
+  lastSyncAt                  DateTime?     @db.Timestamptz(3)
+
+  // Relations (self-referential for hierarchy)
+  treasury                    GovernmentTreasury @relation(fields: [treasuryId], references: [treasuryId], onDelete: Cascade)
+  parentAccount               GovernmentHierarchyAccount? @relation("GovtAccountHierarchy", fields: [parentAccountId], references: [accountId], onDelete: Restrict)
+  childAccounts               GovernmentHierarchyAccount[] @relation("GovtAccountHierarchy")
+  administrators              GovernmentAdministrator[]
+  transactionsFrom            GovernmentTransaction[] @relation("GovtTxFrom")
+  transactionsTo              GovernmentTransaction[] @relation("GovtTxTo")
+
+  @@index([tenantId, treasuryId])
+  @@index([tenantId, parentAccountId])
+  @@index([hierarchyLevel])
+}
+
+/// GovernmentTransaction: Complete transaction history for government accounts
+model GovernmentTransaction {
+  txId                        String        @id @default(uuid())
+  tenantId                    String
+  treasuryId                  String
+  accountId                   String?       // NULL for treasury-level transactions
+
+  // Transaction details
+  transactionType             GovtTransactionType
+  fromAccountId               String?       // Source (NULL for genesis mint)
+  toAccountId                 String?       // Destination
+  recipientId                 String?       // External recipient ID (UserProfile, Business, etc.)
+  recipientType               String?       // "USER", "BUSINESS", "NPO"
+
+  amount                      Decimal       @db.Decimal(36, 9)
+  fee                         Decimal       @default(0) @db.Decimal(36, 9)
+
+  // Purpose & categorization
+  purpose                     String?       // Human-readable description
+  category                    String?       // "SocialWelfare", "Healthcare", "Defense", etc.
+  externalRef                 String?       // External system reference
+
+  // Multi-sig info (if applicable)
+  pendingTxId                 String?       // Reference to PendingMultiSigTransaction
+  approvers                   Json?         // Snapshot: [{profileId, role, approvedAt}]
+
+  // Blockchain reference
+  blockchainTxId              String?       @unique
+  blockNumber                 BigInt?
+
+  // Timestamp
+  createdAt                   DateTime      @default(now()) @db.Timestamptz(3)
+
+  // Relations
+  treasury                    GovernmentTreasury @relation(fields: [treasuryId], references: [treasuryId], onDelete: Cascade)
+  fromAccount                 GovernmentHierarchyAccount? @relation("GovtTxFrom", fields: [fromAccountId], references: [accountId])
+  toAccount                   GovernmentHierarchyAccount? @relation("GovtTxTo", fields: [toAccountId], references: [accountId])
+
+  @@index([tenantId, treasuryId])
+  @@index([tenantId, accountId])
+  @@index([tenantId, transactionType])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, category])
+  @@index([blockchainTxId])
+}
+
+/// GovernmentAPICredential: API credentials for external government systems
+/// Allows government ERP/budget systems to integrate with GX Coin
+model GovernmentAPICredential {
+  id                          String        @id @default(uuid())
+  tenantId                    String
+  treasuryId                  String
+
+  // External system info
+  systemName                  String        // "SAP Government ERP", "Oracle Budget System"
+  systemType                  String        // "ERP", "BUDGET", "PAYROLL", "CUSTOM"
+  description                 String?
+
+  // Credentials (API key is hashed, never stored in plain text)
+  apiKeyHash                  String        // Hashed API key
+  apiKeyPrefix                String        // First 8 chars for identification (e.g., "gxc_govt_")
+
+  // Security
+  ipWhitelist                 String[]      // Allowed IP addresses (empty = any)
+  permissions                 String[]      // ["read_balance", "read_transactions", "initiate_transfer"]
+
+  // Webhook configuration
+  webhookUrl                  String?       // URL for event notifications
+  webhookSecret               String?       // Secret for signing webhook payloads
+
+  // Status
+  status                      APICredentialStatus @default(API_ACTIVE)
+  expiresAt                   DateTime?     @db.Timestamptz(3)
+  lastUsedAt                  DateTime?     @db.Timestamptz(3)
+
+  // Audit
+  createdAt                   DateTime      @default(now()) @db.Timestamptz(3)
+  createdBy                   String        // UserProfile who created
+  revokedAt                   DateTime?     @db.Timestamptz(3)
+  revokedBy                   String?
+
+  // Relations
+  treasury                    GovernmentTreasury @relation(fields: [treasuryId], references: [treasuryId], onDelete: Cascade)
+
+  @@index([tenantId, treasuryId])
+  @@index([apiKeyPrefix])
+  @@index([status])
 }
