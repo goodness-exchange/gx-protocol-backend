@@ -179,6 +179,8 @@ function selectIdentityForCommand(commandType: string): string {
     'DISTRIBUTE_GENESIS', // Requires gx_admin role for genesis token distribution
     'TRANSFER_TOKENS', // Uses TransferInternal which requires Admin role
     'Q_SEND_PAY', // Uses TransferWithFees which requires Admin role
+    'GOVT_ALLOCATE_FUNDS', // Government treasury fund allocation
+    'GOVT_DISBURSE_FUNDS', // Government treasury fund disbursement
   ];
 
   // For super admin commands, use Org1 super-admin
@@ -1010,6 +1012,37 @@ class OutboxSubmitter {
           ],
         };
 
+      // ========== GovernmentContract (Fund Operations) ==========
+      case 'GOVT_ALLOCATE_FUNDS':
+        // Allocate funds from treasury or account to a child account
+        return {
+          contractName: 'GovernmentContract',
+          functionName: 'AllocateFundsToAccount',
+          args: [
+            payload.fromEntityId as string,
+            payload.toAccountId as string,
+            payload.amount.toString(),
+            payload.purpose as string || '',
+            payload.idempotencyKey as string,
+          ],
+        };
+
+      case 'GOVT_DISBURSE_FUNDS':
+        // Disburse funds from account to external recipient
+        return {
+          contractName: 'GovernmentContract',
+          functionName: 'DisburseFunds',
+          args: [
+            payload.fromAccountId as string,
+            payload.recipientId as string,
+            payload.recipientType as string,
+            payload.amount.toString(),
+            payload.purpose as string || '',
+            payload.category as string || '',
+            payload.idempotencyKey as string,
+          ],
+        };
+
       default:
         throw new Error(`Unknown command type: ${commandType}`);
     }
@@ -1332,6 +1365,35 @@ class OutboxSubmitter {
           error: error.message,
           qsendRequestId: payload.qsendRequestId,
           qsendRequestCode: payload.qsendRequestCode,
+          txId: result.transactionId,
+        });
+      }
+    }
+
+    // Handle Government Fund Operations: Update GovernmentTransaction with blockchain tx ID
+    if (commandType === 'GOVT_ALLOCATE_FUNDS' || commandType === 'GOVT_DISBURSE_FUNDS') {
+      try {
+        const idempotencyKey = payload.idempotencyKey as string;
+
+        // Update GovernmentTransaction with blockchain transaction ID
+        await this.prisma.governmentTransaction.update({
+          where: { txId: idempotencyKey },
+          data: {
+            blockchainTxId: result.transactionId,
+            blockNumber: result.blockNumber ? Number(result.blockNumber) : null,
+          },
+        });
+
+        this.log('info', `Processed ${commandType} post-commit side effects`, {
+          idempotencyKey,
+          txId: result.transactionId,
+          blockNumber: result.blockNumber?.toString(),
+        });
+      } catch (error: any) {
+        // Log error but don't fail the command - the blockchain transaction succeeded
+        this.log('error', `Failed to process ${commandType} post-commit side effects`, {
+          error: error.message,
+          idempotencyKey: payload.idempotencyKey,
           txId: result.transactionId,
         });
       }
