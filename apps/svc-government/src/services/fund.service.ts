@@ -370,7 +370,7 @@ export class FundService {
       });
 
       // Record transaction
-      await tx.governmentTransaction.create({
+      const govtTx = await tx.governmentTransaction.create({
         data: {
           tenantId: 'default',
           treasuryId: sourceAccount.treasuryId,
@@ -386,11 +386,33 @@ export class FundService {
           createdBy: initiatedByProfileId,
         },
       });
+
+      // Create outbox command for blockchain execution
+      await tx.outboxCommand.create({
+        data: {
+          tenantId: 'default',
+          service: 'svc-government',
+          requestId: `govt-alloc-${govtTx.txId}`,
+          commandType: 'GOVT_ALLOCATE_FUNDS',
+          aggregateId: fromEntityId,
+          payload: {
+            fromEntityId,
+            toAccountId,
+            amount: Math.round(parseFloat(amount) * 100), // Convert to smallest unit (cents)
+            purpose: purpose || '',
+            idempotencyKey: govtTx.txId,
+            treasuryId: sourceAccount.treasuryId,
+            initiatedBy: initiatedByProfileId,
+          },
+          status: 'PENDING',
+          attempts: 0,
+        },
+      });
     });
 
     logger.info(
       { fromEntityId, toAccountId, amount },
-      'Allocation executed'
+      'Allocation executed, outbox command created'
     );
   }
 
@@ -436,7 +458,7 @@ export class FundService {
       });
 
       // Record transaction
-      await tx.governmentTransaction.create({
+      const govtTx = await tx.governmentTransaction.create({
         data: {
           tenantId: 'default',
           treasuryId: account.treasuryId,
@@ -454,13 +476,34 @@ export class FundService {
         },
       });
 
-      // TODO: Create outbox command for blockchain execution
-      // await tx.outboxCommand.create({ ... });
+      // Create outbox command for blockchain execution
+      await tx.outboxCommand.create({
+        data: {
+          tenantId: 'default',
+          service: 'svc-government',
+          requestId: `govt-disburse-${govtTx.txId}`,
+          commandType: 'GOVT_DISBURSE_FUNDS',
+          aggregateId: fromAccountId,
+          payload: {
+            fromAccountId,
+            recipientId,
+            recipientType,
+            amount: Math.round(parseFloat(amount) * 100), // Convert to smallest unit (cents)
+            purpose,
+            category: category || '',
+            idempotencyKey: govtTx.txId,
+            treasuryId: account.treasuryId,
+            initiatedBy: initiatedByProfileId,
+          },
+          status: 'PENDING',
+          attempts: 0,
+        },
+      });
     });
 
     logger.info(
       { fromAccountId, recipientId, recipientType, amount },
-      'Disbursement executed'
+      'Disbursement executed, outbox command created'
     );
   }
 
