@@ -383,7 +383,6 @@ export class FundService {
           purpose,
           category,
           externalRef,
-          createdBy: initiatedByProfileId,
         },
       });
 
@@ -394,7 +393,6 @@ export class FundService {
           service: 'svc-government',
           requestId: `govt-alloc-${govtTx.txId}`,
           commandType: 'GOVT_ALLOCATE_FUNDS',
-          aggregateId: fromEntityId,
           payload: {
             fromEntityId,
             toAccountId,
@@ -472,7 +470,6 @@ export class FundService {
           purpose,
           category,
           externalRef,
-          createdBy: initiatedByProfileId,
         },
       });
 
@@ -483,7 +480,6 @@ export class FundService {
           service: 'svc-government',
           requestId: `govt-disburse-${govtTx.txId}`,
           commandType: 'GOVT_DISBURSE_FUNDS',
-          aggregateId: fromAccountId,
           payload: {
             fromAccountId,
             recipientId,

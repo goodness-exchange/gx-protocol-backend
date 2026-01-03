@@ -84,6 +84,10 @@ enum CommandType {
 
   // Q Send Commands
   Q_SEND_PAY           // Pay a Q Send payment request
+
+  // GovernmentContract
+  GOVT_ALLOCATE_FUNDS  // Allocate funds from treasury/account to child account
+  GOVT_DISBURSE_FUNDS  // Disburse funds from account to external recipient
 }
 
 enum UserProfileStatus {
