@@ -335,14 +335,62 @@ export const moderateRateLimiter = createRateLimitMiddleware({
 
 /**
  * Pre-configured lenient rate limiter for authenticated endpoints
- * 200 requests per minute per user
+ * 300 requests per minute per user
  */
 export const lenientRateLimiter = createRateLimitMiddleware({
   windowMs: 60000, // 1 minute
-  maxRequests: 200,
+  maxRequests: 300,
   message: 'Request quota exceeded, please try again later.',
   keyGenerator: (req: any) => {
     // Use user ID if authenticated, otherwise fall back to IP
     return req.user?.profileId || defaultKeyGenerator(req);
+  },
+});
+
+/**
+ * Pre-configured rate limiter for registration endpoints
+ * 60 requests per minute per IP (strict), 180 (moderate), 300 (lenient)
+ * Allows parallel registrations while preventing spam bots
+ */
+export const registrationRateLimiter = createRateLimitMiddleware({
+  windowMs: 60000, // 1 minute
+  maxRequests: 60,
+  message: 'Too many registration attempts, please try again later.',
+});
+
+/**
+ * Pre-configured moderate rate limiter for registration
+ * 180 requests per minute per IP
+ */
+export const registrationModerateRateLimiter = createRateLimitMiddleware({
+  windowMs: 60000, // 1 minute
+  maxRequests: 180,
+  message: 'Too many registration attempts, please try again later.',
+});
+
+/**
+ * Pre-configured lenient rate limiter for registration
+ * 300 requests per minute per IP
+ */
+export const registrationLenientRateLimiter = createRateLimitMiddleware({
+  windowMs: 60000, // 1 minute
+  maxRequests: 300,
+  message: 'Too many registration attempts, please try again later.',
+});
+
+/**
+ * Pre-configured rate limiter for OTP verification
+ * 10 requests per minute per IP + registrationId combination
+ * Prevents brute force on specific registrations while allowing parallel registrations
+ */
+export const otpVerificationRateLimiter = createRateLimitMiddleware({
+  windowMs: 60000, // 1 minute
+  maxRequests: 10,
+  message: 'Too many verification attempts, please try again later.',
+  keyGenerator: (req: any) => {
+    // Combine IP with registrationId to prevent brute force on specific registrations
+    const ip = defaultKeyGenerator(req);
+    const registrationId = req.body?.registrationId || 'unknown';
+    return `${ip}:${registrationId}`;
   },
 });

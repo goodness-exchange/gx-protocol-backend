@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { registrationController } from '../controllers/registration.controller';
-import { strictRateLimiter } from '@gx/core-http';
+import {
+  registrationRateLimiter,
+  otpVerificationRateLimiter,
+  strictRateLimiter,
+} from '@gx/core-http';
 
 /**
  * Progressive Registration Routes
@@ -30,23 +34,23 @@ const router = Router();
  * Step 1: Submit email address to start registration
  *
  * Creates a new PendingRegistration record and sends OTP to email.
- * Rate limited: 5 requests per minute per IP (abuse protection)
+ * Rate limited: 60 requests per minute per IP (allows parallel registrations)
  *
  * @body { email: string }
  * @returns { registrationId: string, message: string }
  */
-router.post('/email', strictRateLimiter, registrationController.submitEmail);
+router.post('/email', registrationRateLimiter, registrationController.submitEmail);
 
 /**
  * POST /api/v1/registration/email/verify
  * Step 2: Verify email OTP
  *
- * Rate limited: 5 requests per minute per IP (brute force protection)
+ * Rate limited: 10 requests per minute per registrationId+IP (brute force protection)
  *
  * @body { registrationId: string, otp: string }
  * @returns { registrationId: string, currentStep: string, message: string }
  */
-router.post('/email/verify', strictRateLimiter, registrationController.verifyEmailOtp);
+router.post('/email/verify', otpVerificationRateLimiter, registrationController.verifyEmailOtp);
 
 /**
  * POST /api/v1/registration/email/resend
@@ -100,12 +104,12 @@ router.post('/password', registrationController.submitPassword);
  * Step 6: Submit phone number
  *
  * Sends OTP to the provided phone number.
- * Rate limited: 5 requests per minute per IP (abuse protection)
+ * Rate limited: 60 requests per minute per IP (allows parallel registrations)
  *
  * @body { registrationId: string, phoneNum: string }
  * @returns { registrationId: string, currentStep: string, message: string }
  */
-router.post('/phone', strictRateLimiter, registrationController.submitPhone);
+router.post('/phone', registrationRateLimiter, registrationController.submitPhone);
 
 /**
  * POST /api/v1/registration/phone/verify
@@ -116,12 +120,12 @@ router.post('/phone', strictRateLimiter, registrationController.submitPhone);
  * - Generates JWT tokens
  * - Returns user profile with REGISTERED status
  *
- * Rate limited: 5 requests per minute per IP (brute force protection)
+ * Rate limited: 10 requests per minute per registrationId+IP (brute force protection)
  *
  * @body { registrationId: string, otp: string }
  * @returns { accessToken: string, refreshToken: string, user: UserProfile }
  */
-router.post('/phone/verify', strictRateLimiter, registrationController.verifyPhoneOtp);
+router.post('/phone/verify', otpVerificationRateLimiter, registrationController.verifyPhoneOtp);
 
 /**
  * POST /api/v1/registration/phone/resend
