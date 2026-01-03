@@ -9,6 +9,7 @@ import {
   treasuryRoutes,
   administratorRoutes,
   accountRoutes,
+  signatoryRoutes,
 } from './routes';
 
 export function createApp(): Application {
@@ -50,6 +51,7 @@ export function createApp(): Application {
   app.use('/api/v1/government/treasury', treasuryRoutes);
   app.use('/api/v1/government/administrators', administratorRoutes);
   app.use('/api/v1/government/accounts', accountRoutes);
+  app.use('/api/v1/government/signatory', signatoryRoutes);
 
   // 404 handler
   app.use((req, res) => {
