@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { fundController } from '../controllers';
-import { authenticateJWT, requireTreasuryAdmin } from '../middlewares';
+import { authenticateJWT, requireTreasuryAdmin, requireAccountAdmin } from '../middlewares';
 
 const router = Router();
 
@@ -43,6 +43,7 @@ router.get(
 router.post(
   '/account/:accountId/allocate',
   authenticateJWT,
+  requireAccountAdmin({ permission: 'canAllocateFunds' }),
   fundController.allocateFromAccount
 );
 
@@ -54,16 +55,19 @@ router.post(
 router.post(
   '/account/:accountId/disburse',
   authenticateJWT,
+  requireAccountAdmin({ permission: 'canDisburseFunds' }),
   fundController.disburseFromAccount
 );
 
 /**
  * GET /account/:accountId/transactions
  * Get transaction history for an account
+ * Requires canViewReports permission
  */
 router.get(
   '/account/:accountId/transactions',
   authenticateJWT,
+  requireAccountAdmin({ permission: 'canViewReports' }),
   fundController.getAccountTransactions
 );
 
