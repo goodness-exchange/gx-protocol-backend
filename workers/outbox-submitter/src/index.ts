@@ -171,6 +171,7 @@ function selectIdentityForCommand(commandType: string): string {
     'INITIALIZE_COUNTRY_DATA',
     'PAUSE_SYSTEM',
     'RESUME_SYSTEM',
+    'GOVT_ONBOARD_TREASURY', // Onboard treasury (requires gx_admin role)
   ];
 
   const adminCommands = [
@@ -179,8 +180,11 @@ function selectIdentityForCommand(commandType: string): string {
     'DISTRIBUTE_GENESIS', // Requires gx_admin role for genesis token distribution
     'TRANSFER_TOKENS', // Uses TransferInternal which requires Admin role
     'Q_SEND_PAY', // Uses TransferWithFees which requires Admin role
+    'GOVT_CREATE_TREASURY', // Create government treasury (admin-only)
+    'GOVT_CREATE_ACCOUNT', // Create government account (admin-only)
     'GOVT_ALLOCATE_FUNDS', // Government treasury fund allocation
     'GOVT_DISBURSE_FUNDS', // Government treasury fund disbursement
+    'GOVT_SYNC_BALANCE', // Sync treasury balance from genesis pool
   ];
 
   // For super admin commands, use Org1 super-admin
@@ -1012,6 +1016,42 @@ class OutboxSubmitter {
           ],
         };
 
+      // ========== GovernmentContract (Treasury & Account Management) ==========
+      case 'GOVT_CREATE_TREASURY':
+        // Create a government treasury for a country
+        return {
+          contractName: 'GovernmentContract',
+          functionName: 'CreateTreasury',
+          args: [
+            payload.countryCode as string,
+          ],
+        };
+
+      case 'GOVT_ONBOARD_TREASURY':
+        // Onboard and activate a treasury (admin-only)
+        return {
+          contractName: 'GovernmentContract',
+          functionName: 'OnboardTreasury',
+          args: [
+            payload.treasuryId as string,
+            payload.verificationNotes as string || '',
+          ],
+        };
+
+      case 'GOVT_CREATE_ACCOUNT':
+        // Create a government account under a treasury
+        return {
+          contractName: 'GovernmentContract',
+          functionName: 'CreateGovernmentAccount',
+          args: [
+            payload.treasuryId as string,
+            payload.parentAccountId as string || '',
+            payload.accountName as string,
+            payload.description as string || '',
+            payload.budgetCode as string || '',
+          ],
+        };
+
       // ========== GovernmentContract (Fund Operations) ==========
       case 'GOVT_ALLOCATE_FUNDS':
         // Allocate funds from treasury or account to a child account
@@ -1040,6 +1080,16 @@ class OutboxSubmitter {
             payload.purpose as string || '',
             payload.category as string || '',
             payload.idempotencyKey as string,
+          ],
+        };
+
+      case 'GOVT_SYNC_BALANCE':
+        // Sync treasury balance from genesis pool
+        return {
+          contractName: 'GovernmentContract',
+          functionName: 'SyncTreasuryBalance',
+          args: [
+            payload.treasuryId as string,
           ],
         };
 
@@ -1148,6 +1198,14 @@ class OutboxSubmitter {
         // event is not received by the projector. We query the actual blockchain state
         // and update the wallet's cachedBalance to ensure consistency.
         await this.syncWalletBalanceFromBlockchain(fabricUserId, wallet.walletId);
+
+        // MODULE-2: Auto-create GovernmentTreasury record for user's country
+        // When the first user from a country registers, the chaincode creates a treasury
+        // on the blockchain. We need to mirror this in the database for the admin portal.
+        const countryCode = (payload.nationality || payload.countryCode) as string;
+        if (countryCode && countryCode.length === 2) {
+          await this.ensureGovernmentTreasuryExists(countryCode, userProfile.profileId, result.transactionId);
+        }
       } catch (error: any) {
         // Log error but don't fail the command - the blockchain transaction succeeded
         this.log('error', 'Failed to update user status/wallet after CREATE_USER commit', {
@@ -1463,6 +1521,82 @@ class OutboxSubmitter {
         error: error.message,
         fabricUserId,
         walletId,
+      });
+    }
+  }
+
+  /**
+   * MODULE-2: Ensure GovernmentTreasury record exists for a country
+   *
+   * When a user registers from a country, the chaincode automatically creates
+   * a treasury account on the blockchain. This method mirrors that treasury
+   * in the PostgreSQL database for the admin portal to manage.
+   *
+   * The treasury is created with:
+   * - status: PENDING_ONBOARDING (locked until verified by admin)
+   * - locked: true (cannot perform operations until onboarded)
+   * - createdByUserId: The first citizen who triggered auto-creation
+   *
+   * @param countryCode - Two-letter country code (e.g., "US", "NG")
+   * @param createdByUserId - Profile ID of the user who triggered creation
+   * @param txId - Blockchain transaction ID for audit trail
+   */
+  private async ensureGovernmentTreasuryExists(
+    countryCode: string,
+    createdByUserId: string,
+    txId: string
+  ): Promise<void> {
+    try {
+      const treasuryId = `treasury_${countryCode}`;
+
+      // Check if treasury already exists
+      const existingTreasury = await this.prisma.governmentTreasury.findUnique({
+        where: { treasuryId },
+      });
+
+      if (existingTreasury) {
+        // Treasury already exists, no action needed
+        return;
+      }
+
+      // Create new treasury record
+      await this.prisma.governmentTreasury.create({
+        data: {
+          treasuryId,
+          tenantId: 'default',
+          countryCode,
+          status: 'PENDING_ONBOARDING',
+          locked: true,
+          lockReason: 'Awaiting government verification and onboarding',
+          balance: 0,
+          cumulativeAllocations: 0,
+          totalDisbursed: 0,
+          totalAllocatedToAccounts: 0,
+          createdByUserId,
+        },
+      });
+
+      this.log('info', 'Created GovernmentTreasury record for country', {
+        treasuryId,
+        countryCode,
+        createdByUserId,
+        txId,
+      });
+    } catch (error: any) {
+      // Log error but don't fail - treasury can be created manually later
+      // Unique constraint violation is expected if treasury was created by another request
+      if (error.code === 'P2002') {
+        // Unique constraint violation - treasury was created by concurrent request
+        this.log('debug', 'GovernmentTreasury already exists (concurrent creation)', {
+          countryCode,
+        });
+        return;
+      }
+      this.log('error', 'Failed to create GovernmentTreasury record', {
+        error: error.message,
+        countryCode,
+        createdByUserId,
+        txId,
       });
     }
   }
