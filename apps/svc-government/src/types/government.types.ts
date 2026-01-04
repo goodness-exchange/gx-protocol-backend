@@ -44,19 +44,86 @@ export type MultiSigStatus =
 // JWT Payload & Authenticated Request
 // =============================================================================
 
-export interface GovernmentJWTPayload {
+/**
+ * Admin roles from svc-admin that grant super admin access
+ */
+export const SUPER_ADMIN_ROLES = ['SUPER_OWNER', 'SUPER_ADMIN'] as const;
+export type SuperAdminRole = (typeof SUPER_ADMIN_ROLES)[number];
+
+/**
+ * JWT payload from identity service (user tokens)
+ */
+export interface IdentityJWTPayload {
   profileId: string;
   email: string;
-  treasuryId?: string;
-  accountId?: string;
-  role?: string;
-  permissions: string[];
+  status?: string;
   iat?: number;
   exp?: number;
 }
 
+/**
+ * JWT payload from admin service (admin tokens)
+ */
+export interface AdminJWTPayload {
+  adminId: string;
+  username: string;
+  email: string;
+  role: string;
+  sessionId: string;
+  mfaVerified: boolean;
+  iat?: number;
+  exp?: number;
+}
+
+/**
+ * Unified JWT payload that supports both user and admin tokens
+ */
+export interface GovernmentJWTPayload {
+  // User token fields
+  profileId?: string;
+
+  // Admin token fields
+  adminId?: string;
+  username?: string;
+  sessionId?: string;
+  mfaVerified?: boolean;
+
+  // Common fields
+  email: string;
+  role?: string;
+
+  // Government context (added by middleware)
+  treasuryId?: string;
+  accountId?: string;
+  permissions: string[];
+
+  // Token metadata
+  iat?: number;
+  exp?: number;
+
+  // Flag to indicate token type
+  isAdminToken?: boolean;
+}
+
 export interface GovernmentAuthenticatedRequest extends Request {
   user?: GovernmentJWTPayload;
+}
+
+/**
+ * Get the acting user identifier from either profileId or adminId
+ * For audit logging and tracking purposes
+ */
+export function getActingUserId(user: GovernmentJWTPayload | undefined): string {
+  if (!user) {
+    return 'unknown';
+  }
+  if (user.profileId) {
+    return user.profileId;
+  }
+  if (user.adminId) {
+    return `admin:${user.adminId}`;
+  }
+  return 'unknown';
 }
 
 // =============================================================================

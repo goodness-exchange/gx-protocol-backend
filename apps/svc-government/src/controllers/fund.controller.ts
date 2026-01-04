@@ -8,6 +8,7 @@ import {
   DisburseFundsSchema,
   TransactionQuerySchema,
   GovernmentErrorCode,
+  getActingUserId,
 } from '../types';
 
 export const fundController = {
@@ -35,7 +36,7 @@ export const fundController = {
       const result = await fundService.allocateFunds(
         treasuryId,
         validation.data,
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       logger.info(
@@ -82,7 +83,7 @@ export const fundController = {
       const result = await fundService.allocateFunds(
         accountId,
         validation.data,
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       logger.info(
@@ -129,7 +130,7 @@ export const fundController = {
       const result = await fundService.disburseFunds(
         accountId,
         validation.data,
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       logger.info(

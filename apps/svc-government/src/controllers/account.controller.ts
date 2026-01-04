@@ -7,6 +7,7 @@ import {
   CreateAccountSchema,
   UpdateAccountSchema,
   GovernmentErrorCode,
+  getActingUserId,
 } from '../types';
 
 export const accountController = {
@@ -117,14 +118,15 @@ export const accountController = {
         );
       }
 
+      const actingUserId = getActingUserId(req.user);
       const account = await accountService.createAccount(
         treasuryId,
         validation.data,
-        req.user!.profileId
+        actingUserId
       );
 
       logger.info(
-        { accountId: account.accountId, treasuryId, createdByProfileId: req.user!.profileId },
+        { accountId: account.accountId, treasuryId, actingUserId },
         'Government account created via API'
       );
 
@@ -158,7 +160,7 @@ export const accountController = {
       const account = await accountService.updateAccount(
         accountId,
         validation.data,
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       res.json({ success: true, data: account });
@@ -178,7 +180,7 @@ export const accountController = {
     try {
       const { accountId } = req.params;
 
-      await accountService.archiveAccount(accountId, req.user!.profileId);
+      await accountService.archiveAccount(accountId, getActingUserId(req.user));
 
       res.json({ success: true, message: 'Account archived' });
     } catch (error) {

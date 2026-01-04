@@ -7,6 +7,7 @@ import {
   OnboardTreasurySchema,
   UpdateTreasuryStatusSchema,
   GovernmentErrorCode,
+  getActingUserId,
 } from '../types';
 
 export const treasuryController = {
@@ -105,13 +106,14 @@ export const treasuryController = {
         );
       }
 
+      const actingUserId = getActingUserId(req.user);
       const treasury = await treasuryService.onboardTreasury(
         validation.data,
-        req.user!.profileId
+        actingUserId
       );
 
       logger.info(
-        { treasuryId: treasury.treasuryId, adminProfileId: req.user!.profileId },
+        { treasuryId: treasury.treasuryId, actingUserId },
         'Treasury onboarded via API'
       );
 
@@ -145,7 +147,7 @@ export const treasuryController = {
       const treasury = await treasuryService.updateTreasuryStatus(
         treasuryId,
         validation.data,
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       res.json({ success: true, data: treasury });
@@ -167,7 +169,7 @@ export const treasuryController = {
 
       const treasury = await treasuryService.activateTreasury(
         treasuryId,
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       res.json({ success: true, data: treasury });

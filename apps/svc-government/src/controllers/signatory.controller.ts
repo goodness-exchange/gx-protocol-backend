@@ -7,6 +7,7 @@ import {
   CreateSignatoryRuleSchema,
   VoteOnTransactionSchema,
   GovernmentErrorCode,
+  getActingUserId,
 } from '../types';
 
 export const signatoryController = {
@@ -34,7 +35,7 @@ export const signatoryController = {
         treasuryId,
         'GOVERNMENT_TREASURY',
         { ...validation.data, entityId: treasuryId },
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       logger.info({ ruleId: rule.ruleId, treasuryId }, 'Treasury signatory rule created');
@@ -69,7 +70,7 @@ export const signatoryController = {
         treasuryId,
         'GOVERNMENT_ACCOUNT',
         { ...validation.data, entityId: accountId },
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       logger.info({ ruleId: rule.ruleId, accountId }, 'Account signatory rule created');
@@ -215,8 +216,8 @@ export const signatoryController = {
       const result = await multiSigService.voteOnTransaction(
         pendingTxId,
         validation.data,
-        req.user!.profileId,
-        req.user?.permissions?.[0] // Use first permission as role if available
+        getActingUserId(req.user),
+        req.user?.role // Use admin role or government admin role
       );
 
       logger.info(
@@ -241,7 +242,7 @@ export const signatoryController = {
     try {
       const { pendingTxId } = req.params;
 
-      await multiSigService.cancelTransaction(pendingTxId, req.user!.profileId);
+      await multiSigService.cancelTransaction(pendingTxId, getActingUserId(req.user));
 
       logger.info({ pendingTxId }, 'Transaction cancelled');
 

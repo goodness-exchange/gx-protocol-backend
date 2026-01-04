@@ -7,6 +7,7 @@ import {
   AssignAdministratorSchema,
   UpdateAdministratorSchema,
   GovernmentErrorCode,
+  getActingUserId,
 } from '../types';
 
 export const administratorController = {
@@ -80,7 +81,12 @@ export const administratorController = {
     next: NextFunction
   ): Promise<void> {
     try {
-      const assignments = await administratorService.getAdministratorsForProfile(req.user!.profileId);
+      // For admin tokens, return empty assignments (they have super admin access)
+      if (req.user?.isAdminToken) {
+        res.json({ success: true, data: [] });
+        return;
+      }
+      const assignments = await administratorService.getAdministratorsForProfile(req.user!.profileId!);
 
       res.json({ success: true, data: assignments });
     } catch (error) {
@@ -109,14 +115,15 @@ export const administratorController = {
         );
       }
 
+      const actingUserId = getActingUserId(req.user);
       const admin = await administratorService.assignAdministrator(
         treasuryId,
         validation.data,
-        req.user!.profileId
+        actingUserId
       );
 
       logger.info(
-        { adminId: admin.id, treasuryId, assignedByProfileId: req.user!.profileId },
+        { adminId: admin.id, treasuryId, actingUserId },
         'Administrator assigned via API'
       );
 
@@ -150,7 +157,7 @@ export const administratorController = {
       const admin = await administratorService.updateAdministrator(
         adminId,
         validation.data,
-        req.user!.profileId
+        getActingUserId(req.user)
       );
 
       res.json({ success: true, data: admin });
@@ -170,7 +177,7 @@ export const administratorController = {
     try {
       const { adminId } = req.params;
 
-      await administratorService.removeAdministrator(adminId, req.user!.profileId);
+      await administratorService.removeAdministrator(adminId, getActingUserId(req.user));
 
       res.json({ success: true, message: 'Administrator removed' });
     } catch (error) {
@@ -190,8 +197,25 @@ export const administratorController = {
       const { treasuryId } = req.params;
       const accountId = req.query.accountId as string | undefined;
 
+      // For admin tokens with super admin role, return all permissions
+      if (req.user?.isAdminToken && req.user.permissions.length > 0) {
+        res.json({
+          success: true,
+          data: {
+            canCreateStructure: true,
+            canAllocateFunds: true,
+            canAssignAdministrators: true,
+            canConfigureRules: true,
+            canDisburseFunds: true,
+            canViewReports: true,
+            canManageAPIKeys: true,
+          },
+        });
+        return;
+      }
+
       const permissions = await administratorService.getPermissions(
-        req.user!.profileId,
+        req.user!.profileId!,
         treasuryId,
         accountId
       );
