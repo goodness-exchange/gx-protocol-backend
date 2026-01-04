@@ -214,6 +214,60 @@ class AdminService {
     if (!admin) throw new Error('Admin not found');
     return admin;
   }
+
+  /**
+   * Get country allocations for supply management
+   * Returns per-country phase allocation tracking data
+   */
+  async getCountryAllocations() {
+    const allocations = await db.countryAllocation.findMany({
+      orderBy: [
+        { totalUsers: 'desc' },
+        { countryCode: 'asc' },
+      ],
+    });
+
+    // Transform allocations to API response format
+    const result: Array<{
+      countryCode: string;
+      countryName: string;
+      percentage: number;
+      phase1Remaining: number;
+      phase2Remaining: number;
+      phase3Remaining: number;
+      phase4Remaining: number;
+      phase5Remaining: number;
+      phase6Remaining: number;
+      totalUsers: number;
+      totalMinted: string;
+      currentPhase: number;
+      treasuryId: string | null;
+      treasuryBalance: string;
+      treasuryLocked: boolean;
+    }> = [];
+
+    for (const a of allocations) {
+      result.push({
+        countryCode: a.countryCode,
+        countryName: a.countryName,
+        percentage: Number(a.percentage),
+        phase1Remaining: Number(a.phase1Remaining),
+        phase2Remaining: Number(a.phase2Remaining),
+        phase3Remaining: Number(a.phase3Remaining),
+        phase4Remaining: Number(a.phase4Remaining),
+        phase5Remaining: Number(a.phase5Remaining),
+        phase6Remaining: Number(a.phase6Remaining),
+        totalUsers: Number(a.totalUsers),
+        totalMinted: a.totalMinted.toString(),
+        currentPhase: a.currentPhase,
+        treasuryId: a.treasuryId,
+        treasuryBalance: a.treasuryBalance.toString(),
+        treasuryLocked: a.treasuryLocked,
+      });
+    }
+
+    return result;
+  }
 }
 
 export const adminService = new AdminService();

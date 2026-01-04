@@ -188,6 +188,20 @@ class AdminController {
       res.status(500).json({ error: 'Internal Server Error', message: (error as Error).message });
     }
   };
+
+  /**
+   * Get country allocations for supply management
+   * Returns per-country phase allocation tracking data
+   */
+  getSupplyCountries = async (_req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const countries = await adminService.getCountryAllocations();
+      res.status(200).json({ countries });
+    } catch (error) {
+      logger.error({ error }, 'Failed to get country allocations');
+      res.status(500).json({ error: 'Internal Server Error', message: (error as Error).message });
+    }
+  };
 }
 
 export const adminController = new AdminController();

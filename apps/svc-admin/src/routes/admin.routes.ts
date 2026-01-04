@@ -155,6 +155,14 @@ router.get(
   adminController.getPoolStatus
 );
 
+// Get country allocations for supply management - requires report:view:dashboard
+router.get(
+  '/supply/countries',
+  authenticateAdminJWT,
+  requirePermission('report:view:dashboard'),
+  adminController.getSupplyCountries
+);
+
 // ============================================================================
 // User Management Routes
 // ============================================================================
