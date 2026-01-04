@@ -144,11 +144,43 @@ class AdminService {
   }
 
   async getSystemParameter(paramKey: string) {
+    // Try to get from database first
     const param = await db.systemParameter.findUnique({
       where: { tenantId_paramKey: { tenantId: 'default', paramKey } }
     });
-    if (!param) throw new Error('System parameter not found');
-    return param;
+
+    if (param) {
+      return param;
+    }
+
+    // Return default values for known parameters
+    const defaults: Record<string, { value: string; description: string }> = {
+      'SYSTEM_STATUS': { value: 'OPERATIONAL', description: 'Current system operational status' },
+      'MAX_SUPPLY': { value: '1250000000000000000', description: 'Maximum token supply in Qirat (1.25T GX)' },
+      'PHASE_1_COINS': { value: '500000000', description: 'Phase 1 coins per user in Qirat (500 GX)' },
+      'PHASE_2_COINS': { value: '400000000', description: 'Phase 2 coins per user in Qirat (400 GX)' },
+      'PHASE_3_COINS': { value: '300000000', description: 'Phase 3 coins per user in Qirat (300 GX)' },
+      'PHASE_4_COINS': { value: '200000000', description: 'Phase 4 coins per user in Qirat (200 GX)' },
+      'PHASE_5_COINS': { value: '100000000', description: 'Phase 5 coins per user in Qirat (100 GX)' },
+      'PHASE_6_COINS': { value: '50000000', description: 'Phase 6 coins per user in Qirat (50 GX)' },
+      'GOVT_ALLOCATION_RATE': { value: '50000000', description: 'Government allocation per user in Qirat (50 GX)' },
+      'REGISTRATION_ENABLED': { value: 'true', description: 'Whether new user registration is enabled' },
+      'MAINTENANCE_MODE': { value: 'false', description: 'Whether system is in maintenance mode' },
+    };
+
+    const defaultParam = defaults[paramKey];
+    if (defaultParam) {
+      return {
+        tenantId: 'default',
+        paramKey,
+        value: defaultParam.value,
+        description: defaultParam.description,
+        isDefault: true,
+        updatedAt: new Date(),
+      };
+    }
+
+    throw new Error(`System parameter '${paramKey}' not found`);
   }
 
   async getCountryStats(countryCode: string) {
